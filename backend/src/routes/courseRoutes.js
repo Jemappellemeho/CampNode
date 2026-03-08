@@ -13,6 +13,14 @@ router.get("/", verifyToken, courseController.getAllCourses);
 // Route: POST /api/courses/join (Kurs mit Code beitreten)
 router.post("/join", verifyToken, courseController.joinCourse);
 
+// Route: GET /api/courses/:id (Einzelnen Kurs abrufen)
+router.get("/:id", verifyToken, courseController.getCourseById);
+
+// Route: PUT /api/courses/:id (Kurs bearbeiten)
+router.put("/:id", verifyToken, courseController.updateCourse);
+
+// Route: DELETE /api/courses/:id (Kurs löschen)
+router.delete("/:id", verifyToken, courseController.deleteCourse);
 
 
 

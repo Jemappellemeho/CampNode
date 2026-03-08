@@ -95,3 +95,62 @@ exports.joinCourse = async (req, res) => {
   }
 };
 
+// Einzelnen Kurs abrufen (R = Read)
+exports.getCourseById = async (req, res) => {
+  try {
+    const { id } = req.params; // Die ID kommt aus der URL, z.B. /api/courses/123
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: {
+        instructor: { select: { id: true, email: true, role: true } },
+        topics: true, // Lädt direkt die Themen des Kurses mit (brauchen wir später)
+        students: { select: { id: true, email: true } }
+      }
+    });
+
+    if (!course) return res.status(404).json({ error: "Kurs nicht gefunden" });
+    
+    res.json(course);
+  } catch (error) {
+    res.status(500).json({ error: "Fehler beim Abrufen des Kurses" });
+  }
+};
+
+// Kurs aktualisieren (U = Update)
+exports.updateCourse = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description } = req.body;
+
+    // Nur Professoren dürfen das (später prüfen wir, ob es auch IHR Kurs ist)
+    if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Nur Professoren dürfen Kurse bearbeiten" });
+    }
+
+    const updatedCourse = await prisma.course.update({
+      where: { id },
+      data: { title, description }
+    });
+
+    res.json({ message: "Kurs aktualisiert", course: updatedCourse });
+  } catch (error) {
+    res.status(500).json({ error: "Fehler beim Aktualisieren" });
+  }
+};
+
+// Kurs löschen (D = Delete)
+exports.deleteCourse = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Nur Professoren dürfen Kurse löschen" });
+    }
+
+    await prisma.course.delete({ where: { id } });
+
+    res.json({ message: "Kurs erfolgreich gelöscht" });
+  } catch (error) {
+    res.status(500).json({ error: "Fehler beim Löschen" });
+  }
+};
