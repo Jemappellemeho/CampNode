@@ -5,10 +5,72 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  role      Role       @default(STUDENT)
+  courses   Course[]   @relation("InstructorCourses") // Seine eigenen Kurse (als Professor)
+  enrolledCourses Course[]   @relation("EnrolledCourses") // Kurse, die belegt werden (als Student)
+  progress  Progress[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+enum Role {
+  STUDENT
+  PROFESSOR
+}
+
+model Course {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  joinCode    String   @unique
+  instructor  User     @relation("InstructorCourses", fields: [instructorId], references: [id])
+  instructorId String
+  students     User[]   @relation("EnrolledCourses") // Studenten, die den Kurs belegt haben
+  topics      Topic[]
+  createdAt   DateTime @default(now())
+}
+
+model Topic {
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  course      Course     @relation(fields: [courseId], references: [id])
+  courseId    String
+  parents     Topic[]    @relation("TopicHierarchy")
+  children    Topic[]    @relation("TopicHierarchy")
+  quizzes     Quiz[]
+  progress    Progress[]
+}
+
+model Quiz {
+  id        String   @id @default(uuid())
+  topic     Topic    @relation(fields: [topicId], references: [id])
+  topicId   String
+  questions Json     // Stores arrays of questions, choices, and answers
+  createdAt DateTime @default(now())
+}
+
+model Progress {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  topic     Topic    @relation(fields: [topicId], references: [id])
+  topicId   String
+  completed Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, topicId])
 }
