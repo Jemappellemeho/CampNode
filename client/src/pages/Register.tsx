@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import logoFull from '../assets/logo_full.png';
 import { useTheme } from '../ThemeContext';
 
@@ -10,6 +11,8 @@ function Register() {
     password: '',
     role: 'student'
   });
+
+  const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -31,7 +34,7 @@ function Register() {
 
             if (response.ok) {
                 alert('Registration successful! User ID: ' + data.userId);
-                // TODO: Redirect to login or dashboard
+                navigate('/login'); // 🎉 Hier ist der Redirect zum Login
             } else {
                 alert('Error: ' + data.error);
             }
@@ -155,9 +158,9 @@ function Register() {
         {/* Login link */}
         <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-6">
           Already have an account?{' '}
-          <a href="#" className="text-blue-500 hover:text-blue-600 font-medium">
+          <Link to="/login" className="text-blue-500 hover:text-blue-600 font-medium">
             Log in
-          </a>
+          </Link>
         </p>
       </div>
     </div>

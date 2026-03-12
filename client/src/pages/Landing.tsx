@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import logoFull from '../assets/logo_full.png';
 
 function Landing() {
@@ -18,13 +19,19 @@ function Landing() {
         </p>
 
         <div className="space-y-4">
-          <button className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-4 px-6 rounded-xl transition-all transform hover:scale-105 shadow-lg">
+          <Link 
+            to="/register" 
+            className="block w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-4 px-6 rounded-xl transition-all transform hover:scale-105 shadow-lg"
+          >
             Join with Course Code
-          </button>
+          </Link>
 
-          <button className="w-full bg-white border-2 border-gray-300 hover:border-green-500 text-gray-700 font-semibold py-4 px-6 rounded-xl transition-all shadow-md">
+          <Link 
+            to="/login"
+            className="block w-full bg-white border-2 border-gray-300 hover:border-green-500 text-gray-700 font-semibold py-4 px-6 rounded-xl transition-all shadow-md"
+          >
             Browse Public Courses
-          </button>
+          </Link>
         </div>
       </div>
     </div>

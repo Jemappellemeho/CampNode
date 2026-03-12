@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import logoFull from '../assets/logo_full.png';
 import { useTheme } from '../ThemeContext';
 
@@ -8,6 +9,8 @@ function Login() {
     email: '',
     password: ''
   });
+
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -32,7 +35,7 @@ function Login() {
                 localStorage.setItem('user', JSON.stringify(data.user));
 
                 alert('Login successful! Welcome ' + data.user.email);
-                // TODO: Redirect to dashboard based on role
+                navigate('/profile'); // 🎉 Hier ist der Redirect
             } else {
                 alert('Error: ' + data.error);
             }
@@ -118,9 +121,9 @@ function Login() {
         {/* Register link */}
         <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-6">
           Don't have an account?{' '}
-          <a href="#" className="text-blue-500 hover:text-blue-600 font-medium">
+          <Link to="/register" className="text-blue-500 hover:text-blue-600 font-medium">
             Sign up
-          </a>
+          </Link>
         </p>
       </div>
     </div>
