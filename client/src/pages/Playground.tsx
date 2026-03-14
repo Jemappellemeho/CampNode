@@ -1,7 +1,9 @@
+// =============================================================
+// FILE LOCATION: client/src/pages/Playground.tsx
+// REPLACE existing file entirely
+// =============================================================
+
 import { useState } from 'react';
-import { useTheme } from '../ThemeContext';
-import logoFull from '../assets/logo_full.png';
-import logoSmall from '../assets/logo_small.png';
 import NodeDetailPanel from '../components/NodeDetailPanel';
 
 type Status = 'completed' | 'current' | 'locked';
@@ -99,7 +101,6 @@ const KOTLIN_UNI_PATH: MainTopic[] = [
 ];
 
 export default function Playground() {
-  const { theme, toggleTheme } = useTheme();
   const [activeId, setActiveId] = useState<number | null>(2);
   const [isSyllabusOpen, setSyllabusOpen] = useState(false);
   const [selectedSubnode, setSelectedSubnode] = useState<any>(null);
@@ -113,57 +114,62 @@ export default function Playground() {
   const overallProgress = Math.round((totalCompleted / totalNodes) * 100);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans transition-colors">
+    <div className="min-h-screen font-sans transition-colors" style={{ background: "var(--cn-page)" }}>
 
-      {/* HEADER - Logo ACTUALLY LEFT */}
-      <header className="fixed top-0 inset-x-0 z-50 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b-2 border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-2 sm:py-3">
-        <div className="w-full flex justify-between items-center">
-          {/* Logo - LEFT SIDE, BIGGER */}
-          <div className="flex-shrink-0">
-            <img src={logoFull} className="hidden md:block h-10 lg:h-12 object-contain" alt="Logo" />
-            <img src={logoSmall} className="block md:hidden h-8 object-contain" alt="Logo" />
-          </div>
-
-          {/* Controls - RIGHT SIDE */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-lg">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                {overallProgress}%
-              </span>
-              <div className="w-16 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full overflow-hidden">
-                <div className="h-full bg-green-500 transition-all" style={{ width: `${overallProgress}%` }} />
-              </div>
-            </div>
-
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 sm:p-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-base sm:text-lg"
-            >
-              {theme === 'light' ? '🌙' : '☀️'}
-            </button>
-
-            <button
-              onClick={() => setSyllabusOpen(true)}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm shadow-md active:scale-95 transition-all"
-            >
-              SYLLABUS
-            </button>
+      {/* SYLLABUS BUTTON ROW */}
+      <div
+        className="sticky top-16 sm:top-20 z-40 flex justify-between items-center px-3 sm:px-6 py-2 border-b"
+        style={{ background: "var(--cn-card)", borderColor: "var(--cn-border)" }}
+      >
+        {/* Progress pill — left side */}
+        <div
+          className="flex items-center gap-2 px-2 py-1 rounded-lg"
+          style={{ background: "var(--cn-bg)", border: "1px solid var(--cn-border)" }}
+        >
+          <span className="text-xs font-semibold" style={{ color: "var(--cn-text)" }}>
+            {overallProgress}%
+          </span>
+          <div
+            className="w-16 h-1.5 rounded-full overflow-hidden"
+            style={{ background: "var(--cn-border)" }}
+          >
+            {/* Yellow progress bar */}
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${overallProgress}%`, background: "#F5C518" }}
+            />
           </div>
         </div>
-      </header>
 
-      <main className="pt-20 sm:pt-24 pb-16 sm:pb-24 flex flex-col items-center px-3 sm:px-4">
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 dark:text-white mb-1 text-center">
+        {/* Syllabus button — right side, blue like all prof/student actions */}
+        <button
+          onClick={() => setSyllabusOpen(true)}
+          className="font-bold text-xs sm:text-sm px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl shadow-md active:scale-95 transition-all text-white"
+          style={{ background: "#1E6FFF" }}
+        >
+          SYLLABUS
+        </button>
+      </div>
+
+      {/* MAIN CONTENT */}
+      <main className="pb-16 sm:pb-24 flex flex-col items-center px-3 sm:px-4 pt-6">
+        <h1
+          className="text-xl sm:text-2xl md:text-3xl font-bold mb-1 text-center"
+          style={{ color: "var(--cn-text)" }}
+        >
           Kotlin Programming
         </h1>
-        <p className="text-gray-600 dark:text-gray-400 mb-6 sm:mb-8 text-xs sm:text-sm md:text-base text-center">
+        <p
+          className="mb-6 sm:mb-8 text-xs sm:text-sm md:text-base text-center"
+          style={{ color: "var(--cn-muted)" }}
+        >
           CS 101: Your Learning Journey
         </p>
 
         {KOTLIN_UNI_PATH.map((node, index) => (
           <div key={node.id} className="flex flex-col items-center w-full max-w-5xl">
             
-            {/* MAIN TOPIC HEXAGON - Responsive sizing */}
+            {/* MAIN TOPIC HEXAGON  */}
             <div className="relative z-20">
               <button
                 onClick={() => setActiveId(activeId === node.id ? null : node.id)}
@@ -189,19 +195,22 @@ export default function Playground() {
               </button>
             </div>
 
-            {/* CONNECTION LINE */}
+            {/* CONNECTION LINE — yellow  */}
             {activeId === node.id && node.subnodes.length > 0 && (
-              <div className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 bg-green-500 dark:bg-green-600 z-10" />
+              <div
+                className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 z-10"
+                style={{ background: "#F5C518" }}
+              />
             )}
 
-            {/* SUBTOPICS - Responsive sizing and layout */}
+            {/* SUBTOPICS */}
             {activeId === node.id && (
               <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center gap-4 sm:gap-6 md:gap-8 my-4 sm:my-6 px-2 sm:px-4 max-w-4xl">
                 {node.subnodes.map((sub) => (
                   <div key={sub.id} className="flex flex-col items-center animate-in fade-in slide-in-from-top-2 duration-300">
                     
                     <div className="relative flex flex-col items-center">
-                      {/* Subtopic rhombus - Responsive */}
+                      {/* Subtopic diamond */}
                       <button 
                         onClick={() => {
                           if (sub.resources) {
@@ -224,53 +233,43 @@ export default function Playground() {
                         </span>
                       </button>
 
-                      {/* Resource icons - Responsive */}
-                      <div className="mt-2 sm:mt-3 md:mt-4 flex gap-1 sm:gap-1.5 md:gap-2 bg-white dark:bg-slate-800 p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm md:shadow-md border border-slate-100 dark:border-slate-700">
+                      {/* Resource icons box — now uses CSS vars to match prof pages */}
+                      <div
+                        className="mt-2 sm:mt-3 md:mt-4 flex gap-1 sm:gap-1.5 md:gap-2 p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm md:shadow-md"
+                        style={{
+                          background: "var(--cn-card)",
+                          border: "1px solid var(--cn-border)",
+                        }}
+                      >
                         <button 
                           className="text-sm sm:text-base md:text-lg lg:text-xl hover:scale-125 transition-transform" 
                           title="Video"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alert('Video resource');
-                          }}
-                        >
-                          📺
-                        </button>
+                          onClick={(e) => { e.stopPropagation(); alert('Video resource'); }}
+                        >📺</button>
                         <button 
                           className="text-sm sm:text-base md:text-lg lg:text-xl hover:scale-125 transition-transform" 
                           title="Article"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alert('Article resource');
-                          }}
-                        >
-                          📖
-                        </button>
+                          onClick={(e) => { e.stopPropagation(); alert('Article resource'); }}
+                        >📖</button>
                         <button 
                           className="text-sm sm:text-base md:text-lg lg:text-xl hover:scale-125 transition-transform" 
                           title="Podcast"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alert('Podcast resource');
-                          }}
-                        >
-                          🎧
-                        </button>
+                          onClick={(e) => { e.stopPropagation(); alert('Podcast resource'); }}
+                        >🎧</button>
                         <button 
-                          className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-red-500 hover:scale-125 transition-transform" 
+                          className="text-sm sm:text-base md:text-lg lg:text-xl font-bold hover:scale-125 transition-transform" 
                           title="Quiz - Skip if you pass!"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alert('Take quiz to skip this topic!');
-                          }}
-                        >
-                          Q
-                        </button>
+                          style={{ color: "#E63027" }}
+                          onClick={(e) => { e.stopPropagation(); alert('Take quiz to skip this topic!'); }}
+                        >Q</button>
                       </div>
 
                       {/* AI badge */}
                       {sub.type === 'ai' && (
-                        <div className="mt-1.5 sm:mt-2 text-[9px] sm:text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-semibold">
+                        <div
+                          className="mt-1.5 sm:mt-2 text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                          style={{ background: "#E6302718", color: "#E63027" }}
+                        >
                           AI suggested
                         </div>
                       )}
@@ -280,55 +279,77 @@ export default function Playground() {
               </div>
             )}
 
-            {/* BRIDGE TO NEXT TOPIC */}
+            {/* BRIDGE TO NEXT TOPIC — yellow faded, matches connector */}
             {index < KOTLIN_UNI_PATH.length - 1 && (
-              <div className="w-0.5 sm:w-1 h-10 sm:h-14 md:h-16 my-4 sm:my-6 bg-green-500/30 dark:bg-green-600/30 rounded-full" />
+              <div
+                className="w-0.5 sm:w-1 h-10 sm:h-14 md:h-16 my-4 sm:my-6 rounded-full"
+                style={{ background: "#F5C51850" }}
+              />
             )}
           </div>
         ))}
       </main>
 
-      {/* SYLLABUS DRAWER*/}
+      {/* SYLLABUS DRAWER — restyled to match prof pages */}
       {isSyllabusOpen && (
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div 
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" 
             onClick={() => setSyllabusOpen(false)} 
           />
-          <div className="relative w-full sm:w-96 bg-white dark:bg-slate-900 h-full p-4 sm:p-6 shadow-2xl animate-in slide-in-from-right duration-300 overflow-y-auto">
-            <h2 className="font-black text-xl sm:text-2xl mb-4 sm:mb-6 dark:text-white uppercase">
+          <div
+            className="relative w-full sm:w-96 h-full p-4 sm:p-6 shadow-2xl animate-in slide-in-from-right duration-300 overflow-y-auto"
+            style={{ background: "var(--cn-card)", borderLeft: "1px solid var(--cn-border)" }}
+          >
+            <h2
+              className="font-black text-xl sm:text-2xl mb-4 sm:mb-6 uppercase"
+              style={{ color: "var(--cn-text)" }}
+            >
               Course Syllabus
             </h2>
 
-            {/* Overall progress */}
-            <div className="mb-6 sm:mb-8 p-3 sm:p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-              <p className="text-xs sm:text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2">
+            {/* Overall progress — yellow bar, matches rest of app */}
+            <div
+              className="mb-6 sm:mb-8 p-3 sm:p-4 rounded-xl"
+              style={{ background: "var(--cn-bg)", border: "1px solid var(--cn-border)" }}
+            >
+              <p
+                className="text-xs sm:text-sm font-semibold mb-2"
+                style={{ color: "var(--cn-muted)" }}
+              >
                 Overall Progress
               </p>
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className="flex-1 h-2 sm:h-3 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 transition-all" style={{ width: `${overallProgress}%` }} />
+                <div
+                  className="flex-1 h-2 sm:h-3 rounded-full overflow-hidden"
+                  style={{ background: "var(--cn-border)" }}
+                >
+                  <div
+                    className="h-full transition-all rounded-full"
+                    style={{ width: `${overallProgress}%`, background: "#F5C518" }}
+                  />
                 </div>
-                <span className="text-base sm:text-lg font-bold text-blue-600 dark:text-blue-400">
+                <span
+                  className="text-base sm:text-lg font-bold"
+                  style={{ color: "var(--cn-text)" }}
+                >
                   {overallProgress}%
                 </span>
               </div>
             </div>
 
-            {/* Topics with bold, colored subtopics */}
+            {/* Topic list */}
             <div className="space-y-5 sm:space-y-6">
               {KOTLIN_UNI_PATH.map(p => (
-                <div key={p.id} className="pb-4 sm:pb-6 border-b border-slate-100 dark:border-slate-800">
+                <div
+                  key={p.id}
+                  className="pb-4 sm:pb-6 border-b"
+                  style={{ borderColor: "var(--cn-border)" }}
+                >
                   <button
-                    onClick={() => {
-                      setActiveId(p.id);
-                      setSyllabusOpen(false);
-                    }}
-                    className={`text-xs sm:text-sm uppercase transition-all w-full text-left mb-2 ${
-                      activeId === p.id 
-                        ? 'text-green-600 dark:text-green-400 font-black' 
-                        : 'text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700'
-                    }`}
+                    onClick={() => { setActiveId(p.id); setSyllabusOpen(false); }}
+                    className="text-xs sm:text-sm uppercase transition-all w-full text-left mb-2 font-bold"
+                    style={{ color: activeId === p.id ? "#3A9E3F" : "#1E6FFF" }}
                   >
                     {p.title}
                     {p.progress && (
@@ -338,36 +359,42 @@ export default function Playground() {
                     )}
                   </button>
 
-                  {/* Description - smaller than subtopics */}
-                  <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-500 mb-3 leading-relaxed">
+                  <p
+                    className="text-[10px] sm:text-xs mb-3 leading-relaxed"
+                    style={{ color: "var(--cn-muted)" }}
+                  >
                     {p.description}
                   </p>
 
-                  {/* Subtopics - BOLD and COLORED */}
-                  <div className="pl-3 sm:pl-4 border-l-2 border-slate-100 dark:border-slate-700 space-y-2">
+                  <div
+                    className="pl-3 sm:pl-4 border-l-2 space-y-2"
+                    style={{ borderColor: "var(--cn-border)" }}
+                  >
                     {p.subnodes.map(s => (
                       <div key={s.id}>
                         <div className="flex items-center gap-1.5">
-                          {s.status === 'completed' && <span className="text-green-500 text-xs">✓</span>}
-                          {s.status === 'current' && <span className="text-blue-500 text-xs">→</span>}
-                          {s.status === 'locked' && <span className="text-slate-400 text-xs">🔒</span>}
-                          <span className={`text-xs sm:text-sm font-bold ${
-                            s.type === 'ai' 
-                              ? 'text-red-600 dark:text-red-400' 
-                              : 'text-blue-600 dark:text-blue-400'
-                          }`}>
+                          {s.status === 'completed' && <span className="text-xs" style={{ color: "#3A9E3F" }}>✓</span>}
+                          {s.status === 'current' && <span className="text-xs" style={{ color: "#1E6FFF" }}>→</span>}
+                          {s.status === 'locked' && <span className="text-xs" style={{ color: "var(--cn-muted)" }}>🔒</span>}
+                          <span
+                            className="text-xs sm:text-sm font-bold"
+                            style={{ color: s.type === 'ai' ? "#E63027" : "#1E6FFF" }}
+                          >
                             {s.title}
                           </span>
                         </div>
                         
-                        {/* Sub-subtopics if they exist */}
                         {s.subsubnodes && s.subsubnodes.length > 0 && (
                           <div className="ml-5 mt-1 space-y-0.5">
                             {s.subsubnodes.map(ss => (
-                              <p key={ss.id} className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-500 flex items-center gap-1">
-                                {ss.status === 'completed' && <span className="text-green-400">•</span>}
-                                {ss.status === 'current' && <span className="text-blue-400">•</span>}
-                                {ss.status === 'locked' && <span className="text-slate-400">•</span>}
+                              <p
+                                key={ss.id}
+                                className="text-[9px] sm:text-[10px] flex items-center gap-1"
+                                style={{ color: "var(--cn-muted)" }}
+                              >
+                                {ss.status === 'completed' && <span style={{ color: "#3A9E3F" }}>•</span>}
+                                {ss.status === 'current' && <span style={{ color: "#1E6FFF" }}>•</span>}
+                                {ss.status === 'locked' && <span style={{ color: "var(--cn-muted)" }}>•</span>}
                                 {ss.title}
                               </p>
                             ))}
@@ -380,20 +407,23 @@ export default function Playground() {
               ))}
             </div>
 
-            {/* Legend */}
-            <div className="mt-6 sm:mt-8 p-3 sm:p-4 bg-slate-50 dark:bg-slate-800 rounded-xl space-y-2 text-xs sm:text-sm">
-              <p className="font-bold text-slate-700 dark:text-slate-300 mb-2">Legend:</p>
+            {/* Legend — matches prof page card style */}
+            <div
+              className="mt-6 sm:mt-8 p-3 sm:p-4 rounded-xl space-y-2 text-xs sm:text-sm"
+              style={{ background: "var(--cn-bg)", border: "1px solid var(--cn-border)" }}
+            >
+              <p className="font-bold mb-2" style={{ color: "var(--cn-text)" }}>Legend:</p>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-green-500 rounded shrink-0"></div>
-                <span className="text-slate-600 dark:text-slate-400 text-[10px] sm:text-xs">Main topics</span>
+                <span className="text-[10px] sm:text-xs" style={{ color: "var(--cn-muted)" }}>Main topics</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-blue-500 rounded shrink-0"></div>
-                <span className="text-slate-600 dark:text-slate-400 text-[10px] sm:text-xs">Prof-chosen subtopics</span>
+                <div className="w-3 h-3 rounded shrink-0" style={{ background: "#1E6FFF" }}></div>
+                <span className="text-[10px] sm:text-xs" style={{ color: "var(--cn-muted)" }}>Prof-chosen subtopics</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded shrink-0"></div>
-                <span className="text-slate-600 dark:text-slate-400 text-[10px] sm:text-xs">AI-suggested</span>
+                <div className="w-3 h-3 rounded shrink-0" style={{ background: "#E63027" }}></div>
+                <span className="text-[10px] sm:text-xs" style={{ color: "var(--cn-muted)" }}>AI-suggested</span>
               </div>
             </div>
           </div>
