@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+client/node_modules/
+backend/node_modules/
+
+# Environment & Secrets
+.env
+backend/.env
+client/.env
+
+# Build Caches & Tooling (The error fix)
+client/.vite/
+client/dist/
+.DS_Store
+
+# Prisma
+/generated/prisma
