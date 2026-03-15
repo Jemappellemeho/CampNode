@@ -6,7 +6,6 @@ import { useTheme } from '../ThemeContext';
 function Register() {
   const { theme, toggleTheme } = useTheme();
   const [formData, setFormData] = useState({
-    name: '',
     email: '',
     password: '',
     role: 'student'
@@ -72,7 +71,7 @@ function Register() {
                 </p>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    {/* Name */}
+                    {/* Name 
                     <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Full Name
@@ -86,6 +85,8 @@ function Register() {
               placeholder="Maria Schmidt"
             />
           </div>
+*/}
+                    
 
           {/* Email */}
           <div>

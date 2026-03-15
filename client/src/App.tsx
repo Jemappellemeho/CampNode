@@ -6,33 +6,34 @@
 // This means every page automatically gets the shared header.
 // =============================================================
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
-import Landing from './pages/Landing';
-import Register from './pages/Register';
-import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Playground from './pages/Playground';
-import ProfDashboard from "./pages/ProfDashboard";
-import CourseCreator from "./pages/CourseCreator";
-import CourseManager from "./pages/CourseManager";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ThemeProvider } from "./ThemeContext";
+import Layout from "./components/Layout";
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import Profile from "./pages/Profile";
+import CoursePlayer from "./pages/CoursePlayer";
 
 function App() {
   return (
-    <BrowserRouter>
-      <Layout>
+    <ThemeProvider>
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/landing" element={<Landing />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/playground" element={<Playground />} />
-          <Route path="/prof/dashboard" element={<ProfDashboard />} />
-          <Route path="/prof/create-course" element={<CourseCreator />} />
-          <Route path="/prof/course/:courseId" element={<CourseManager />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/playground/:courseId" element={<CoursePlayer />} />
+
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
+          </Route>
         </Routes>
-      </Layout>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

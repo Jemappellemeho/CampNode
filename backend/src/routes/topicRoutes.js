@@ -15,4 +15,6 @@ router.put("/:id", verifyToken, topicController.updateTopic);
 // Route 4: Ein Thema löschen (DELETE /api/topics/:id)
 router.delete("/:id", verifyToken, topicController.deleteTopic);
 
+router.get("/:id/content", topicController.getTopicContent);
+
 module.exports = router;

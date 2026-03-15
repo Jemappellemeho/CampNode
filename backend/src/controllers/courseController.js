@@ -6,27 +6,32 @@ exports.createCourse = async (req, res) => {
   try {
     const { title, description } = req.body;
 
-    // Sicherheitsprüfung (Das machen wir später noch sauberer über die Middleware)
-    if (req.user.role !== "PROFESSOR") {
-      return res.status(403).json({ error: "Nur Professoren dürfen Kurse erstellen." });
+    let isPrivate = false;
+    let instructorId = req.user.userId;
+
+    if (req.user.role === "STUDENT") {
+      // Любой курс, созданный студентом, всегда private
+      isPrivate = true;
+    } else if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Keine Berechtigung zum Erstellen von Kursen." });
     }
 
-    // Einen einzigartigen, 6-stelligen Eintrittscode generieren
     const joinCode = crypto.randomBytes(3).toString("hex").toUpperCase();
 
-    // Kurs in der Datenbank speichern
     const course = await prisma.course.create({
       data: {
         title,
         description,
         joinCode,
-        instructorId: req.user.userId, // Das kommt direkt aus unserem JWT!
+        isPublic: !isPrivate,
+        instructorId,
       },
     });
 
+    console.log("Created Course Object:", course); 
     res.status(201).json({ message: "Kurs erfolgreich erstellt", course });
   } catch (error) {
-    console.error("Fehler beim Erstellen des Kurses:", error);
+    console.error(error);
     res.status(500).json({ error: "Fehler beim Erstellen des Kurses", details: error.message });
   }
 };
@@ -152,5 +157,33 @@ exports.deleteCourse = async (req, res) => {
     res.json({ message: "Kurs erfolgreich gelöscht" });
   } catch (error) {
     res.status(500).json({ error: "Fehler beim Löschen" });
+  }
+};
+
+exports.getMyCourses = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const courses = await prisma.course.findMany({
+      where: {
+        OR: [
+          { instructorId: userId },
+          {
+            students: {
+              some: {
+                id: userId,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    res.json(courses);
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({
+      error: "getMyCourses failed",
+    });
   }
 };
