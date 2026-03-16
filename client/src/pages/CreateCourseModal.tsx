@@ -7,6 +7,7 @@ export default function CreateCourseModal({ isOpen, onClose, onCreated }: any) {
   const [data, setData] = useState({ title: '', description: '', topics: [] as any[] });
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const searchWiki = async (q: string) => {
     setSearch(q);
@@ -24,28 +25,45 @@ export default function CreateCourseModal({ isOpen, onClose, onCreated }: any) {
     setSearch('');
   };
 
-  const saveCourse = async () => {
-    const token = localStorage.getItem('token');
-    const courseRes = await axios.post('http://localhost:3000/api/courses', 
-      { title: data.title, description: data.description },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    
-    for (const topic of data.topics) {
-      await axios.post(
-        'http://localhost:3000/api/topics',
-        {
-            name: topic.label,
-            courseId: courseRes.data.course.id,
-            wikidataId: topic.id,
-        },
-        {
-            headers: { Authorization: `Bearer ${token}` }
-        }
-    );
-    }
-    onCreated();
+  const removeTopic = (topicId: string) => {
+    setData({ ...data, topics: data.topics.filter((t: any) => t.id !== topicId) });
   };
+
+    const saveCourse = async () => {
+    if (loading) return; // Verhindert Doppelklicks
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      // 1. Kurs erstellen
+      const courseRes = await axios.post('http://localhost:3000/api/courses', 
+        { title: data.title, description: data.description },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      // 2. Themen einzeln speichern
+      for (const topic of data.topics) {
+        await axios.post(
+          'http://localhost:3000/api/topics',
+          {
+              name: topic.label,
+              courseId: courseRes.data.course.id,
+              wikidataId: topic.id,
+              description: topic.description || ""
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+      
+      onCreated(); // Modal schließen und Dashboard aktualisieren
+    } catch (err: any) {
+      console.error("Fehler beim Erstellen:", err);
+      alert("Fehler beim Erstellen: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   if (!isOpen) return null;
 
@@ -93,12 +111,19 @@ export default function CreateCourseModal({ isOpen, onClose, onCreated }: any) {
                 {data.topics.map((t: any) => (
                   <span key={t.id} className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
                     <BookOpen size={12} /> {t.label}
+                    <button onClick={() => removeTopic(t.id)} className="ml-1 hover:text-red-500">
+                      <X size={14} />
+                    </button>
                   </span>
                 ))}
               </div>
 
-              <button onClick={saveCourse} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition-all">
-                Finish & Create
+              <button 
+                onClick={saveCourse} 
+                disabled={loading}
+                className={`w-full py-3 rounded-xl font-bold transition-all ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+              >
+                {loading ? "Creating..." : "Finish & Create"}
               </button>
             </div>
           )}

@@ -7,6 +7,6 @@
 [33m[nodemon] watching path(s): *.*[39m
 [33m[nodemon] watching extensions: js,mjs,cjs,json[39m
 [32m[nodemon] starting `node src/server.js`[39m
-[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  enable debug logging with { debug: true }
 API on http://localhost:3000
 [32m[nodemon] clean exit - waiting for changes before restart[39m
