@@ -74,3 +74,10 @@ model Progress {
 
   @@unique([userId, topicId])
 }
+
+model Edge {
+  id        String @id @default(uuid())
+  courseId  String
+  from      String
+  to        String
+}
