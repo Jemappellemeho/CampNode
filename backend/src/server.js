@@ -8,6 +8,7 @@ const quizRoutes = require("./routes/quizRoutes");
 const progressRoutes = require("./routes/progressRoutes");
 const graphRoutes = require("./routes/graphRoutes");
 
+
 const app = express();
 
 // Middleware: Erlaubt dem Server, JSON-Daten aus dem request body zu lesen
@@ -31,9 +32,6 @@ app.use("/api/quizzes", quizRoutes);
 
 // Hier verbinden wir die neuen Fortschritts-Routen
 app.use("/api/progress", progressRoutes);
-
-// Hier verbinden wir Route to Server
-app.use("/api/graph", graphRoutes);
     
 
 const port = process.env.PORT || 3000;
