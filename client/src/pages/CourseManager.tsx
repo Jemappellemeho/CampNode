@@ -6,15 +6,14 @@
 // =============================================================
 
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
-  ArrowLeft, Users, BookOpen, TrendingUp, AlertTriangle,
-  Copy, Check, Globe, Lock, Sparkles, Clock,
-  CheckCircle, Circle, Flag,
+  ArrowLeft, Users, BookOpen,
+  Copy, Check, Globe, Trash2
 } from "lucide-react";
 
-// Color constants for consistent styling
+// Color constants for consistent UI styling
 const CN = {
   blue: "#1E6FFF",
   blueDark: "#1557CC",
@@ -23,51 +22,87 @@ const CN = {
   yellow: "#F5C518",
 };
 
-// --- Helper Components ---
-
-function ProgressBar({ value }: { value: number }) {
-  return (
-    <div className="w-full rounded-full h-2 overflow-hidden" style={{ background: "var(--cn-border)" }}>
-      <div className="h-full rounded-full transition-all duration-500"
-        style={{ width: `${value}%`, background: CN.yellow }} />
-    </div>
-  );
-}
-
+// A simple button to copy text to clipboard with a visual feedback state
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
-      {copied ? <Check size={14} style={{ color: CN.green }} /> : <Copy size={14} style={{ color: "var(--cn-muted)" }} />}
+    <button onClick={handleCopy} className="p-1 hover:bg-gray-100 rounded transition-colors">
+      {copied ? <Check size={14} style={{ color: CN.green }} /> : <Copy size={14} className="text-gray-400" />}
     </button>
   );
 }
 
+// Reusable tab button — active tab gets a blue background, inactive stays transparent
 function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick}
-      className="px-4 py-2.5 text-sm font-bold rounded-xl transition-all"
-      style={{ background: active ? CN.blue : "transparent", color: active ? "white" : "var(--cn-muted)" }}>
+    <button 
+      onClick={onClick}
+      className="px-4 py-2.5 text-sm font-bold rounded-xl transition-all flex-1 md:flex-none"
+      style={{ 
+        background: active ? CN.blue : "transparent", 
+        color: active ? "white" : "#6B7280" 
+      }}
+    >
       {label}
     </button>
   );
 }
 
-// --- Main Component ---
-
+// CourseManager is the professor view for a single course.
+// It has three tabs: Overview (stats + join code), Students, and Nodes (topics + Wikipedia articles).
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"overview" | "students" | "nodes">("overview");
   
-  // State for the actual course data from the backend
+  // UI State
+  const [tab, setTab] = useState<"overview" | "students" | "nodes">("overview");
+  const [articleLang, setArticleLang] = useState<"en" | "de">("en");
+  
+  // Data State
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch course details by ID
+  // Stores fetched Wikipedia HTML per topic id to avoid re-fetching on tab switch
+  const [topicContentById, setTopicContentById] = useState<Record<string, string>>({});
+  const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
+  
+  // Fetch Wikipedia article for a single topic.
+  // Defined with useCallback to maintain reference stability-
+  // this prevents the nodes useEffect from re-running unnecessarily.
+  const loadTopicContent = useCallback(async (topicId: string, lang: string) => {
+    try {
+      setLoadingTopicId(topicId);
+      const token = localStorage.getItem("token");
+      
+      const res = await axios.get(
+        `http://localhost:3000/api/topics/${topicId}/content?lang=${lang}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setTopicContentById((prev) => ({ 
+        ...prev, 
+        [topicId]: res.data.content || "No content found for this language." 
+      }));
+    } catch (err) {
+      console.error("Failed to load topic content", err);
+      setTopicContentById((prev) => ({ ...prev, [topicId]: "Error loading article." }));
+    } finally {
+      setLoadingTopicId(null);
+    }
+  }, []);
+
+  // Load course data once on mount or when courseId changes
   useEffect(() => {
     const fetchCourse = async () => {
       try {
+        setLoading(true);
         const token = localStorage.getItem("token");
         const res = await axios.get(`http://localhost:3000/api/courses/${courseId}`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -79,64 +114,94 @@ export default function CourseManager() {
         setLoading(false);
       }
     };
-    fetchCourse();
+
+    if (courseId) fetchCourse();
   }, [courseId]);
 
-  if (loading) return <div className="text-center py-32 text-gray-500">Loading course details...</div>;
+  // Trigger Wikipedia content loading when the Nodes tab becomes active or the language changes.
+  useEffect(() => {
+    const nodes = course?.topics || [];
+    if (tab === "nodes" && nodes.length > 0) {
+      nodes.forEach((node: any) => {
+        // load content only if we haven't already fetched it for this topic and language
+        if (!topicContentById[node.id]) {
+          loadTopicContent(node.id, articleLang);
+        }
+      });
+    }
+    // IMPORTANT: topicContentById is NOT in dependencies to avoid re-triggering
+  }, [tab, articleLang, course?.topics, loadTopicContent]);
 
-  if (!course) return (
-    <div className="flex items-center justify-center py-32">
-      <div className="text-center">
-        <p className="mb-4" style={{ color: "var(--cn-muted)" }}>Course not found</p>
-        <button onClick={() => navigate("/prof/dashboard")} className="text-sm underline" style={{ color: CN.blue }}>
+  // Early returns must come after all hooks
+  if (loading) {
+    return <div className="text-center py-32 text-gray-500 font-medium">Loading course details...</div>;
+  }
+
+  if (!course) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-4">
+        <p className="text-gray-500">Course not found or access denied.</p>
+        <button onClick={() => navigate("/dashboard")} className="text-blue-600 font-bold hover:underline">
           ← Back to Dashboard
         </button>
       </div>
-    </div>
-  );
+    );
+  }
 
-  // Data mapping from database structure
+  // DATA MAPPING: Prepare variables for rendering
   const students = course.students || []; 
   const nodes = course.topics || [];
-  
-  // Example metrics calculations based on real data
-  const totalStudents = students.length;
-  const totalNodes = nodes.length;
 
-  const renderTab = () => {
+  // Delete course and redirect to dashboard.
+  // Topics are detached (courseId set to null) but not deleted — quizzes are preserved for reuse.
+  const handleDeleteCourse = async () => {
+    if (!window.confirm(`Are you sure you want to delete "${course.title}"? This cannot be undone.`)) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`http://localhost:3000/api/courses/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Failed to delete course", err);
+      alert("Failed to delete course.");
+    }
+  };
+
+  // Helper function to render the content of the currently selected tab.
+  const renderTabContent = () => {
     switch (tab) {
       case "overview":
         return (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
-                { label: "Students", value: totalStudents, icon: Users },
-                { label: "Nodes", value: totalNodes, icon: BookOpen },
+                { label: "Students", value: students.length, icon: Users },
+                { label: "Nodes", value: nodes.length, icon: BookOpen },
                 { label: "Visibility", value: course.isPublic ? "Public" : "Private", icon: Globe },
               ].map(({ label, value, icon: Icon }) => (
-                <div key={label} className="rounded-2xl border p-4 flex items-center gap-3 shadow-sm"
-                  style={{ background: "var(--cn-card)", borderColor: "var(--cn-border)" }}>
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: CN.blue + "18", color: CN.blue }}>
-                    <Icon size={16} />
+                <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 flex items-center gap-4 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-50 dark:bg-blue-900/30 text-blue-600">
+                    <Icon size={20} />
                   </div>
                   <div>
-                    <p className="text-xs" style={{ color: "var(--cn-muted)" }}>{label}</p>
-                    <p className="text-lg font-bold" style={{ color: "var(--cn-text)" }}>{value}</p>
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{label}</p>
+                    <p className="text-xl font-bold dark:text-white">{value}</p>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="rounded-2xl p-5" style={{ background: "var(--cn-card)", border: "1px solid var(--cn-border)" }}>
-              <p className="text-sm font-bold mb-3" style={{ color: "var(--cn-text)" }}>Course Info</p>
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm" style={{ color: "var(--cn-muted)" }}>Join Code</span>
-                  <div className="flex items-center gap-2 font-mono text-sm font-bold" style={{ color: "var(--cn-text)" }}>
-                    {course.joinCode}<CopyBtn text={course.joinCode} />
-                  </div>
+            {/* Join code section — professors share this with students to enroll */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border dark:border-gray-700 shadow-sm">
+              <h3 className="text-sm font-bold mb-4 dark:text-white uppercase tracking-wider">Access Configuration</h3>
+              <div className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border dark:border-gray-700">
+                <div>
+                  <p className="text-xs text-gray-500">Student Join Code</p>
+                  <p className="text-lg font-mono font-bold text-blue-600 uppercase">{course.joinCode}</p>
                 </div>
+                <CopyBtn text={course.joinCode} />
               </div>
             </div>
           </div>
@@ -144,51 +209,108 @@ export default function CourseManager() {
 
       case "students":
         return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm" style={{ color: "var(--cn-muted)" }}>{students.length} enrolled students</p>
-            {students.map((s: any) => (
-              <div key={s.id} className="rounded-2xl border p-4 shadow-sm" style={{ background: "var(--cn-card)" }}>
-                <p className="font-bold">{s.email}</p>
+          <div className="flex flex-col gap-3 animate-in fade-in">
+            <p className="text-sm text-gray-500 mb-2">{students.length} students enrolled</p>
+            {students.length === 0 ? (
+              <div className="text-center py-10 bg-gray-50 rounded-2xl border-2 border-dashed text-gray-400">
+                No students joined yet.
               </div>
-            ))}
+            ) : (
+              students.map((s: any) => (
+                <div key={s.id} className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-4 flex items-center justify-between shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700" />
+                    <p className="font-semibold dark:text-gray-200">{s.email}</p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         );
 
       case "nodes":
         return (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm" style={{ color: "var(--cn-muted)" }}>{nodes.length} topics in this course</p>
+          <div className="flex flex-col gap-4 animate-in fade-in">
+            <div className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl border dark:border-gray-700">
+              <p className="text-sm font-medium text-gray-500">{nodes.length} topics defined</p>
+              <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-900 rounded-lg">
+                {(['en', 'de'] as const).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => { setTopicContentById({}); setArticleLang(l); }}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${articleLang === l ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600' : 'text-gray-400'}`}
+                  >
+                    {l.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
             {nodes.map((node: any) => (
-              <div key={node.id} className="rounded-2xl border p-4 shadow-sm" style={{ background: "var(--cn-card)" }}>
-                <p className="font-bold">{node.name}</p>
-                <p className="text-xs text-gray-500">{node.description || "No description"}</p>
+              <div key={node.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
+                <div className="mb-4">
+                  <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
+                  <p className="text-sm text-gray-500 mt-1">{node.description || "No manual description provided."}</p>
+                </div>
+                
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 border dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-gray-400 uppercase">Wikipedia Content</span>
+                    {loadingTopicId === node.id && <span className="text-xs text-blue-500 animate-pulse italic">Fetching...</span>}
+                  </div>
+
+                  {/* Renders sanitized Wikipedia HTML — styles are applied via wikipedia-article-content in index.css */}
+                  <div
+                    className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed max-h-60 overflow-y-auto pr-2 custom-scrollbar wikipedia-article-content"
+                    dangerouslySetInnerHTML={{
+                      __html: topicContentById[node.id] || "Loading article summary..."
+                    }}
+                  />
+                </div>
               </div>
             ))}
           </div>
         );
-
       default: return null;
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-      <button onClick={() => navigate("/prof/dashboard")} className="flex items-center gap-1.5 text-sm font-medium mb-6 text-gray-500 hover:text-blue-600">
-        <ArrowLeft size={15} /> Back to Dashboard
+    <div className="max-w-4xl mx-auto px-4 py-10">
+      {/* Top Navigation */}
+      <button 
+        onClick={() => navigate("/dashboard")} 
+        className="group flex items-center gap-2 text-sm font-semibold mb-8 text-gray-400 hover:text-blue-600 transition-colors"
+      >
+        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" /> 
+        Back to Dashboard
       </button>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{course.title}</h1>
-        <p className="text-sm text-gray-500">{course.description}</p>
+      {/* Course Header */}
+      <div className="mb-10 flex justify-between items-start">
+        <div>
+          <h1 className="text-4xl font-extrabold dark:text-white mb-2 tracking-tight">{course.title}</h1>
+          <p className="text-lg text-gray-500 max-w-2xl">{course.description || "Add a description to help students understand this course."}</p>
+        </div>
+        <button
+          onClick={handleDeleteCourse}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-500 border border-red-200 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+        >
+          <Trash2 size={16} /> Delete Course
+        </button>
       </div>
 
-      <div className="flex gap-1 mb-6 rounded-2xl p-1.5 bg-gray-50 border">
+      {/* Tab Switcher */}
+      <div className="flex gap-1 mb-8 rounded-2xl p-1.5 bg-gray-100/50 dark:bg-gray-900/50 border dark:border-gray-700 overflow-x-auto">
         <TabBtn label="Overview" active={tab === "overview"} onClick={() => setTab("overview")} />
         <TabBtn label={`Students (${students.length})`} active={tab === "students"} onClick={() => setTab("students")} />
         <TabBtn label={`Nodes (${nodes.length})`} active={tab === "nodes"} onClick={() => setTab("nodes")} />
       </div>
 
-      {renderTab()}
+      {/* Main Tab Content */}
+      <main className="min-h-[400px]">
+        {renderTabContent()}
+      </main>
     </div>
   );
 }

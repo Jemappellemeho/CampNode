@@ -1,3 +1,169 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ========================================
+   WIKIPEDIA ARTICLE CONTENT
+   ======================================== */
+
+   /* Base container */
+.wikipedia-article-content {
+  text-align: left !important;
+  line-height: 1.8 !important;
+  font-family: 'Inter', sans-serif;
+  color: #1a202c;
+}
+
+.dark .wikipedia-article-content {
+  color: #e2e8f0;
+}
+
+/* H1, H2— section titles with underline */
+.wikipedia-article-content h1,
+.wikipedia-article-content h2 {
+  display: block !important;
+  font-size: 1.75rem !important;
+  font-weight: 800 !important;
+  margin-top: 2.5rem !important;
+  margin-bottom: 1rem !important;
+  padding-bottom: 0.5rem !important;
+  border-bottom: 2px solid #edf2f7 !important;
+  color: #1a365d !important;
+}
+
+.dark .wikipedia-article-content h1,
+.dark .wikipedia-article-content h2 {
+  color: #63b3ed !important;
+  border-color: #2d3748 !important;
+}
+
+/* H3 — subsection titles */
+.wikipedia-article-content h3 {
+  display: block !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+  color: #2d3748 !important;
+}
+
+.dark .wikipedia-article-content h3 {
+  color: #a0aec0 !important;
+}
+
+/* H4–H6 — minor headings */
+.wikipedia-article-content h4,
+.wikipedia-article-content h5,
+.wikipedia-article-content h6 {
+  display: block !important;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  margin-top: 1rem !important;
+  margin-bottom: 0.4rem !important;
+  color: #4a5568 !important;
+}
+
+.dark .wikipedia-article-content h4,
+.dark .wikipedia-article-content h5,
+.dark .wikipedia-article-content h6 {
+  color: #cbd5e0 !important;
+}
+
+/* Paragraphs */
+.wikipedia-article-content p {
+  display: block !important;
+  margin-bottom: 1.25rem !important;
+  font-size: 1rem !important;
+  line-height: 1.8 !important;
+}
+
+/* Lists */
+.wikipedia-article-content ul,
+.wikipedia-article-content ol {
+  display: block !important;
+  padding-left: 2rem !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.wikipedia-article-content ul {
+  list-style-type: disc !important;
+}
+
+.wikipedia-article-content ol {
+  list-style-type: decimal !important;
+}
+
+.wikipedia-article-content li {
+  display: list-item !important;
+  margin-bottom: 0.4rem !important;
+  line-height: 1.7 !important;
+}
+
+/* Bold text highlighted in brand blue */
+.wikipedia-article-content b,
+.wikipedia-article-content strong {
+  font-weight: 700 !important;
+  color: #1E6FFF !important;
+}
+
+.dark .wikipedia-article-content b,
+.dark .wikipedia-article-content strong {
+  color: #90cdf4 !important;
+}
+
+/* Italic */
+.wikipedia-article-content i,
+.wikipedia-article-content em {
+  font-style: italic !important;
+  color: inherit;
+}
+
+/* Inline code */
+.wikipedia-article-content code {
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.9em;
+  font-family: monospace;
+}
+
+.dark .wikipedia-article-content code {
+  background: #2d3748;
+  border-color: #4a5568;
+  color: #e2e8f0;
+}
+
+/* Blockquotes */
+.wikipedia-article-content blockquote {
+  display: block !important;
+  border-left: 4px solid #1E6FFF !important;
+  padding-left: 1rem !important;
+  margin: 1rem 0 !important;
+  color: #718096 !important;
+  font-style: italic;
+}
+
+.dark .wikipedia-article-content blockquote {
+  color: #a0aec0 !important;
+  border-color: #63b3ed !important;
+}
+
+/* Hide Wikipedia UI elements that don't belong in our interface:
+   images, tables, infoboxes, edit buttons, navboxes, footnotes, etc. */
+.wikipedia-article-content figure,
+.wikipedia-article-content img,
+.wikipedia-article-content table,
+.wikipedia-article-content .infobox,
+.wikipedia-article-content .hatnote,
+.wikipedia-article-content .navbox,
+.wikipedia-article-content .mw-empty-elt,
+.wikipedia-article-content .pcs-edit-section-header,
+.wikipedia-article-content .pcs-edit-section-link-container,
+.wikipedia-article-content .mbox-small,
+.wikipedia-article-content .ambox,
+.wikipedia-article-content .sistersitebox,
+.wikipedia-article-content style,
+.wikipedia-article-content sup {
+  display: none !important;
+}

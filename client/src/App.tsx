@@ -15,6 +15,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import CoursePlayer from "./pages/CoursePlayer";
+import CourseManager from "./pages/CourseManager";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/prof/course/:courseId" element={<CourseManager />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -5,17 +5,17 @@ import Layout from '../components/Layout';
 import CreateCourseModal from './CreateCourseModal';
 import { BookOpen, Users, Plus, Copy, Check, ChevronRight } from "lucide-react";
 
-/**
- * JoinCodeBadge Component
- * Displays a copyable course code for the professor to share.
- */
+// Displays the course join code with a copy-to-clipboard button.
+// Used only in the professor view — students don't see join codes.
 function JoinCodeBadge({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
   return (
     <button onClick={handleCopy} className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono transition-colors hover:bg-gray-200">
       {code} {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
@@ -23,6 +23,8 @@ function JoinCodeBadge({ code }: { code: string }) {
   );
 }
 
+// Professors see their courses with student/topic counts and a "Create Course" button.
+// Students see their enrolled courses and a join form to enroll via code.
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [courses, setCourses] = useState<any[]>([]);
@@ -30,13 +32,14 @@ export default function Dashboard() {
   const [joinCode, setJoinCode] = useState('');
   const navigate = useNavigate();
 
+  // Load user from localStorage — set during login, contains role and name
   useEffect(() => {
     const saved = localStorage.getItem('user');
     if (saved) setUser(JSON.parse(saved));
     fetchCourses();
   }, []);
 
-  // Fetches list of courses based on user role (Instructor vs Enrolled)
+  // Fetches list of courses based on user role (Prof vs Student)
   const fetchCourses = async () => {
     const token = localStorage.getItem('token');
     try {
@@ -61,6 +64,7 @@ export default function Dashboard() {
     } catch (err) { alert("Invalid join code or already enrolled."); }
   };
 
+  // Don't render until user data is loaded from localStorage
   if (!user) return null;
 
   return (
@@ -117,13 +121,26 @@ export default function Dashboard() {
               {/* Show analytics only to professors */}
               {user.role === 'PROFESSOR' && (
                 <div className="flex gap-4 text-sm text-gray-400">
-                  <span className="flex items-center gap-1"><Users size={16}/> {course.students?.length || 0}</span>
-                  <span className="flex items-center gap-1"><BookOpen size={16}/> {course.topics?.length || 0}</span>
+                  <span className="flex items-center gap-1.5" title="Students">
+                    <Users size={16} className="text-blue-500" /> 
+                    {/* at first try to get from _count, if not available -> count the array length */}
+                    {course._count?.students ?? course.students?.length ?? 0}
+                  </span>
+
+                  <span className="flex items-center gap-1.5" title="Topics">
+                    <BookOpen size={16} className="text-indigo-500" />
+                    {course._count?.topics ?? course.topics?.length ?? 0}
+                  </span>
                 </div>
               )}
 
-              <button 
-                onClick={() => user.role === 'PROFESSOR' ? navigate(`/prof/course/${course.id}`) : navigate(`/playground/${course.id}`)}
+              {/* Professors go to course management, students go to the course player */}
+              <button
+                onClick={() =>
+                  user.role === 'PROFESSOR'
+                    ? navigate(`/prof/course/${course.id}`)
+                    : navigate(`/playground/${course.id}`)
+                }
                 className="mt-auto w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
               >
                 {user.role === 'PROFESSOR' ? 'Manage' : 'Open Course'} <ChevronRight size={16}/>
