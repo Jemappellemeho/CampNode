@@ -37,13 +37,13 @@ model Topic {
   id             String     @id @default(uuid())
   name           String
   description    String?
-  courseId       String
+  courseId       String?
   content        String?
   wikidataId     String?
   wikipediaTitle String?
   progress       Progress[]
   quizzes        Quiz[]
-  course         Course     @relation(fields: [courseId], references: [id])
+  course         Course?     @relation(fields: [courseId], references: [id])
   Topic_A        Topic[]    @relation("TopicHierarchy")
   Topic_B        Topic[]    @relation("TopicHierarchy")
 }

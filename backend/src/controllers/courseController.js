@@ -6,16 +6,15 @@ exports.createCourse = async (req, res) => {
   try {
     const { title, description } = req.body;
 
-    let isPrivate = false;
-    let instructorId = req.user.userId;
+    // Die Instructor-ID kommt aus dem JWT-Token, der von der authMiddleware
+    // entschlüsselt wurde- so wissen wir sicher, wer die Anfrage stellt
+    const instructorId = req.user.userId;
 
-    if (req.user.role === "STUDENT") {
-      // Любой курс, созданный студентом, всегда private
-      isPrivate = true;
-    } else if (req.user.role !== "PROFESSOR") {
-      return res.status(403).json({ error: "Keine Berechtigung zum Erstellen von Kursen." });
+    if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Only professors can create courses." });
     }
 
+    // Zufälligen 6-stelligen Beitrittscode generieren (z.B. "A3F9C1")
     const joinCode = crypto.randomBytes(3).toString("hex").toUpperCase();
 
     const course = await prisma.course.create({
@@ -23,16 +22,14 @@ exports.createCourse = async (req, res) => {
         title,
         description,
         joinCode,
-        isPublic: !isPrivate,
+        isPublic: true,
         instructorId,
       },
     });
 
-    console.log("Created Course Object:", course); 
-    res.status(201).json({ message: "Kurs erfolgreich erstellt", course });
+    res.status(201).json({ message: "Course created successfully", course });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Fehler beim Erstellen des Kurses", details: error.message });
+    res.status(500).json({ error: "Error creating course" });
   }
 };
 
@@ -65,7 +62,7 @@ exports.joinCourse = async (req, res) => {
     const { joinCode } = req.body;
     const userId = req.user.userId; // Aus dem Token (Dank Middleware!)
 
-    // 1. Suche den Kurs mit diesem Code
+    // 1. Suche den Kurs mit diesem Code (Groß-/Kleinschreibung ignorieren)
     const course = await prisma.course.findUnique({
       where: { joinCode: joinCode.toUpperCase() },
       // Wir laden direkt die Studenten mit, um zu prüfen, ob der User schon drin ist
@@ -100,7 +97,7 @@ exports.joinCourse = async (req, res) => {
   }
 };
 
-// Einzelnen Kurs abrufen (R = Read)
+// Einzelnen Kurs mit allen zugehörigen Daten abrufen
 exports.getCourseById = async (req, res) => {
   try {
     const { id } = req.params; // Die ID kommt aus der URL, z.B. /api/courses/123
@@ -121,7 +118,7 @@ exports.getCourseById = async (req, res) => {
   }
 };
 
-// Kurs aktualisieren (U = Update)
+// Kurstitel und Beschreibung aktualisieren (nur für Professoren)
 exports.updateCourse = async (req, res) => {
   try {
     const { id } = req.params;
@@ -143,7 +140,7 @@ exports.updateCourse = async (req, res) => {
   }
 };
 
-// Kurs löschen (D = Delete)
+// Kurs löschen- Themen bleiben erhalten (Caching-Strategie)
 exports.deleteCourse = async (req, res) => {
   try {
     const { id } = req.params;
@@ -152,14 +149,35 @@ exports.deleteCourse = async (req, res) => {
       return res.status(403).json({ error: "Nur Professoren dürfen Kurse löschen" });
     }
 
+    const course = await prisma.course.findUnique({ where: { id } });
+
+    if (!course) {
+      return res.status(404).json({ error: "Kurs nicht gefunden" });
+    }
+
+    // Sicherstellen, dass nur der eigene Kurs gelöscht werden kann
+    if (course.instructorId !== req.user.userId) {
+      return res.status(403).json({ error: "Das ist nicht dein Kurs" });
+    }
+
+    // Themen vom Kurs trennen, aber NICHT löschen —
+    // so bleiben Quizfragen und Wikipedia-Inhalte für zukünftige Kurse erhalten    
+    await prisma.topic.updateMany({
+      where: { courseId: id },
+      data: { courseId: null }
+    });
+
+    // Erst jetzt kann der Kurs selbst gelöscht werden
     await prisma.course.delete({ where: { id } });
 
     res.json({ message: "Kurs erfolgreich gelöscht" });
   } catch (error) {
+    console.error("Fehler beim Löschen:", error.message);
     res.status(500).json({ error: "Fehler beim Löschen" });
   }
 };
 
+// Alle Kurse des eingeloggten Nutzers abrufen (als Dozent oder Student)
 exports.getMyCourses = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -167,7 +185,10 @@ exports.getMyCourses = async (req, res) => {
     const courses = await prisma.course.findMany({
       where: {
         OR: [
+          // Kurse, die der Nutzer selbst erstellt hat (als Professor)
           { instructorId: userId },
+
+          // Kurse, in denen der Nutzer eingeschrieben ist (als Student)
           {
             students: {
               some: {
@@ -177,6 +198,15 @@ exports.getMyCourses = async (req, res) => {
           },
         ],
       },
+      // this block for counter of students and topics in course list
+      include: {
+        _count: {
+          select: {
+            students: true, 
+            topics: true,  
+          }
+        }
+      }
     });
 
     res.json(courses);
