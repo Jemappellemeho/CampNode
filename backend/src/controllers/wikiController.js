@@ -45,31 +45,48 @@ exports.article = async (req, res) => {
       return res.json({ content: "No Wikipedia page found." });
     }
 
-    // Step 2: Fetch mobile HTML- it is cleaner than the desktop version
-    const wikiUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/mobile-html/${encodeURIComponent(wikiTitle)}`;
-    const wikiRes = await axios.get(wikiUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
-
-    let html = wikiRes.data;
-
-    // Step 3: Sanitize- remove scripts and styles that would break the UI
-    html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-    html = html.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-    // Remove the Wikipedia mobile header and footer (navigation, language links, etc.)
-    html = html.replace(/<header>[\s\S]*?<\/header>/i, ''); 
-    html = html.replace(/<footer>[\s\S]*?<\/footer>/i, '');
-
-    // Extract only the body content
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    let cleanHtml = bodyMatch ? bodyMatch[1] : html;
-
-    // Remove footnotes, inline links, and edit section buttons
-    cleanHtml = cleanHtml.replace(/<sup[^>]*>[\s\S]*?<\/sup>/g, '');
-    cleanHtml = cleanHtml.replace(/<a[^>]*>([\s\S]*?)<\/a>/g, '$1');
-    cleanHtml = cleanHtml.replace(/<span class="pcs-edit-section-link-container"[\s\S]*?<\/span>/g, '');
-
+    // Step 2: Fetch full article HTML via the MediaWiki parse API
+    // prop=text gives the full HTML; prop=displaytitle gives the formatted title.
+    const parseUrl =
+      `https://${lang}.wikipedia.org/w/api.php` +
+      `?action=parse` +
+      `&format=json` +
+      `&page=${encodeURIComponent(wikiTitle)}` +
+      `&prop=text|displaytitle` +
+      `&disablelimitreport=1` +
+      `&disableeditsection=1` +  // removes [edit] buttons
+      `&origin=*`;
+ 
+    const parseRes = await axios.get(parseUrl, {
+      headers: { "User-Agent": "WissenGraph/1.0" },
+    });
+ 
+    if (parseRes.data.error) {
+      return res.status(404).json({ error: parseRes.data.error.info });
+    }
+ 
+    let html = parseRes.data.parse.text["*"];
+    const displayTitle = parseRes.data.parse.displaytitle;
+ 
+    // Step 3: fix relative image/resource URLs → absolute Wikipedia URLs
+    // Wikipedia serves images as "//upload.wikimedia.org/..." (protocol-relative)
+    // and internal links as "/wiki/..." — both need to be made absolute so they render correctly when injected into our page.
+    html = html.replace(/src="\/\//g, 'src="https://');
+    html = html.replace(/srcset="\/\//g, 'srcset="https://');
+ 
+    // Internal wiki links- open Wikipedia in a new tab instead of breaking navigation
+    html = html.replace(
+      /href="\/wiki\//g,
+      `href="https://${lang}.wikipedia.org/wiki/`
+    );
+ 
+    // Step 4: strip elements that break our UI
+    // Remove inline <style> blocks injected by the parser
+    html = html.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "");
+ 
     res.json({
-      title: wikiTitle,
-      content: cleanHtml.trim() 
+      title: displayTitle,
+      content: html.trim(),
     });
   } catch (err) {
     console.error("WIKI ERROR:", err.message);

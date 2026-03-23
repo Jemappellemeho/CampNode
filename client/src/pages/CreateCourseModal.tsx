@@ -7,7 +7,7 @@ import axios from 'axios';
 import { X, Search, BookOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-export default function CreateCourseModal({ isOpen, onClose, onCreated }: any) {
+export default function CreateCourseModal({ isOpen, onClose}: any) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState({ title: '', description: '', topics: [] as any[] });
 

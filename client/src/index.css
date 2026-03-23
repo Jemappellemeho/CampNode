@@ -10,8 +10,9 @@
 .wikipedia-article-content {
   text-align: left !important;
   line-height: 1.8 !important;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Georgia', serif;
   color: #1a202c;
+  font-size: 0.95rem;
 }
 
 .dark .wikipedia-article-content {
@@ -29,6 +30,7 @@
   padding-bottom: 0.5rem !important;
   border-bottom: 2px solid #edf2f7 !important;
   color: #1a365d !important;
+  font-family: 'Linux Libertine', 'Georgia', serif;
 }
 
 .dark .wikipedia-article-content h1,
@@ -99,16 +101,11 @@
   line-height: 1.7 !important;
 }
 
-/* Bold text highlighted in brand blue */
+/* Bold text */
 .wikipedia-article-content b,
 .wikipedia-article-content strong {
   font-weight: 700 !important;
-  color: #1E6FFF !important;
-}
-
-.dark .wikipedia-article-content b,
-.dark .wikipedia-article-content strong {
-  color: #90cdf4 !important;
+  color: inherit !important;
 }
 
 /* Italic */
@@ -116,6 +113,20 @@
 .wikipedia-article-content em {
   font-style: italic !important;
   color: inherit;
+}
+
+/* Links */
+.wikipedia-article-content a {
+  color: #3366cc !important;
+  text-decoration: none !important;
+}
+
+.wikipedia-article-content a:hover {
+  text-decoration: underline !important;
+}
+
+.dark .wikipedia-article-content a {
+  color: #6ca9e0 !important;
 }
 
 /* Inline code */
@@ -149,13 +160,103 @@
   border-color: #63b3ed !important;
 }
 
-/* Hide Wikipedia UI elements that don't belong in our interface:
-   images, tables, infoboxes, edit buttons, navboxes, footnotes, etc. */
+/* Images & figures — shown, they are part of Wikipedia articles */
+.wikipedia-article-content img {
+  display: inline !important;
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 4px;
+}
+
 .wikipedia-article-content figure,
-.wikipedia-article-content img,
-.wikipedia-article-content table,
-.wikipedia-article-content .infobox,
-.wikipedia-article-content .hatnote,
+.wikipedia-article-content .thumb,
+.wikipedia-article-content .thumbinner {
+  display: block !important;
+  margin: 1rem auto !important;
+  text-align: center;
+}
+
+.wikipedia-article-content .thumbcaption,
+.wikipedia-article-content figcaption {
+  display: block !important;
+  font-size: 0.8rem !important;
+  color: #72777d !important;
+  margin-top: 0.3rem;
+  font-style: italic;
+}
+
+/* Infobox (right-side info table) */
+.wikipedia-article-content .infobox {
+  display: table !important;
+  float: right !important;
+  clear: right !important;
+  margin: 0 0 1rem 1.5rem !important;
+  padding: 0.5rem !important;
+  border: 1px solid #a2a9b1 !important;
+  background-color: #f8f9fa !important;
+  font-size: 0.85rem !important;
+  line-height: 1.5 !important;
+  border-radius: 4px;
+  max-width: 280px !important;
+}
+
+.dark .wikipedia-article-content .infobox {
+  background-color: #1f2937 !important;
+  border-color: #4b5563 !important;
+  color: #e2e8f0 !important;
+}
+
+.wikipedia-article-content .infobox td,
+.wikipedia-article-content .infobox th {
+  padding: 3px 6px !important;
+  vertical-align: top !important;
+}
+
+.wikipedia-article-content .infobox th {
+  font-weight: 600 !important;
+  text-align: left !important;
+  color: #54595d !important;
+}
+
+/* General tables */
+.wikipedia-article-content table {
+  display: table !important;
+  border-collapse: collapse !important;
+  margin: 1rem 0 !important;
+  font-size: 0.875rem !important;
+  max-width: 100% !important;
+  overflow-x: auto;
+}
+
+.wikipedia-article-content table td,
+.wikipedia-article-content table th {
+  border: 1px solid #a2a9b1 !important;
+  padding: 5px 10px !important;
+  vertical-align: top !important;
+}
+
+.wikipedia-article-content table th {
+  background-color: #eaecf0 !important;
+  font-weight: 600 !important;
+}
+
+.dark .wikipedia-article-content table th {
+  background-color: #374151 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Hatnotes (e.g. "For other uses, see…") */
+.wikipedia-article-content .hatnote {
+  display: block !important;
+  padding-left: 1.6rem !important;
+  margin-bottom: 0.5rem !important;
+  font-style: italic !important;
+  color: #54595d !important;
+  font-size: 0.875rem !important;
+}
+
+/* Hide Wikipedia UI elements that don't belong in our interface:
+   edit buttons, navboxes, etc. */
 .wikipedia-article-content .navbox,
 .wikipedia-article-content .mw-empty-elt,
 .wikipedia-article-content .pcs-edit-section-header,
@@ -164,6 +265,11 @@
 .wikipedia-article-content .ambox,
 .wikipedia-article-content .sistersitebox,
 .wikipedia-article-content style,
-.wikipedia-article-content sup {
+.wikipedia-article-content .mw-editsection {
+  display: none !important;
+}
+
+/* Footnote superscripts — hide the [1] [2] clutter */
+.wikipedia-article-content sup.reference {
   display: none !important;
 }

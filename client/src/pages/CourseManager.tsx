@@ -10,8 +10,8 @@ import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
   ArrowLeft, Users, BookOpen,
-  Copy, Check, Globe, Trash2
-} from "lucide-react";
+  Copy, Check, Globe, Trash2,
+  Plus, Search, X } from "lucide-react";
 
 // Color constants for consistent UI styling
 const CN = {
@@ -55,6 +55,94 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
   );
 }
 
+// Inline topic search + add panel, shown inside the Nodes tab
+function AddTopicPanel({ courseId, onTopicAdded }: { courseId: string; onTopicAdded: () => void }) {
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<any[]>([]);
+  const [adding, setAdding] = useState(false);
+ 
+  // Search Wikidata as the user types — debounced by character count
+  const handleSearch = async (q: string) => {
+    setSearch(q);
+    if (q.length > 2) {
+      const res = await axios.get(`http://localhost:3000/api/wiki/search?q=${q}`);
+      setResults(res.data);
+    } else {
+      setResults([]);
+    }
+  };
+ 
+  // POST a new topic linked to the current course, then notify the parent to refresh
+  const handleAdd = async (topic: any) => {
+    setAdding(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        "http://localhost:3000/api/topics",
+        {
+          name: topic.label,
+          description: topic.description || "",
+          courseId,
+          wikidataId: topic.id,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSearch("");
+      setResults([]);
+      onTopicAdded(); // trigger parent to re-fetch the course
+    } catch (err) {
+      console.error("Failed to add topic", err);
+    } finally {
+      setAdding(false);
+    }
+  };
+ 
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
+      <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Add New Topic</p>
+ 
+      {/* Wikidata search input */}
+      <div className="relative mb-3">
+        <Search className="absolute left-3 top-3 text-gray-400" size={16} />
+        <input
+          className="w-full pl-9 pr-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Search Wikidata (e.g. 'Photosynthesis')..."
+          value={search}
+          onChange={(e) => handleSearch(e.target.value)}
+        />
+        {search && (
+          <button
+            onClick={() => { setSearch(""); setResults([]); }}
+            className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+ 
+      {/* Search results dropdown */}
+      {results.length > 0 && (
+        <div className="border dark:border-gray-700 rounded-xl overflow-hidden divide-y dark:divide-gray-700">
+          {results.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => handleAdd(r)}
+              disabled={adding}
+              className="w-full text-left px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-start gap-3"
+            >
+              <Plus size={16} className="mt-0.5 flex-shrink-0 text-blue-500" />
+              <div>
+                <p className="font-semibold text-sm dark:text-white">{r.label}</p>
+                <p className="text-xs text-gray-500 line-clamp-1">{r.description}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // CourseManager is the professor view for a single course.
 // It has three tabs: Overview (stats + join code), Students, and Nodes (topics + Wikipedia articles).
 export default function CourseManager() {
@@ -72,6 +160,7 @@ export default function CourseManager() {
   // Stores fetched Wikipedia HTML per topic id to avoid re-fetching on tab switch
   const [topicContentById, setTopicContentById] = useState<Record<string, string>>({});
   const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
+  const [deletingTopicId, setDeletingTopicId] = useState<string | null>(null);
   
   // Fetch Wikipedia article for a single topic.
   // Defined with useCallback to maintain reference stability-
@@ -98,25 +187,25 @@ export default function CourseManager() {
     }
   }, []);
 
-  // Load course data once on mount or when courseId changes
-  useEffect(() => {
-    const fetchCourse = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem("token");
-        const res = await axios.get(`http://localhost:3000/api/courses/${courseId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setCourse(res.data);
-      } catch (err) {
-        console.error("Failed to fetch course", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (courseId) fetchCourse();
+  // Fetch course data — called on mount and after adding/deleting a topic
+  const fetchCourse = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`http://localhost:3000/api/courses/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCourse(res.data);
+    } catch (err) {
+      console.error("Failed to fetch course", err);
+    } finally {
+      setLoading(false);
+    }
   }, [courseId]);
+ 
+  useEffect(() => {
+    if (courseId) fetchCourse();
+  }, [courseId, fetchCourse]);
 
   // Trigger Wikipedia content loading when the Nodes tab becomes active or the language changes.
   useEffect(() => {
@@ -132,11 +221,33 @@ export default function CourseManager() {
     // IMPORTANT: topicContentById is NOT in dependencies to avoid re-triggering
   }, [tab, articleLang, course?.topics, loadTopicContent]);
 
-  // Early returns must come after all hooks
+  // Delete a topic after confirmation — refreshes the course after
+  const handleDeleteTopic = async (topicId: string, topicName: string) => {
+    if (!window.confirm(`Delete topic "${topicName}"? This cannot be undone.`)) return;
+    setDeletingTopicId(topicId);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`http://localhost:3000/api/topics/${topicId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Remove cached content for this topic and refresh the course
+      setTopicContentById((prev) => {
+        const next = { ...prev };
+        delete next[topicId];
+        return next;
+      });
+      await fetchCourse();
+    } catch (err) {
+      console.error("Failed to delete topic", err);
+      alert("Failed to delete topic.");
+    } finally {
+      setDeletingTopicId(null);
+    }
+  }; 
   if (loading) {
     return <div className="text-center py-32 text-gray-500 font-medium">Loading course details...</div>;
   }
-
+ 
   if (!course) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-4">
@@ -245,36 +356,66 @@ export default function CourseManager() {
                 ))}
               </div>
             </div>
-            
-            {nodes.map((node: any) => (
-              <div key={node.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
-                <div className="mb-4">
-                  <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
-                  <p className="text-sm text-gray-500 mt-1">{node.description || "No manual description provided."}</p>
-                </div>
-                
-                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 border dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-gray-400 uppercase">Wikipedia Content</span>
-                    {loadingTopicId === node.id && <span className="text-xs text-blue-500 animate-pulse italic">Fetching...</span>}
-                  </div>
 
-                  {/* Renders sanitized Wikipedia HTML — styles are applied via wikipedia-article-content in index.css */}
-                  <div
-                    className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed max-h-60 overflow-y-auto pr-2 custom-scrollbar wikipedia-article-content"
-                    dangerouslySetInnerHTML={{
-                      __html: topicContentById[node.id] || "Loading article summary..."
-                    }}
-                  />
-                </div>
+            {/* Add topic panel — always visible at the top of the nodes tab */}
+            <AddTopicPanel
+              courseId={courseId!}
+              onTopicAdded={() => {
+                // Clear cached content so the new topic gets fetched on next render
+                setTopicContentById({});
+                fetchCourse();
+              }}
+            />
+            
+            {/* Topic cards */}
+            {nodes.length === 0 ? (
+              <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 text-gray-400">
+                No topics yet — use the panel above to add your first one.
               </div>
-            ))}
+            ) : (
+              nodes.map((node: any) => (
+                <div key={node.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
+                      <p className="text-sm text-gray-500 mt-1">{node.description || "No description provided."}</p>
+                    </div>
+ 
+                    {/* Delete topic button */}
+                    <button
+                      onClick={() => handleDeleteTopic(node.id, node.name)}
+                      disabled={deletingTopicId === node.id}
+                      className="flex-shrink-0 ml-4 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 size={13} />
+                      {deletingTopicId === node.id ? "Deleting..." : "Remove"}
+                    </button>
+                  </div>
+ 
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 border dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold text-gray-400 uppercase">Wikipedia Content</span>
+                      {loadingTopicId === node.id && (
+                        <span className="text-xs text-blue-500 animate-pulse italic">Fetching...</span>
+                      )}
+                    </div>
+ 
+                    <div
+                      className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed max-h-60 overflow-y-auto pr-2 custom-scrollbar wikipedia-article-content"
+                      dangerouslySetInnerHTML={{
+                        __html: topicContentById[node.id] || "Loading article..."
+                      }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         );
       default: return null;
     }
   };
-
+ 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
       {/* Top Navigation */}

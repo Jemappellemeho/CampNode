@@ -120,41 +120,55 @@ exports.getTopicContent = async (req, res) => {
       // No sitelink for this language — try the next one
       if (!titleForLang) continue;
 
-      // Step 3: Fetch mobile HTML from Wikipedia REST API
-      // Mobile HTML is cleaner and easier to sanitize
+      // Step 3: Fetch the FULL article via MediaWiki parse API
+      // This returns the complete rendered article HTML including images,
+      // infoboxes, and all sections — not a summary.
       try {
-        const wikiUrl = `https://${tryLang}.wikipedia.org/api/rest_v1/page/mobile-html/${encodeURIComponent(titleForLang)}`;
-        const wikiRes = await axios.get(wikiUrl, {
-          headers: { "User-Agent": "WissenGraph/1.0" }
+         const parseUrl =
+          `https://${tryLang}.wikipedia.org/w/api.php` +
+          `?action=parse` +
+          `&format=json` +
+          `&page=${encodeURIComponent(titleForLang)}` +
+          `&prop=text|displaytitle` +
+          `&disablelimitreport=1` +
+          `&disableeditsection=1` +   // removes [edit] buttons
+          `&origin=*`;
+ 
+        const parseRes = await axios.get(parseUrl, {
+          headers: { "User-Agent": "WissenGraph/1.0" },
         });
-
-        let html = wikiRes.data;
-
-        // Step 4: Sanitize HTML — remove scripts, styles, and Wikipedia chrome
-        html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+ 
+        if (parseRes.data.error) {
+          console.warn(`[Wikipedia] Parse error for ${titleForLang}: ${parseRes.data.error.info}`);
+          continue;
+        }
+ 
+        let html = parseRes.data.parse.text["*"];
+ 
+        // Step 4: Fix relative URLs -> absolute so images and links work
+        // Wikipedia serves images as "//upload.wikimedia.org/..." (protocol-relative)
+        html = html.replace(/src="\/\//g, 'src="https://');
+        html = html.replace(/srcset="\/\//g, 'srcset="https://');
+ 
+        // Internal wiki links → open Wikipedia in a new tab
+        html = html.replace(
+          /href="\/wiki\//g,
+          `href="https://${tryLang}.wikipedia.org/wiki/`
+        );
+ 
+        // Step 5: Strip only elements that break our UI
+        // Remove inline <style> blocks injected by the parser
         html = html.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "");
-        html = html.replace(/<header[\s\S]*?<\/header>/gi, "");
-        html = html.replace(/<footer[\s\S]*?<\/footer>/gi, "");
-
-        // Extract only the body content to avoid other non-article elements
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-        let cleanHtml = bodyMatch ? bodyMatch[1] : html;
-
-        // Remove footnotes, inline links, and edit buttons
-        // but keep <b>, <strong>, <h2>, <h3> for formatting
-        cleanHtml = cleanHtml.replace(/<sup[^>]*>[\s\S]*?<\/sup>/g, "");
-        cleanHtml = cleanHtml.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/g, "$1");
-        cleanHtml = cleanHtml.replace(/<span[^>]*class="[^"]*pcs-edit[^"]*"[^>]*>[\s\S]*?<\/span>/g, "");
-        cleanHtml = cleanHtml.replace(/<figure[\s\S]*?<\/figure>/gi, "");
-
-        return res.json({ content: cleanHtml.trim() });
+ 
+        return res.json({ content: html.trim() });
+ 
       } catch (err) {
         console.warn(`[Wikipedia] Failed for lang=${tryLang}, title=${titleForLang}: ${err.message}`);
         // Continue to next language in the fallback chain
       }
     }
 
-    // All language attempts failed — return a link to Wikipedia as last resort
+    // All language attempts failed- return a link to Wikipedia as last resort
     const fallbackTitle =
       entity.sitelinks?.[`${lang}wiki`]?.title ||
       entity.sitelinks?.["enwiki"]?.title ||
