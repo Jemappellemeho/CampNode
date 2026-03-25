@@ -13,14 +13,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 
 // Route 1: Neues Thema erstellen (POST /api/topics)
-// Wir fügen upload.single("file") hinzu, um ein mögliches PDF zu empfangen
-router.post("/", verifyToken, upload.single("file"), topicController.createTopic);
+// Wir nutzen "pdf" als Key, passend zum Frontend
+router.post("/", verifyToken, upload.single("pdf"), topicController.createTopic);
 
 // Route 2: Alle Themen eines bestimmten Kurses abrufen (GET /api/topics/course/:courseId)
 router.get("/course/:courseId", verifyToken, topicController.getTopicsByCourse);
 
 // Route 3: Ein Thema bearbeiten (PUT /api/topics/:id)
-router.put("/:id", verifyToken, topicController.updateTopic);
+// Jetzt auch mit PDF-Upload Support beim Bearbeiten
+router.put("/:id", verifyToken, upload.single("pdf"), topicController.updateTopic);
 
 // Route 4: Ein Thema löschen (DELETE /api/topics/:id)
 router.delete("/:id", verifyToken, topicController.deleteTopic);

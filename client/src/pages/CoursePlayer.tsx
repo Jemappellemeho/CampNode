@@ -4,7 +4,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { ArrowLeft, BookOpen, Brain, RotateCcw, Trophy } from "lucide-react";
+import { ArrowLeft, BookOpen, Brain, RotateCcw, Trophy, FileText } from "lucide-react";
 
 export default function CoursePlayer() {
   const { courseId } = useParams();
@@ -24,6 +24,10 @@ export default function CoursePlayer() {
   const [currentIdx, setCurrentIdx] = useState(0);        // Progress through questions
   const [studentAnswers, setStudentAnswers] = useState<Record<number, string | null>>({});
   const [quizFinished, setQuizFinished] = useState(false);
+
+  // --- PROF. STOFF STATE ---
+  // 'wiki' = Wikipedia view, 'stoff' = Professor uploaded material view
+  const [contentView, setContentView] = useState<"wiki" | "stoff">("wiki");
 
   // Load course on mount — also auto-opens the first topic
   useEffect(() => {
@@ -51,6 +55,8 @@ export default function CoursePlayer() {
   // Called when the student clicks a topic or switches language.
   const handleTopicClick = async (topicId: string, lang: string) => {
     setActiveTopicId(topicId);
+    setContentView("wiki"); // always reset to wiki view when switching topics
+    setQuizMode(false);
     setLoadingContent(true);
     try {
       const token = localStorage.getItem("token");
@@ -159,18 +165,35 @@ export default function CoursePlayer() {
             <p className="text-sm text-gray-400 px-2">No topics yet.</p>
           ) : (
             topics.map((t: any) => (
-              <button
-                key={t.id}
-                onClick={() => handleTopicClick(t.id, articleLang)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
-                  activeTopicId === t.id
-                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-                }`}
-              >
-                <BookOpen size={14} className="flex-shrink-0" />
-                <span className="truncate">{t.name}</span>
-              </button>
+              <div key={t.id}>
+                {/* Main topic button */}
+                <button
+                  onClick={() => handleTopicClick(t.id, articleLang)}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
+                    activeTopicId === t.id && contentView === "wiki"
+                      ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <BookOpen size={14} className="flex-shrink-0" />
+                  <span className="truncate">{t.name}</span>
+                </button>
+
+                {/* Prof. Stoff sub-item — only shows if uploaded material (content) exists */}
+                {t.content && (
+                  <button
+                    onClick={() => { setActiveTopicId(t.id); setContentView("stoff"); setQuizMode(false); }}
+                    className={`w-full text-left pl-8 pr-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 mt-0.5 ${
+                      activeTopicId === t.id && contentView === "stoff"
+                        ? "bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400"
+                        : "text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/10"
+                    }`}
+                  >
+                    <FileText size={12} className="flex-shrink-0" />
+                    <span>Prof. Stoff</span>
+                  </button>
+                )}
+              </div>
             ))
           )}
         </nav>
@@ -310,6 +333,29 @@ export default function CoursePlayer() {
                       </button>
                     </div>
                   </div>
+                )}
+              </div>
+            ) : contentView === "stoff" && activeTopic ? (
+              /* --- PROF. STOFF VIEW --- */
+              <div className="animate-in fade-in duration-500">
+                <div className="flex items-center gap-2 mb-6 pb-4 border-b dark:border-gray-800">
+                  <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg flex items-center justify-center">
+                    <FileText size={16} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-orange-500 dark:text-orange-400 uppercase tracking-wider">Prof. Stoff</p>
+                    <p className="text-sm font-bold dark:text-white">{activeTopic.name}</p>
+                  </div>
+                </div>
+                {activeTopic.content ? (
+                  <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 border dark:border-gray-700">
+                    {/* If content has both wiki + professor material, show only the professor part */}
+                    {activeTopic.content.includes("--- Ergänzendes Material ---")
+                      ? activeTopic.content.split("--- Ergänzendes Material ---").slice(1).join("\n\n--- Ergänzendes Material ---\n\n").trim()
+                      : activeTopic.content}
+                  </div>
+                ) : (
+                  <p className="text-gray-400 text-sm italic">Kein Prof. Stoff für dieses Thema hochgeladen.</p>
                 )}
               </div>
             ) : (

@@ -11,7 +11,7 @@ const parsePdf = async (dataBuffer) => {
     const data = await pdf(dataBuffer);
     
     // Wir geben den Text zurück und bereinigen ihn von zu vielen Leerzeichen
-    return data.text.replace(/\\s\\s+/g, ' ').trim();
+    return data.text.replace(/\s+/g, ' ').trim();
   } catch (error) {
     console.error("PDF Parsing Fehler:", error.message);
     throw new Error("Konnte die PDF-Datei nicht lesen.");

@@ -57,87 +57,168 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
 
 // Inline topic search + add panel, shown inside the Nodes tab
 function AddTopicPanel({ courseId, onTopicAdded }: { courseId: string; onTopicAdded: () => void }) {
+  const [mode, setMode] = useState<"search" | "manual">("search");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [adding, setAdding] = useState(false);
+
+  // Manual State
+  const [manualName, setManualName] = useState("");
+  const [manualDesc, setManualDesc] = useState("");
+  const [manualFile, setManualFile] = useState<File | null>(null);
+  const [manualUrl, setManualUrl] = useState("");
  
-  // Search Wikidata as the user types — debounced by character count
   const handleSearch = async (q: string) => {
     setSearch(q);
     if (q.length > 2) {
       const res = await axios.get(`http://localhost:3000/api/wiki/search?q=${q}`);
       setResults(res.data);
-    } else {
-      setResults([]);
-    }
+    } else { setResults([]); }
   };
  
-  // POST a new topic linked to the current course, then notify the parent to refresh
   const handleAdd = async (topic: any) => {
     setAdding(true);
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
-        "http://localhost:3000/api/topics",
-        {
-          name: topic.label,
-          description: topic.description || "",
-          courseId,
-          wikidataId: topic.id,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await axios.post("http://localhost:3000/api/topics", {
+        name: topic.label,
+        description: topic.description || "",
+        courseId,
+        wikidataId: topic.id,
+      }, { headers: { Authorization: `Bearer ${token}` } });
       setSearch("");
       setResults([]);
-      onTopicAdded(); // trigger parent to re-fetch the course
-    } catch (err) {
-      console.error("Failed to add topic", err);
-    } finally {
-      setAdding(false);
-    }
+      onTopicAdded();
+    } catch (err) { console.error(err); } finally { setAdding(false); }
+  };
+
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualName) return;
+    setAdding(true);
+
+    try {
+      const token = localStorage.getItem("token");
+      const formData = new FormData();
+      formData.append("name", manualName);
+      formData.append("description", manualDesc);
+      formData.append("courseId", courseId);
+      if (manualUrl) formData.append("sourceUrl", manualUrl);
+      if (manualFile) formData.append("pdf", manualFile);
+
+      await axios.post("http://localhost:3000/api/topics", formData, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data" 
+        }
+      });
+
+      setManualName("");
+      setManualDesc("");
+      setManualFile(null);
+      setManualUrl("");
+      onTopicAdded();
+    } catch (err) { console.error(err); } finally { setAdding(false); }
   };
  
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
-      <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Add New Topic</p>
- 
-      {/* Wikidata search input */}
-      <div className="relative mb-3">
-        <Search className="absolute left-3 top-3 text-gray-400" size={16} />
-        <input
-          className="w-full pl-9 pr-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Search Wikidata (e.g. 'Photosynthesis')..."
-          value={search}
-          onChange={(e) => handleSearch(e.target.value)}
-        />
-        {search && (
-          <button
-            onClick={() => { setSearch(""); setResults([]); }}
-            className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Neues Thema hinzufügen</p>
+        <div className="flex bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
+          <button 
+            onClick={() => setMode("search")}
+            className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mode === "search" ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm" : "text-gray-400"}`}
           >
-            <X size={16} />
+            WIKIDATA SUCHE
           </button>
-        )}
+          <button 
+            onClick={() => setMode("manual")}
+            className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mode === "manual" ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm" : "text-gray-400"}`}
+          >
+            MANUELL / PDF
+          </button>
+        </div>
       </div>
  
-      {/* Search results dropdown */}
-      {results.length > 0 && (
-        <div className="border dark:border-gray-700 rounded-xl overflow-hidden divide-y dark:divide-gray-700">
-          {results.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => handleAdd(r)}
-              disabled={adding}
-              className="w-full text-left px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-start gap-3"
-            >
-              <Plus size={16} className="mt-0.5 flex-shrink-0 text-blue-500" />
-              <div>
-                <p className="font-semibold text-sm dark:text-white">{r.label}</p>
-                <p className="text-xs text-gray-500 line-clamp-1">{r.description}</p>
-              </div>
-            </button>
-          ))}
+      {mode === "search" ? (
+        <div className="relative">
+          <Search className="absolute left-3 top-3 text-gray-400" size={16} />
+          <input
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            placeholder="Nach Themen suchen (z.B. Quantenphysik)..."
+            value={search}
+            onChange={(e) => handleSearch(e.target.value)}
+          />
+          {results.length > 0 && (
+            <div className="mt-3 border dark:border-gray-700 rounded-xl overflow-hidden divide-y dark:divide-gray-700 max-h-48 overflow-y-auto custom-scrollbar">
+              {results.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => handleAdd(r)}
+                  className="w-full text-left px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-start gap-3"
+                >
+                  <Plus size={16} className="mt-0.5 text-blue-500" />
+                  <div>
+                    <p className="font-semibold text-sm dark:text-white">{r.label}</p>
+                    <p className="text-[10px] text-gray-500 line-clamp-1">{r.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+      ) : (
+        <form onSubmit={handleManualSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              placeholder="Themen-Name (z.B. Eigene Notizen)"
+              className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              required
+            />
+            <input
+              placeholder="Kurze Beschreibung"
+              className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              value={manualDesc}
+              onChange={(e) => setManualDesc(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex flex-col md:flex-row gap-4 items-center">
+             <div className="flex-1 w-full bg-gray-50 dark:bg-gray-900/50 border border-dashed dark:border-gray-700 rounded-xl p-3 flex flex-col items-center justify-center">
+                <input 
+                  type="file" 
+                  accept=".pdf" 
+                  id="pdf-upload"
+                  className="hidden" 
+                  onChange={(e) => setManualFile(e.target.files?.[0] || null)}
+                />
+                <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center">
+                   <Plus size={20} className="text-gray-400 mb-1" />
+                   <span className="text-[10px] font-bold text-gray-500">{manualFile ? manualFile.name : "PDF HOCHLADEN (Optional)"}</span>
+                </label>
+             </div>
+             
+             <div className="text-gray-400 text-[10px] font-bold uppercase">ODER</div>
+
+             <input
+              placeholder="Scraper URL (https://...)"
+              className="flex-1 w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              value={manualUrl}
+              onChange={(e) => setManualUrl(e.target.value)}
+            />
+
+            <button 
+              type="submit"
+              disabled={adding}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+            >
+              Hinzufügen
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );
@@ -162,6 +243,15 @@ export default function CourseManager() {
   const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
   const [deletingTopicId, setDeletingTopicId] = useState<string | null>(null);
   
+  // Topic Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTopic, setEditingTopic] = useState<any>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [editUrl, setEditUrl] = useState("");
+  const [isUpdatingTopic, setIsUpdatingTopic] = useState(false);
+
   // Quiz Editor State
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   const [selectedQuiz, setSelectedQuiz] = useState<any>(null);
@@ -276,6 +366,48 @@ export default function CourseManager() {
     setSelectedQuiz(quiz);
     setTempQuestions(quiz.questions || []);
     setIsQuizModalOpen(true);
+  };
+
+  // Öffnet das Edit-Modal für ein Thema
+  const handleEditOpen = (topic: any) => {
+    setEditingTopic(topic);
+    setEditName(topic.name);
+    setEditDesc(topic.description || "");
+    setEditUrl(""); // Reset files/urls on open
+    setEditFile(null);
+    setIsEditModalOpen(true);
+  };
+
+  // Speichert die Änderungen an einem Thema (Name, Beschreibung, PDF-Upload)
+  const handleUpdateTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTopic) return;
+    setIsUpdatingTopic(true);
+
+    try {
+      const token = localStorage.getItem("token");
+      const formData = new FormData();
+      formData.append("name", editName);
+      formData.append("description", editDesc);
+      if (editUrl) formData.append("sourceUrl", editUrl);
+      if (editFile) formData.append("pdf", editFile);
+
+      await axios.put(`http://localhost:3000/api/topics/${editingTopic.id}`, formData, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data" 
+        }
+      });
+
+      setIsEditModalOpen(false);
+      fetchCourse();
+      alert("Thema erfolgreich aktualisiert!");
+    } catch (err) {
+      console.error("Failed to update topic", err);
+      alert("Fehler beim Aktualisieren.");
+    } finally {
+      setIsUpdatingTopic(false);
+    }
   };
 
   // Speichert die Änderungen am Quiz in der Datenbank
@@ -536,14 +668,23 @@ export default function CourseManager() {
                     </div>
  
                     {/* Delete topic button */}
-                    <button
-                      onClick={() => handleDeleteTopic(node.id, node.name)}
-                      disabled={deletingTopicId === node.id}
-                      className="flex-shrink-0 ml-4 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                    >
-                      <Trash2 size={13} />
-                      {deletingTopicId === node.id ? "Deleting..." : "Remove"}
-                    </button>
+                    <div className="flex flex-col gap-2">
+                       <button
+                        onClick={() => handleEditOpen(node)}
+                        className="flex-shrink-0 ml-4 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                      >
+                        Bearbeiten
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteTopic(node.id, node.name)}
+                        disabled={deletingTopicId === node.id}
+                        className="flex-shrink-0 ml-4 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                      >
+                        <Trash2 size={13} />
+                        {deletingTopicId === node.id ? "Deleting..." : "Entfernen"}
+                      </button>
+                    </div>
                     
                     {/* KI-Enrichment Button */}
                     <button
@@ -742,6 +883,73 @@ export default function CourseManager() {
                 {isSavingQuiz ? "Speichert..." : "Änderungen speichern"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- TOPIC EDIT MODAL --- */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-all">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
+            <form onSubmit={handleUpdateTopic}>
+              <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
+                <h3 className="text-xl font-bold dark:text-white">Thema bearbeiten</h3>
+                <button type="button" onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Name</label>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Beschreibung</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
+                  />
+                </div>
+
+                <div className="pt-4 border-t dark:border-gray-700">
+                   <p className="text-[10px] font-bold text-blue-500 uppercase mb-3">Inhalt aktualisieren (Optional)</p>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-gray-50 dark:bg-gray-900/50 border border-dashed dark:border-gray-700 rounded-xl p-4 flex flex-col items-center justify-center">
+                        <input type="file" accept=".pdf" id="edit-pdf" className="hidden" onChange={(e) => setEditFile(e.target.files?.[0] || null)} />
+                        <label htmlFor="edit-pdf" className="cursor-pointer flex flex-col items-center">
+                           <Plus size={20} className="text-gray-400 mb-1" />
+                           <span className="text-[10px] font-bold text-gray-500">{editFile ? editFile.name : "NEUES PDF HOCHLADEN"}</span>
+                        </label>
+                      </div>
+                      <input
+                        placeholder="Neue Scraper URL"
+                        className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 h-fit"
+                        value={editUrl}
+                        onChange={(e) => setEditUrl(e.target.value)}
+                      />
+                   </div>
+                   <p className="text-[9px] text-gray-400 mt-2 italic">Hinweis: Neue PDFs oder URLs werden zum bestehenden Wissen (z.B. Wikipedia) <b>hinzugefügt</b>, um die KI-Zusammenfassung zu verbessern.</p>
+                </div>
+              </div>
+
+              <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+                <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors">Abbrechen</button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingTopic}
+                  className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                >
+                  {isUpdatingTopic ? "Speichert..." : "Speichern"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

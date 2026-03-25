@@ -54,13 +54,38 @@ exports.getTopicsByCourse = async (req, res) => {
 exports.updateTopic = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, prerequisiteIds } = req.body;
+    const { name, description, prerequisiteIds, sourceUrl } = req.body;
 
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Zugriff verweigert" });
     }
 
-    const data = { name, description };
+    // 1. Bestehendes Thema laden, um Content-Merging zu ermöglichen
+    const currentTopic = await prisma.topic.findUnique({ where: { id } });
+    if (!currentTopic) return res.status(404).json({ error: "Thema nicht gefunden" });
+
+    // 2. Neues Material verarbeiten (falls vorhanden)
+    let newContent = "";
+    if (sourceUrl) {
+      newContent = await scrapeUrl(sourceUrl);
+    } else if (req.file) {
+      console.log("Update: Parse neue PDF:", req.file.originalname);
+      newContent = await parsePdf(req.file.buffer);
+    }
+
+    // 3. Content zusammenführen (Append statt Overwrite)
+    let combinedContent = currentTopic.content || "";
+    if (newContent) {
+      combinedContent = combinedContent 
+        ? `${combinedContent}\n\n--- Ergänzendes Material ---\n\n${newContent}` 
+        : newContent;
+    }
+
+    const data = { 
+      name, 
+      description,
+      content: combinedContent 
+    };
 
     if (prerequisiteIds && Array.isArray(prerequisiteIds)) {
       data.prerequisites = {
@@ -74,7 +99,11 @@ exports.updateTopic = async (req, res) => {
       include: { prerequisites: true }
     });
 
-    res.json({ message: "Thema aktualisiert", topic: updatedTopic });
+    res.json({ 
+      message: "Thema erfolgreich aktualisiert und Material hinzugefügt!", 
+      topic: updatedTopic,
+      contentAppended: !!newContent 
+    });
   } catch (error) {
     console.error("Update Topic Error:", error.message);
     res.status(500).json({ error: "Fehler beim Aktualisieren" });
