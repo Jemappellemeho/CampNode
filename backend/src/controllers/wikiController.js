@@ -93,3 +93,46 @@ exports.article = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch article" });
   }
 };
+
+// Abfrage von Unterthemen-Vorschlägen von DBpedia via Wikidata Q-Nummer
+exports.suggestions = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const lang = req.query.lang || 'en';
+
+    // 1. Wikipedia-Titel von Wikidata holen (wird für den DBpedia-Pfad benötigt)
+    const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
+    const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
+    const entity = entityRes.data.entities[id];
+    const wikiTitle = entity.sitelinks?.[`${lang}wiki`]?.title;
+
+    if (!wikiTitle) return res.json([]);
+
+    // 2. DBpedia SPARQL Abfrage
+    // Wir suchen nach Ressourcen, die die gleichen Kategorien (dct:subject) teilen
+    const dbpediaResource = `http://dbpedia.org/resource/${wikiTitle.replace(/ /g, '_')}`;
+    const sparqlQuery = `
+      SELECT DISTINCT ?concept ?label WHERE {
+        <${dbpediaResource}> <http://purl.org/dc/terms/subject> ?category .
+        ?concept <http://purl.org/dc/terms/subject> ?category .
+        ?concept <http://www.w3.org/2000/01/rdf-schema#label> ?label .
+        FILTER (lang(?label) = '${lang}')
+        FILTER (?concept != <${dbpediaResource}>)
+      } LIMIT 10
+    `;
+
+    const sparqlUrl = `https://dbpedia.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=application%2Fsparql-results%2Bjson`;
+    const sparqlRes = await axios.get(sparqlUrl);
+
+    const suggestions = sparqlRes.data.results.bindings.map(b => ({
+      label: b.label.value,
+      uri: b.concept.value,
+      dbPediaName: b.concept.value.split('/').pop()
+    }));
+
+    res.json(suggestions);
+  } catch (err) {
+    console.error("DBPEDIA ERROR:", err.response?.data || err.message);
+    res.status(500).json({ error: "Fehler beim Abrufen der DBpedia-Vorschläge" });
+  }
+};

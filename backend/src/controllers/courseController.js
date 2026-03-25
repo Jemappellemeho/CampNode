@@ -105,7 +105,13 @@ exports.getCourseById = async (req, res) => {
       where: { id },
       include: {
         instructor: { select: { id: true, email: true, role: true } },
-        topics: true, // Lädt direkt die Themen des Kurses mit (brauchen wir später)
+        topics: {
+          include: {
+            quizzes: true,
+            prerequisites: true,
+            requiredBy: true
+          }
+        },
         students: { select: { id: true, email: true } }
       }
     });

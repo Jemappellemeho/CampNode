@@ -162,6 +162,12 @@ export default function CourseManager() {
   const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
   const [deletingTopicId, setDeletingTopicId] = useState<string | null>(null);
   
+  // Quiz Editor State
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+  const [selectedQuiz, setSelectedQuiz] = useState<any>(null);
+  const [tempQuestions, setTempQuestions] = useState<any[]>([]);
+  const [isSavingQuiz, setIsSavingQuiz] = useState(false);
+  
   // Fetch Wikipedia article for a single topic.
   // Defined with useCallback to maintain reference stability-
   // this prevents the nodes useEffect from re-running unnecessarily.
@@ -244,6 +250,89 @@ export default function CourseManager() {
       setDeletingTopicId(null);
     }
   }; 
+
+  // Nutzt die KI, um für ein Thema Zusammenfassung und Quizzes zu generieren
+  const handleEnrichTopic = async (topicId: string) => {
+    try {
+      setLoadingTopicId(topicId); // Wir nutzen den gleichen Lade-Status
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `http://localhost:3000/api/topics/${topicId}/enrich`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      fetchCourse(); // Neu laden, um die Zusammenfassung zu sehen
+      alert("KI-Analyse abgeschlossen!");
+    } catch (err) {
+      console.error("Fehler beim KI-Enrichment:", err);
+      alert("KI-Analyse fehlgeschlagen.");
+    } finally {
+      setLoadingTopicId(null);
+    }
+  };
+
+  // Öffnet den Quiz-Editor
+  const handleOpenQuizEditor = (quiz: any) => {
+    setSelectedQuiz(quiz);
+    setTempQuestions(quiz.questions || []);
+    setIsQuizModalOpen(true);
+  };
+
+  // Speichert die Änderungen am Quiz in der Datenbank
+  const handleSaveQuiz = async () => {
+    if (!selectedQuiz) return;
+    setIsSavingQuiz(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(
+        `http://localhost:3000/api/topics/quizzes/${selectedQuiz.id}`,
+        { questions: tempQuestions },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setIsQuizModalOpen(false);
+      fetchCourse(); // Daten neu laden
+      alert("Quiz erfolgreich gespeichert!");
+    } catch (err) {
+      console.error("Failed to save quiz", err);
+      alert("Fehler beim Speichern des Quiz.");
+    } finally {
+      setIsSavingQuiz(false);
+    }
+  };
+
+  // Löscht ein Quiz komplett
+  const handleDeleteQuiz = async (quizId: string) => {
+    if (!window.confirm("Dieses Quiz wirklich löschen?")) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`http://localhost:3000/api/topics/quizzes/${quizId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setIsQuizModalOpen(false);
+      fetchCourse();
+    } catch (err) {
+      console.error("Failed to delete quiz", err);
+    }
+  };
+
+  // Aktualisiert die Voraussetzungen eines Themas in der Datenbank
+  const handleUpdatePrerequisites = async (topicId: string, prerequisiteIds: string[]) => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      await axios.put(
+        `http://localhost:3000/api/topics/${topicId}`,
+        { prerequisiteIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Den gesamten Kurs neu laden, um die neuen Beziehungen sofort anzuzeigen
+      fetchCourse(); 
+    } catch (err) {
+      console.error("Fehler beim Aktualisieren der Hierarchie:", err);
+      alert("Konnte Themen nicht verknüpfen.");
+    }
+  };
   if (loading) {
     return <div className="text-center py-32 text-gray-500 font-medium">Loading course details...</div>;
   }
@@ -377,8 +466,73 @@ export default function CourseManager() {
                 <div key={node.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
-                      <p className="text-sm text-gray-500 mt-1">{node.description || "No description provided."}</p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
+                        {/* Lila Badge wenn die KI bereits am Werk war */}
+                        {node.description?.includes("[KI-ZUSAMMENFASSUNG]") && (
+                          <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-[9px] font-extrabold rounded-md uppercase tracking-wider border border-purple-200 dark:border-purple-800">
+                            ✨ AI Enriched
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                        {node.description || "No description provided."}
+                      </p>
+                      
+                      {/* --- Prerequisites UI (Roadmap Logik) --- */}
+                      <div className="mt-4 pt-4 border-t dark:border-gray-700">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Voraussetzungen (Roadmap-Link)</p>
+                        <div className="flex flex-wrap gap-2">
+                          {/* Zeige alle ANDEREN Themen dieses Kurses als Verknüpfungs-Option an */}
+                          {nodes.filter((other: any) => other.id !== node.id).map((other: any) => {
+                            // Prüfen, ob dieses 'other' Thema bereits eine Voraussetzung für das aktuelle 'node' Thema ist
+                            const isPrereq = node.prerequisites?.some((p: any) => p.id === other.id);
+                            
+                            return (
+                              <button
+                                key={other.id}
+                                onClick={() => {
+                                  const currentIds = node.prerequisites?.map((p: any) => p.id) || [];
+                                  const newIds = isPrereq 
+                                    ? currentIds.filter((id: string) => id !== other.id) 
+                                    : [...currentIds, other.id];
+                                  handleUpdatePrerequisites(node.id, newIds);
+                                }}
+                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wide uppercase transition-all ${
+                                  isPrereq 
+                                    ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20" 
+                                    : "bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-blue-300 dark:hover:border-blue-900"
+                                } border`}
+                              >
+                                {isPrereq ? "✓ " : "+ "} {other.name}
+                              </button>
+                            );
+                          })}
+                          {nodes.length <= 1 && (
+                            <p className="text-xs text-gray-400 italic">No other topics to link yet.</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* --- KI-Quiz (Nur falls vorhanden) --- */}
+                      {node.quizzes?.length > 0 && (
+                        <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800/30 rounded-xl">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-bold text-green-600 dark:text-green-500 uppercase tracking-widest">
+                              Vorhandene Quizzes
+                            </p>
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-green-200 dark:bg-green-900 text-green-800 dark:text-green-300 rounded-full">
+                              {node.quizzes.length} Modul(e)
+                            </span>
+                          </div>
+                          <button 
+                            onClick={() => handleOpenQuizEditor(node.quizzes[0])}
+                            className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                          >
+                            Quiz jetzt ansehen & bearbeiten
+                          </button>
+                        </div>
+                      )}
                     </div>
  
                     {/* Delete topic button */}
@@ -389,6 +543,16 @@ export default function CourseManager() {
                     >
                       <Trash2 size={13} />
                       {deletingTopicId === node.id ? "Deleting..." : "Remove"}
+                    </button>
+                    
+                    {/* KI-Enrichment Button */}
+                    <button
+                      onClick={() => handleEnrichTopic(node.id)}
+                      disabled={loadingTopicId === node.id || (!node.content && !node.wikidataId)}
+                      title={(!node.content && !node.wikidataId) ? "Kein Inhalt oder Wiki-Link zum Analysieren da" : ""}
+                      className="flex-shrink-0 ml-2 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-600 border border-purple-200 dark:border-purple-900 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors disabled:opacity-40"
+                    >
+                      ✨ {loadingTopicId === node.id ? "Analysiere..." : "KI: Zusammenfassung & Quiz"}
                     </button>
                   </div>
  
@@ -452,6 +616,135 @@ export default function CourseManager() {
       <main className="min-h-[400px]">
         {renderTabContent()}
       </main>
+
+      {/* --- QUIZ EDITOR MODAL --- */}
+      {isQuizModalOpen && selectedQuiz && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-all">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
+            {/* Modal Header */}
+            <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+              <div>
+                <h3 className="text-xl font-bold dark:text-white">Quiz Editor ✨</h3>
+                <p className="text-xs text-gray-400 mt-1">Überprüfe und bearbeite die KI-generierten Fragen</p>
+              </div>
+              <button 
+                onClick={() => setIsQuizModalOpen(false)}
+                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+              >
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+
+            {/* Modal Content (Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+              {tempQuestions.map((q, qIdx) => (
+                <div key={qIdx} className="relative p-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border dark:border-gray-700">
+                  <div className="absolute -top-3 -left-3 w-8 h-8 bg-purple-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow-lg">
+                    {qIdx + 1}
+                  </div>
+                  
+                  {/* Question Text */}
+                  <div className="mb-4">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Frage</label>
+                    <input 
+                      type="text"
+                      value={q.question}
+                      onChange={(e) => {
+                        const newQ = [...tempQuestions];
+                        newQ[qIdx].question = e.target.value;
+                        setTempQuestions(newQ);
+                      }}
+                      className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+                    />
+                  </div>
+
+                  {/* Options */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {q.options.map((opt: string, oIdx: number) => (
+                      <div key={oIdx}>
+                        <label className="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Option {oIdx + 1}</label>
+                        <input 
+                          type="text"
+                          value={opt}
+                          onChange={(e) => {
+                            const newQ = [...tempQuestions];
+                            newQ[qIdx].options[oIdx] = e.target.value;
+                            setTempQuestions(newQ);
+                          }}
+                          className={`w-full bg-white dark:bg-gray-800 border rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white ${
+                            q.answer === opt ? 'border-green-500 ring-1 ring-green-500/20' : 'dark:border-gray-700'
+                          }`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Correct Answer Selector */}
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Richtige Lösung:</span>
+                      <select 
+                        value={q.answer}
+                        onChange={(e) => {
+                          const newQ = [...tempQuestions];
+                          newQ[qIdx].answer = e.target.value;
+                          setTempQuestions(newQ);
+                        }}
+                        className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold px-3 py-1 rounded-lg outline-none cursor-pointer"
+                      >
+                        {q.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        const newQ = tempQuestions.filter((_, i) => i !== qIdx);
+                        setTempQuestions(newQ);
+                      }}
+                      className="text-red-500 hover:text-red-700 p-2 transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <button 
+                onClick={() => {
+                  setTempQuestions([...tempQuestions, { question: "Neue Frage?", options: ["A", "B", "C", "D"], answer: "A" }]);
+                }}
+                className="w-full py-3 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl text-gray-400 hover:text-purple-500 hover:border-purple-300 transition-all flex items-center justify-center gap-2 font-bold text-sm"
+              >
+                <Plus size={18} /> Frage hinzufügen
+              </button>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t dark:border-gray-700 flex gap-3 bg-gray-50 dark:bg-gray-900/50">
+              <button 
+                onClick={() => handleDeleteQuiz(selectedQuiz.id)}
+                className="px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+              >
+                Quiz löschen
+              </button>
+              <div className="flex-1" />
+              <button 
+                onClick={() => setIsQuizModalOpen(false)}
+                className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button 
+                onClick={handleSaveQuiz}
+                disabled={isSavingQuiz}
+                className="px-8 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20"
+              >
+                {isSavingQuiz ? "Speichert..." : "Änderungen speichern"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

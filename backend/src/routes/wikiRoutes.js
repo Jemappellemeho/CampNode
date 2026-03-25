@@ -9,4 +9,8 @@ router.get("/search", wikiController.search);
 // :id must be a valid Wikidata entity ID, not a topic database ID
 router.get("/article/:id", wikiController.article);
 
+// Neue Route für DBpedia Unterthemen-Vorschläge
+router.get("/suggestions/:id", wikiController.suggestions); 
+
+
 module.exports = router;

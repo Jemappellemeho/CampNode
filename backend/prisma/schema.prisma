@@ -44,8 +44,8 @@ model Topic {
   progress       Progress[]
   quizzes        Quiz[]
   course         Course?     @relation(fields: [courseId], references: [id])
-  Topic_A        Topic[]    @relation("TopicHierarchy")
-  Topic_B        Topic[]    @relation("TopicHierarchy")
+  prerequisites  Topic[]    @relation("TopicHierarchy")
+  requiredBy     Topic[]    @relation("TopicHierarchy")
 }
 
 model Quiz {
