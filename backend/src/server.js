@@ -6,7 +6,12 @@ const courseRoutes = require("./routes/courseRoutes"); // Neue Kurs-Routen
 const topicRoutes = require("./routes/topicRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const progressRoutes = require("./routes/progressRoutes");
+<<<<<<< HEAD
 const graphRoutes = require("./routes/graphRoutes");
+=======
+const wikiRoutes = require("./routes/wikiRoutes");
+
+>>>>>>> dev
 
 const app = express();
 
@@ -32,8 +37,13 @@ app.use("/api/quizzes", quizRoutes);
 // Hier verbinden wir die neuen Fortschritts-Routen
 app.use("/api/progress", progressRoutes);
 
+<<<<<<< HEAD
 // Hier verbinden wir Route to Server
 app.use("/api/graph", graphRoutes);
+=======
+// Hier verbinden wir die Wiki-Routen
+app.use("/api/wiki", wikiRoutes);
+>>>>>>> dev
     
 
 const port = process.env.PORT || 3000;
