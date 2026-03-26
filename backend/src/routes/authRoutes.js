@@ -2,10 +2,12 @@ const express = require("express");
 const router = express.Router();
 const authController = require("../controllers/authController");
 
-// Wenn ein POST Request an /register kommt, führe authController.register aus
+// Route: POST /api/auth/register
+// Handle user registration
 router.post("/register", authController.register);
 
-// Login-Route
+// Route: POST /api/auth/login
+// Handle user login and JWT generation
 router.post("/login", authController.login);
 
 module.exports = router;

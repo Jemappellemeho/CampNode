@@ -44,6 +44,14 @@ model Topic {
   progress       Progress[]
   quizzes        Quiz[]
   course         Course?    @relation(fields: [courseId], references: [id])
+  parentTopicId  String?
+  order          Int        @default(0)
+  aiSuggested    Boolean    @default(false)
+  videoUrl       String?
+  articleUrl     String?
+  podcastUrl     String?
+  parentTopic    Topic?     @relation("Subtopics", fields: [parentTopicId], references: [id])
+  subtopics      Topic[]    @relation("Subtopics")
   Topic_A        Topic[]    @relation("TopicHierarchy")
   Topic_B        Topic[]    @relation("TopicHierarchy")
 }

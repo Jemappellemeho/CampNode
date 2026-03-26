@@ -94,13 +94,13 @@ exports.article = async (req, res) => {
   }
 };
 
-// Abfrage von Unterthemen-Vorschlägen von DBpedia via Wikidata Q-Nummer
+// Fetch DBpedia subtopic suggestions using the Wikidata Q-number
 exports.suggestions = async (req, res) => {
   try {
     const id = req.params.id;
     const lang = req.query.lang || 'en';
 
-    // 1. Wikipedia-Titel von Wikidata holen (wird für den DBpedia-Pfad benötigt)
+    // 1. Get the Wikipedia title from Wikidata (needed for the DBpedia resource path)
     const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
     const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
     const entity = entityRes.data.entities[id];
@@ -108,8 +108,8 @@ exports.suggestions = async (req, res) => {
 
     if (!wikiTitle) return res.json([]);
 
-    // 2. DBpedia SPARQL Abfrage
-    // Wir suchen nach Ressourcen, die die gleichen Kategorien (dct:subject) teilen
+    // 2. DBpedia SPARQL Query
+    // We search for resources that share the same categories (dct:subject)
     const dbpediaResource = `http://dbpedia.org/resource/${wikiTitle.replace(/ /g, '_')}`;
     const sparqlQuery = `
       SELECT DISTINCT ?concept ?label WHERE {
@@ -133,6 +133,6 @@ exports.suggestions = async (req, res) => {
     res.json(suggestions);
   } catch (err) {
     console.error("DBPEDIA ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: "Fehler beim Abrufen der DBpedia-Vorschläge" });
+    res.status(500).json({ error: "Failed to fetch DBpedia suggestions" });
   }
 };

@@ -21,3 +21,8 @@ client/dist/
 
 #tmp
 /tmp    
+
+
+# Lokale Test-Skripte ignorieren
+test-*.js
+

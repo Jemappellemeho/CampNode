@@ -3,15 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Plus, Trash2, ChevronLeft, GripVertical,
-  BookOpen, Check, X, Users, Globe, Copy, 
-  ChevronRight, Play, Headphones, Sparkles, Save, Lock
+  BookOpen, X, Users, Globe, Copy, 
+  ChevronRight, Play, Headphones, Sparkles, Lock
 } from 'lucide-react';
 import Layout from '../components/Layout';
 
 const API = 'http://localhost:3000/api';
 const BLUE = '#1E6FFF';
-const RED = '#E63027';
-const GREEN = '#3A9E3F';
 
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -182,6 +180,17 @@ export default function CourseManager() {
                       <h3 className="text-base dark:text-white">{topic.name}</h3>
                     </div>
                   </div>
+                  
+                  {/* WIKIDATA CONTENT PREVIEW */}
+                  {topic.content && (
+                    <div className="ml-6 mb-6 pl-4 border-l-2 border-gray-100 dark:border-gray-800 relative">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Wikipedia Abstract</p>
+                      <div 
+                         className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 overflow-y-auto max-h-40"
+                         dangerouslySetInnerHTML={{ __html: topic.content }} 
+                      />
+                    </div>
+                  )}
 
                   <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
                     {topic.subtopics?.map((sub: any) => (

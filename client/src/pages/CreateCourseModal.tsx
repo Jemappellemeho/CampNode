@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 
 export default function CreateCourseModal({ isOpen, onClose}: any) {
   const [step, setStep] = useState(1);
-  const [data, setData] = useState({ title: '', description: '', topics: [] as any[] });
+  const [data, setData] = useState({ title: '', description: '', isPublic: true, topics: [] as any[] });
 
   // Language preference stored here but currently only used as UI context —
   // the actual article language is chosen at read time via ?lang= query param
@@ -29,18 +29,53 @@ export default function CreateCourseModal({ isOpen, onClose}: any) {
     }
   };
 
-  // Add a topic to the selection list, ignoring duplicates.
-  const addTopic = (topic: any) => {
+  // Add a topic to the selection list, ignoring duplicates, and fetch DBpedia subtopics
+  const addTopic = async (topic: any) => {
     if (!data.topics.find((t: any) => t.id === topic.id)) {
-      setData({ ...data, topics: [...data.topics, topic] });
+      const newTopic = { ...topic, subtopicsMap: {}, loadingSubtopics: true, allSubtopics: [] };
+      setData((prev) => ({ ...prev, topics: [...prev.topics, newTopic] }));
+      setResults([]);
+      setSearch('');
+
+      // Fetch DBpedia suggestions
+      try {
+        const res = await axios.get(`http://localhost:3000/api/wiki/suggestions/${topic.id}?lang=${language}`);
+        setData((prev) => {
+          const map: any = {};
+          // Select first 3 by default to save time
+          res.data.forEach((s: any, i: number) => { map[s.uri] = i < 3; });
+          const updatedTopics = prev.topics.map(t => 
+            t.id === topic.id ? { ...t, loadingSubtopics: false, allSubtopics: res.data, subtopicsMap: map } : t
+          );
+          return { ...prev, topics: updatedTopics };
+        });
+      } catch (e) {
+        setData((prev) => ({
+          ...prev, topics: prev.topics.map(t => t.id === topic.id ? { ...t, loadingSubtopics: false } : t)
+        }));
+      }
+    } else {
+      setResults([]);
+      setSearch('');
     }
-    setResults([]);
-    setSearch('');
   };
 
   // Remove a topic from the selection before saving
   const removeTopic = (topicId: string) => {
     setData({ ...data, topics: data.topics.filter((t: any) => t.id !== topicId) });
+  };
+
+  // Toggle a specific subtopic for a specific topic
+  const toggleSubtopic = (topicId: string, subUri: string) => {
+    setData((prev) => {
+      const updatedTopics = prev.topics.map(t => {
+        if (t.id === topicId) {
+          return { ...t, subtopicsMap: { ...t.subtopicsMap, [subUri]: !t.subtopicsMap[subUri] } };
+        }
+        return t;
+      });
+      return { ...prev, topics: updatedTopics };
+    });
   };
 
 
@@ -53,23 +88,43 @@ export default function CreateCourseModal({ isOpen, onClose}: any) {
       const token = localStorage.getItem('token');
 
       const courseRes = await axios.post('http://localhost:3000/api/courses', 
-        { title: data.title, description: data.description },
+        { title: data.title, description: data.description, isPublic: data.isPublic },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
       const newCourseId = courseRes.data.course.id;
 
-      for (const topic of data.topics) {
+      for (let i = 0; i < data.topics.length; i++) {
+        const topic = data.topics[i];
         console.log("Saving topic:", topic);
-        await axios.post('http://localhost:3000/api/topics',
+        const savedTopicRes = await axios.post('http://localhost:3000/api/courses/' + newCourseId + '/topics',
           {
             name: topic.label,
-            courseId: newCourseId,
-            wikidataId: topic.id,
             description: topic.description || "",
+            order: i,
+            aiSuggested: false,
+            wikidataId: topic.id
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );
+
+        // Save selected subtopics
+        const parentId = savedTopicRes.data.id;
+        let subOrder = 0;
+        for (const sub of topic.allSubtopics || []) {
+          if (topic.subtopicsMap[sub.uri]) {
+            await axios.post('http://localhost:3000/api/courses/' + newCourseId + '/topics',
+              {
+                name: sub.label,
+                description: "",
+                parentTopicId: parentId,
+                order: subOrder++,
+                aiSuggested: true // Mark DBpedia suggestions as AI
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          }
+        }
       }
       navigate(`/prof/course/${newCourseId}`); 
     } catch (err) {
@@ -104,6 +159,28 @@ export default function CreateCourseModal({ isOpen, onClose}: any) {
                 placeholder="Course Title" onChange={e => setData({...data, title: e.target.value})} />
               <textarea className="w-full px-4 py-3 rounded-xl border dark:border-gray-700 dark:bg-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
                 placeholder="What will students learn?" onChange={e => setData({...data, description: e.target.value})} />
+
+              {/* Public / Private toggle */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase mb-2">Visibility</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setData({...data, isPublic: true})}
+                    className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${data.isPublic ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-400 dark:border-gray-600'}`}
+                  >
+                    🌐 Public
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setData({...data, isPublic: false})}
+                    className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${!data.isPublic ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-400 dark:border-gray-600'}`}
+                  >
+                    🔒 Private
+                  </button>
+                </div>
+              </div>
+
               <button onClick={() => setStep(2)} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all">
                 Next Step
               </button>
@@ -147,15 +224,37 @@ export default function CreateCourseModal({ isOpen, onClose}: any) {
                 ))}
               </div>
 
-              {/* Selected topics shown as removable pills */}
-              <div className="flex flex-wrap gap-2 pt-2">
+              {/* Selected topics shown with subtopics checklist */}
+              <div className="flex flex-col gap-3 pt-2 max-h-60 overflow-y-auto">
                 {data.topics.map((t: any) => (
-                  <span key={t.id} className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
-                    <BookOpen size={12} /> {t.label}
-                    <button onClick={() => removeTopic(t.id)} className="ml-1 hover:text-red-500">
-                      <X size={14} />
-                    </button>
-                  </span>
+                  <div key={t.id} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-blue-700 dark:text-blue-300 font-bold flex items-center gap-2">
+                        <BookOpen size={16} /> {t.label} 
+                        {t.loadingSubtopics && <span className="text-[10px] text-gray-400 font-normal">Loading DBpedia...</span>}
+                      </span>
+                      <button onClick={() => removeTopic(t.id)} className="text-gray-400 hover:text-red-500">
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    {t.allSubtopics && t.allSubtopics.length > 0 && (
+                      <div className="pl-6 border-l-2 border-gray-200 dark:border-gray-700 ml-2 space-y-1 mt-2">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">DBpedia Subtopics</p>
+                        {t.allSubtopics.map((sub: any) => (
+                           <label key={sub.uri} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer hover:text-black dark:hover:text-white">
+                             <input 
+                               type="checkbox" 
+                               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                               checked={t.subtopicsMap[sub.uri] || false}
+                               onChange={() => toggleSubtopic(t.id, sub.uri)}
+                             />
+                             {sub.label}
+                           </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
 

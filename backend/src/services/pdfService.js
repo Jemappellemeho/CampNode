@@ -1,20 +1,20 @@
 const pdf = require("pdf-parse");
 
 /**
- * Diese Funktion nimmt eine PDF-Datei (als Buffer) und extrahiert den Text.
- * @param {Buffer} dataBuffer - Die rohen Daten der PDF-Datei
- * @returns {Promise<string>} - Der extrahierte Text
+ * Extracts text content from a given PDF file buffer.
+ * @param {Buffer} dataBuffer - The raw PDF data buffer
+ * @returns {Promise<string>} - The extracted text
  */
 const parsePdf = async (dataBuffer) => {
   try {
-    // pdf-parse liest die Datei aus
+    // Read the file using pdf-parse
     const data = await pdf(dataBuffer);
     
-    // Wir geben den Text zurück und bereinigen ihn von zu vielen Leerzeichen
+    // Return the text and clean up excessive whitespace
     return data.text.replace(/\s+/g, ' ').trim();
   } catch (error) {
-    console.error("PDF Parsing Fehler:", error.message);
-    throw new Error("Konnte die PDF-Datei nicht lesen.");
+    console.error("PDF Parsing Error:", error.message);
+    throw new Error("Could not read the PDF file.");
   }
 };
 

@@ -23,6 +23,7 @@ interface MainTopic {
   id: string;
   title: string;
   description: string;
+  content?: string;
   status: Status;
   subnodes: Subnode[];
   progress: { completed: number; total: number };
@@ -112,6 +113,7 @@ export default function Playground() {
             id: topic.id,
             title: `${index + 1}. ${topic.name}`,
             description: topic.description || "No description provided.",
+            content: topic.content,
             status: index === 0 ? 'current' : 'locked', // Logic: first one is open
             progress: { completed: 0, total: Math.max(1, mappedSubtopics.length) },
             subnodes: mappedSubtopics
@@ -239,6 +241,24 @@ export default function Playground() {
 
             {/* CONNECTION LINE - active state */}
             {activeId === node.id && (
+              <div
+                className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 z-10"
+                style={{ background: "#F5C518" }}
+              />
+            )}
+
+            {/* MAIN WIKIPEDIA CONTENT OVERVIEW */}
+            {activeId === node.id && node.content && (
+              <div className="w-full max-w-2xl px-4 z-20 animate-in fade-in slide-in-from-top-2">
+                 <div className="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-3xl p-6 shadow-xl relative mt-2 text-center text-gray-700 dark:text-gray-300 text-sm leading-relaxed max-h-48 overflow-y-auto">
+                    <p className="font-bold text-[10px] text-blue-600 dark:text-blue-500 uppercase tracking-widest mb-3">Topic Abstract</p>
+                    {node.content}
+                 </div>
+              </div>
+            )}
+
+            {/* CONNECTION LINE BELOW ABSTRACT */}
+            {activeId === node.id && node.content && (
               <div
                 className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 z-10"
                 style={{ background: "#F5C518" }}
