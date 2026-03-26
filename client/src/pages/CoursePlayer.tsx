@@ -1,373 +1,517 @@
 // CoursePlayer is the student view for reading course topics.
 // Layout: fixed sidebar on the left (topics list + language switcher),
 
-import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import axios from "axios";
-import { ArrowLeft, BookOpen, Brain, RotateCcw, Trophy, FileText } from "lucide-react";
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import {
+  BookOpen, FileText, Headphones, HelpCircle,
+  ChevronLeft, Lock, CheckCircle, Play,
+  X, LayoutList
+} from 'lucide-react';
 
+const API = 'http://localhost:3000/api';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface SubTopic {
+  id: string;
+  name: string;
+  description?: string;
+  completed: boolean;
+  aiSuggested?: boolean;
+  videoUrl?: string;
+  articleUrl?: string;
+  podcastUrl?: string;
+  quizzes?: { id: string }[];
+  prerequisites?: { id: string; name: string }[];
+}
+
+interface Topic {
+  id: string;
+  name: string;
+  description?: string;
+  order: number;
+  completed: boolean;
+  subtopics: SubTopic[];
+  quizzes?: { id: string }[];
+}
+
+interface Course {
+  id: string;
+  title: string;
+  description?: string;
+  topics: Topic[];
+  progressMap: Record<string, boolean>;
+}
+
+// ─── Colour helpers ───────────────────────────────────────────────────────────
+const BLUE   = '#1E6FFF';
+const RED    = '#E63027';
+const GREEN  = '#3A9E3F';
+const YELLOW = '#F5C518';
+const DARK   = '#1a2340';
+
+function topicHexColor(topic: Topic): string {
+  if (topic.completed) return GREEN;
+  if (topic.subtopics.some(s => s.completed)) return YELLOW;
+  return DARK;
+}
+
+function subtopicDiamondColor(sub: SubTopic, parentComplete: boolean): string {
+  if (sub.completed) return GREEN;
+  if (sub.aiSuggested) return RED;
+  if (parentComplete) return BLUE; // parent done → all subs unlocked
+  return BLUE; // always show unlocked for now; lock logic can be added per prereqs
+}
+
+// ─── SVG shape components ─────────────────────────────────────────────────────
+
+/** Hexagon node (flat-top, used for parent topics) */
+function HexagonNode({
+  label, subLabel, color, onClick, size = 110,
+}: {
+  label: string; subLabel?: string; color: string; onClick?: () => void; size?: number;
+}) {
+  const w = size;
+  const h = size * 0.866; // cos(30°)
+  const cx = w / 2;
+  const cy = h / 2;
+  const r  = w / 2;
+  // Flat-top hexagon points
+  const pts = [0,1,2,3,4,5].map(i => {
+    const a = (Math.PI / 180) * (60 * i - 30);
+    return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+  }).join(' ');
+
+  return (
+    <div
+      onClick={onClick}
+      className="flex flex-col items-center cursor-pointer select-none"
+      style={{ width: w }}
+    >
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} overflow="visible">
+        <polygon
+          points={pts}
+          fill={color}
+          stroke={color === DARK ? '#2a3558' : 'none'}
+          strokeWidth={1.5}
+          style={{ filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.25))' }}
+        />
+        <foreignObject x={4} y={4} width={w - 8} height={h - 8}>
+          <div
+            style={{
+              width: '100%', height: '100%',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              textAlign: 'center', padding: 4,
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 800, fontSize: 10, lineHeight: 1.2, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              {label}
+            </span>
+            {subLabel && (
+              <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 9, marginTop: 2 }}>
+                {subLabel}
+              </span>
+            )}
+          </div>
+        </foreignObject>
+      </svg>
+    </div>
+  );
+}
+
+/** Diamond node (rotated square, used for subtopics) */
+function DiamondNode({
+  label, color, onClick, aiSuggested = false, size = 90,
+}: {
+  label: string; color: string; onClick?: () => void; aiSuggested?: boolean; size?: number;
+}) {
+  const s = size;
+  return (
+    <div className="flex flex-col items-center" style={{ width: s + 20 }}>
+      <div
+        onClick={onClick}
+        className="cursor-pointer select-none relative flex items-center justify-center"
+        style={{
+          width: s, height: s,
+          transform: 'rotate(45deg)',
+          background: color,
+          borderRadius: 6,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+        }}
+      >
+        <span
+          style={{
+            transform: 'rotate(-45deg)',
+            color: '#fff', fontWeight: 700, fontSize: 10,
+            textAlign: 'center', textTransform: 'uppercase',
+            letterSpacing: 0.3, lineHeight: 1.2,
+            maxWidth: s * 0.7, display: 'block',
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      {aiSuggested && (
+        <span style={{ fontSize: 9, color: RED, marginTop: 4, fontWeight: 600 }}>
+          AI suggested
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Resource icon row under a node */
+function ResourceRow({
+  topic, onQuiz,
+}: {
+  topic: SubTopic | Topic;
+  onQuiz?: () => void;
+}) {
+  const sub = topic as SubTopic;
+  const hasVideo   = !!sub.videoUrl;
+  const hasArticle = !!sub.articleUrl;
+  const hasPodcast = !!sub.podcastUrl;
+  const hasQuiz    = sub.quizzes && sub.quizzes.length > 0;
+
+  const iconBtn = (
+    icon: React.ReactNode,
+    url?: string,
+    action?: () => void,
+    active = true,
+  ) => (
+    <button
+      disabled={!active}
+      onClick={() => (url ? window.open(url, '_blank') : action?.())}
+      className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+      style={{
+        background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+        color: active ? '#fff' : 'rgba(255,255,255,0.25)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
+    >
+      {icon}
+    </button>
+  );
+
+  return (
+    <div className="flex gap-1 justify-center mt-2">
+      {iconBtn(<Play size={12} />, sub.videoUrl, undefined, hasVideo)}
+      {iconBtn(<BookOpen size={12} />, sub.articleUrl, undefined, hasArticle)}
+      {iconBtn(<Headphones size={12} />, sub.podcastUrl, undefined, hasPodcast)}
+      {iconBtn(<HelpCircle size={12} />, undefined, onQuiz, hasQuiz)}
+    </div>
+  );
+}
+
+// ─── Syllabus Panel ───────────────────────────────────────────────────────────
+function SyllabusPanel({
+  course, progressPct, onClose,
+}: {
+  course: Course; progressPct: number; onClose: () => void;
+}) {
+  const statusIcon = (completed: boolean, locked: boolean) => {
+    if (completed) return <span style={{ color: GREEN, fontWeight: 700 }}>✓</span>;
+    if (locked)    return <span style={{ color: '#888' }}>🔒</span>;
+    return <span style={{ color: YELLOW }}>→</span>;
+  };
+
+  return (
+    <div
+      className="fixed top-0 right-0 h-full w-80 z-50 overflow-y-auto"
+      style={{
+        background: '#fff',
+        boxShadow: '-4px 0 32px rgba(0,0,0,0.15)',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#eee' }}>
+        <h2 style={{ fontWeight: 900, fontSize: 18, letterSpacing: 1, textTransform: 'uppercase' }}>
+          Course Syllabus
+        </h2>
+        <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* Progress */}
+      <div className="mx-4 mt-4 mb-2 p-4 rounded-xl" style={{ border: '1px solid #eee' }}>
+        <p style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>Overall Progress</p>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-3 rounded-full" style={{ background: '#e5e7eb' }}>
+            <div
+              className="h-3 rounded-full transition-all"
+              style={{ width: `${progressPct}%`, background: YELLOW }}
+            />
+          </div>
+          <span style={{ fontWeight: 800, fontSize: 15 }}>{progressPct}%</span>
+        </div>
+      </div>
+
+      {/* Topics */}
+      <div className="px-4 pb-8 mt-2 flex flex-col gap-4">
+        {course.topics.map((topic, ti) => {
+          const doneCount = topic.subtopics.filter(s => s.completed).length;
+          const total     = topic.subtopics.length;
+          return (
+            <div key={topic.id}>
+              <div className="flex items-baseline gap-2 mb-1">
+                <span style={{ fontWeight: 800, fontSize: 14, color: '#111' }}>
+                  {ti + 1}. {topic.name.toUpperCase()}
+                </span>
+                <span style={{ fontSize: 12, color: '#888' }}>
+                  ({doneCount}/{total})
+                </span>
+              </div>
+              {topic.description && (
+                <p style={{ fontSize: 12, color: '#666', marginBottom: 6, lineHeight: 1.5 }}>
+                  {topic.description}
+                </p>
+              )}
+              <div className="flex flex-col gap-1 pl-2 border-l-2" style={{ borderColor: '#eee' }}>
+                {topic.subtopics.map((sub, si) => {
+                  const locked = si > 0 && !topic.subtopics[si - 1].completed;
+                  return (
+                    <div key={sub.id} className="flex items-center gap-2">
+                      {statusIcon(sub.completed, locked)}
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: sub.completed ? GREEN : locked ? '#aaa' : sub.aiSuggested ? RED : BLUE,
+                        }}
+                      >
+                        {sub.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 export default function CoursePlayer() {
-  const { courseId } = useParams();
-  const navigate = useNavigate();
+  const { courseId } = useParams<{ courseId: string }>();
+  const navigate     = useNavigate();
+  const [course, setCourse]           = useState<Course | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState('');
+  const [syllabusOpen, setSyllabusOpen] = useState(false);
+  const [user, setUser]               = useState<any>(null);
 
-  const [course, setCourse] = useState<any>(null);
-  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
-
-  // Stores the sanitized Wikipedia HTML for the currently selected topic
-  const [content, setContent] = useState<string>("");
-  const [loadingContent, setLoadingContent] = useState(false);
-  const [articleLang, setArticleLang] = useState<"en" | "de">("en");
-
-  // --- QUIZ STATE ---
-  const [activeQuiz, setActiveQuiz] = useState<any>(null); // The quiz object being played
-  const [quizMode, setQuizMode] = useState(false);        // Are we currently in the quiz view?
-  const [currentIdx, setCurrentIdx] = useState(0);        // Progress through questions
-  const [studentAnswers, setStudentAnswers] = useState<Record<number, string | null>>({});
-  const [quizFinished, setQuizFinished] = useState(false);
-
-  // --- PROF. STOFF STATE ---
-  // 'wiki' = Wikipedia view, 'stoff' = Professor uploaded material view
-  const [contentView, setContentView] = useState<"wiki" | "stoff">("wiki");
-
-  // Load course on mount — also auto-opens the first topic
   useEffect(() => {
-    loadCourse();
-  }, [courseId]);
+    const saved = localStorage.getItem('user');
+    if (saved) setUser(JSON.parse(saved));
+  }, []);
 
-  const loadCourse = async () => {
+  const fetchCourse = useCallback(async () => {
+    const token = localStorage.getItem('token');
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get(`http://localhost:3000/api/courses/${courseId}`, {
+      const res = await axios.get(`${API}/courses/${courseId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setCourse(res.data);
-
-      // Automatically open the first topic so the page is never empty on load
-      if (res.data.topics?.length > 0) {
-        handleTopicClick(res.data.topics[0].id, "en");
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Fetch Wikipedia article HTML for a topic.
-  // Called when the student clicks a topic or switches language.
-  const handleTopicClick = async (topicId: string, lang: string) => {
-    setActiveTopicId(topicId);
-    setContentView("wiki"); // always reset to wiki view when switching topics
-    setQuizMode(false);
-    setLoadingContent(true);
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get(
-        `http://localhost:3000/api/topics/${topicId}/content?lang=${lang}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setContent(res.data.content);
-    } catch (err) {
-      console.error(err);
-      setContent("<p>Error loading content.</p>");
+    } catch (e) {
+      setError('Failed to load course. Please try again.');
     } finally {
-      setLoadingContent(false);
+      setLoading(false);
     }
+  }, [courseId]);
+
+  useEffect(() => { fetchCourse(); }, [fetchCourse]);
+
+  const markComplete = async (topicId: string, completed: boolean) => {
+    const token = localStorage.getItem('token');
+    try {
+      await axios.patch(
+        `${API}/courses/${courseId}/progress/${topicId}`,
+        { completed },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      fetchCourse(); // refresh to update colors
+    } catch (e) { console.error(e); }
   };
 
-  // Startet das Quiz für das aktuelle Thema
-  const startQuiz = (quiz: any) => {
-    setActiveQuiz(quiz);
-    setQuizMode(true);
-    setCurrentIdx(0);
-    setStudentAnswers({});
-    setQuizFinished(false);
+  // ── Progress calculation ───────────────────────────────────────────────────
+  const calcProgress = (c: Course): number => {
+    const allSubs = c.topics.flatMap(t => t.subtopics);
+    if (!allSubs.length) return 0;
+    const done = allSubs.filter(s => s.completed).length;
+    return Math.round((done / allSubs.length) * 100);
   };
 
-  // Verarbeitet die Antwort des Studenten
-  const handleAnswer = (answer: string) => {
-    const newAnswers = { ...studentAnswers, [currentIdx]: answer };
-    setStudentAnswers(newAnswers);
-
-    // Automatisch zur nächsten Frage nach kurzer Verzögerung (softer Übergang)
-    if (currentIdx < activeQuiz.questions.length - 1) {
-      setTimeout(() => setCurrentIdx(currentIdx + 1), 600);
-    } else {
-      setTimeout(() => setQuizFinished(true), 800);
-    }
-  };
-
-  // Switch article language and immediately reload the active topic in the new language
-  const switchLang = (lang: "en" | "de") => {
-    setArticleLang(lang);
-    if (activeTopicId) handleTopicClick(activeTopicId, lang);
-  };
-
-  if (!course) {
+  if (loading) {
     return (
-      <div className="flex justify-center items-center py-32 text-gray-500 dark:text-gray-400 font-medium">
-        Loading course...
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f4f6fb' }}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p style={{ color: '#888', fontSize: 14 }}>Loading your course…</p>
+        </div>
       </div>
     );
   }
 
-  const topics = course.topics || [];
-
-  // Find the active topic object for rendering its title and description
-  const activeTopic = topics.find((t: any) => t.id === activeTopicId);
-
-  return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-950">
-
-      {/* SIDEBAR */}
-      <aside className="w-72 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
-
-        <div className="p-5 border-b border-gray-100 dark:border-gray-800">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="group flex items-center gap-2 text-sm font-semibold mb-5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-          >
-            <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+  if (error || !course) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f4f6fb' }}>
+        <div className="text-center">
+          <p style={{ color: RED, fontWeight: 700, marginBottom: 12 }}>{error || 'Course not found'}</p>
+          <button onClick={() => navigate('/dashboard')} className="px-6 py-2 rounded-xl text-white font-bold" style={{ background: BLUE }}>
             Back to Dashboard
           </button>
-
-          <h1 className="text-lg font-extrabold dark:text-white leading-tight">
-            {course.title}
-          </h1>
-          {course.description && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-2">{course.description}</p>
-          )}
         </div>
+      </div>
+    );
+  }
 
-        {/* Language switcher — switching re-fetches the active topic in the new language */}
-        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit">
-            {(["en", "de"] as const).map((l) => (
-              <button
-                key={l}
-                onClick={() => switchLang(l)}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                  articleLang === l
-                    ? "bg-white dark:bg-gray-700 shadow-sm text-blue-600"
-                    : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                }`}
-              >
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
+  const progressPct = calcProgress(course);
 
-        {/* Topic list — active topic is highlighted in blue */}
-        <nav className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 mb-2">
-            Topics ({topics.length})
-          </p>
-          {topics.length === 0 ? (
-            <p className="text-sm text-gray-400 px-2">No topics yet.</p>
-          ) : (
-            topics.map((t: any) => (
-              <div key={t.id}>
-                {/* Main topic button */}
-                <button
-                  onClick={() => handleTopicClick(t.id, articleLang)}
-                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
-                    activeTopicId === t.id && contentView === "wiki"
-                      ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  }`}
-                >
-                  <BookOpen size={14} className="flex-shrink-0" />
-                  <span className="truncate">{t.name}</span>
-                </button>
-
-                {/* Prof. Stoff sub-item — only shows if uploaded material (content) exists */}
-                {t.content && (
-                  <button
-                    onClick={() => { setActiveTopicId(t.id); setContentView("stoff"); setQuizMode(false); }}
-                    className={`w-full text-left pl-8 pr-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 mt-0.5 ${
-                      activeTopicId === t.id && contentView === "stoff"
-                        ? "bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400"
-                        : "text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/10"
-                    }`}
-                  >
-                    <FileText size={12} className="flex-shrink-0" />
-                    <span>Prof. Stoff</span>
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </nav>
-      </aside>
-
-      {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-8 py-10">
-
-          {/* Topic title and description shown above the article */}
-          {activeTopic && (
-            <div className="mb-6">
-              <h2 className="text-3xl font-extrabold dark:text-white tracking-tight">
-                {activeTopic.name}
-              </h2>
-              <div className="flex items-center justify-between mt-1">
-                {activeTopic.description && (
-                  <p className="text-gray-500">{activeTopic.description}</p>
-                )}
-                
-                {/* Zeige den "Quiz starten" Button nur, wenn das Thema ein Quiz hat */}
-                {activeTopic.quizzes?.length > 0 && !quizMode && (
-                  <button 
-                    onClick={() => startQuiz(activeTopic.quizzes[0])}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20 animate-bounce"
-                  >
-                    <Brain size={18} /> Quiz starten
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Article card — renders sanitized Wikipedia HTML via dangerouslySetInnerHTML.
-              Styles for the HTML content are defined in index.css under .wikipedia-article-content */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-8 shadow-sm min-h-[400px]">
-            {loadingContent ? (
-              <div className="flex items-center gap-3 text-blue-500 py-10 justify-center">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium">Loading article...</span>
-              </div>
-            ) : quizMode && activeQuiz ? (
-              /* --- QUIZ PLAYER VIEW --- */
-              <div className="animate-in fade-in zoom-in-95 duration-300 h-full flex flex-col">
-                {!quizFinished ? (
-                  <>
-                    <div className="flex justify-between items-center mb-10">
-                      <div className="flex flex-col gap-1">
-                         <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest">Wissenstest</span>
-                         <h3 className="text-xl font-bold dark:text-white">Frage {currentIdx + 1} von {activeQuiz.questions.length}</h3>
-                      </div>
-                      <button 
-                        onClick={() => setQuizMode(false)}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs font-bold transition-colors"
-                      >
-                        Abbrechen
-                      </button>
-                    </div>
-
-                    <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl mb-8 border dark:border-gray-700">
-                      <p className="text-lg font-medium dark:text-gray-200">{activeQuiz.questions[currentIdx].question}</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3">
-                      {activeQuiz.questions[currentIdx].options.map((option: string, i: number) => {
-                        const isSelected = studentAnswers[currentIdx] === option;
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => handleAnswer(option)}
-                            disabled={!!studentAnswers[currentIdx]} // Verhindert Mehrfachklicks
-                            className={`w-full text-left p-4 rounded-xl border-2 transition-all font-semibold flex items-center justify-between group ${
-                              isSelected 
-                                ? 'border-purple-600 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' 
-                                : 'border-gray-100 dark:border-gray-800 hover:border-purple-200 dark:hover:border-purple-800 dark:text-gray-300'
-                            }`}
-                          >
-                            <span>{option}</span>
-                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                              isSelected ? 'bg-purple-600 border-purple-600' : 'border-gray-200 dark:border-gray-700'
-                            }`}>
-                              {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="mt-auto pt-10">
-                      <div className="h-1.5 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-purple-600 transition-all duration-500"
-                          style={{ width: `${((currentIdx + 1) / activeQuiz.questions.length) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  /* --- QUIZ RESULT SCREEN --- */
-                  <div className="text-center py-10 animate-in slide-in-from-bottom-5 duration-500 flex flex-col items-center flex-1 justify-center">
-                    <div className="w-20 h-20 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 rounded-full flex items-center justify-center mb-6">
-                      <Trophy size={40} />
-                    </div>
-                    <h2 className="text-3xl font-extrabold dark:text-white mb-2">Quiz beendet!</h2>
-                    <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm">
-                      Super gemacht! Hier ist dein Ergebnis für das Thema <b>{activeTopic.name}</b>.
-                    </p>
-
-                    <div className="flex gap-4 mb-10 w-full max-w-md">
-                      <div className="flex-1 bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border dark:border-gray-700">
-                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">Score</p>
-                        <p className="text-4xl font-black text-purple-600">
-                          {activeQuiz.questions.filter((q: any, i: number) => studentAnswers[i] === q.answer).length} / {activeQuiz.questions.length}
-                        </p>
-                      </div>
-                      <div className="flex-1 bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border dark:border-gray-700">
-                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">Genauigkeit</p>
-                        <p className="text-4xl font-black text-green-500">
-                          {Math.round((activeQuiz.questions.filter((q: any, i: number) => studentAnswers[i] === q.answer).length / activeQuiz.questions.length) * 100)}%
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 w-full max-w-md">
-                      <button 
-                        onClick={() => setQuizMode(false)}
-                        className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 dark:text-white font-bold rounded-xl hover:bg-gray-200 transition-all"
-                      >
-                        Zurück zum Inhalt
-                      </button>
-                      <button 
-                        onClick={() => startQuiz(activeQuiz)}
-                        className="flex-1 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 transition-all"
-                      >
-                        <RotateCcw size={18} /> Nochmal versuchen
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : contentView === "stoff" && activeTopic ? (
-              /* --- PROF. STOFF VIEW --- */
-              <div className="animate-in fade-in duration-500">
-                <div className="flex items-center gap-2 mb-6 pb-4 border-b dark:border-gray-800">
-                  <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg flex items-center justify-center">
-                    <FileText size={16} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-orange-500 dark:text-orange-400 uppercase tracking-wider">Prof. Stoff</p>
-                    <p className="text-sm font-bold dark:text-white">{activeTopic.name}</p>
-                  </div>
-                </div>
-                {activeTopic.content ? (
-                  <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 border dark:border-gray-700">
-                    {/* If content has both wiki + professor material, show only the professor part */}
-                    {activeTopic.content.includes("--- Ergänzendes Material ---")
-                      ? activeTopic.content.split("--- Ergänzendes Material ---").slice(1).join("\n\n--- Ergänzendes Material ---\n\n").trim()
-                      : activeTopic.content}
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-sm italic">Kein Prof. Stoff für dieses Thema hochgeladen.</p>
-                )}
-              </div>
-            ) : (
-              /* --- ARTICLE VIEW --- */
+  return (
+    <div
+      className="min-h-screen"
+      style={{ background: '#f0f3fa', fontFamily: 'system-ui, sans-serif' }}
+    >
+      {/* ── Top bar ── */}
+      <div
+        className="fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-2 border-b"
+        style={{ background: '#fff', borderColor: '#e5e7eb', height: 52 }}
+      >
+        {/* Progress bar left */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1 rounded-lg" style={{ background: '#f4f6fb' }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{progressPct}%</span>
+            <div className="w-24 h-2 rounded-full" style={{ background: '#e5e7eb' }}>
               <div
-                className="wikipedia-article-content animate-in fade-in duration-500"
-                dangerouslySetInnerHTML={{ __html: content }}
+                className="h-2 rounded-full transition-all"
+                style={{ width: `${progressPct}%`, background: YELLOW }}
               />
-            )}
+            </div>
           </div>
         </div>
-      </main>
+
+        {/* Logo center */}
+        <button onClick={() => navigate('/dashboard')} className="text-lg font-black tracking-tight" style={{ color: '#111' }}>
+          CampNode
+        </button>
+
+        {/* Syllabus + user */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSyllabusOpen(true)}
+            className="px-4 py-1.5 rounded-lg text-white font-bold text-sm"
+            style={{ background: BLUE }}
+          >
+            SYLLABUS
+          </button>
+          <button
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+            style={{ background: BLUE }}
+          >
+            {(user?.name || user?.email || 'GU').substring(0, 2).toUpperCase()}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Main scroll area ── */}
+      <div className="pt-16 pb-20 flex flex-col items-center">
+        {/* Welcome */}
+        <div className="text-center mt-8 mb-10">
+          <h1 style={{ fontWeight: 800, fontSize: 22, color: '#111' }}>
+            Welcome, {user?.email || user?.name || 'Student'}
+          </h1>
+          <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
+            {course.title}
+          </p>
+        </div>
+
+        {/* ── Graph ── */}
+        <div className="flex flex-col items-center gap-0">
+          {course.topics.map((topic, topicIdx) => (
+            <div key={topic.id} className="flex flex-col items-center">
+
+              {/* Connector line from previous topic */}
+              {topicIdx > 0 && (
+                <div style={{ width: 2, height: 48, background: YELLOW, margin: '0 auto' }} />
+              )}
+
+              {/* Hexagon */}
+              <HexagonNode
+                label={`${topicIdx + 1}. ${topic.name}`}
+                subLabel={`${topic.subtopics.filter(s => s.completed).length}/${topic.subtopics.length}`}
+                color={topicHexColor(topic)}
+                onClick={() => {
+                  if (topic.completed) markComplete(topic.id, false);
+                }}
+                size={120}
+              />
+
+              {/* Subtopics row */}
+              {topic.subtopics.length > 0 && (
+                <>
+                  {/* Connector from hex down to subtopics row */}
+                  <div style={{ width: 2, height: 32, background: YELLOW }} />
+
+                  <div className="flex flex-row gap-8 items-start justify-center flex-wrap">
+                    {topic.subtopics.map(sub => {
+                      const color = subtopicDiamondColor(sub, topic.completed);
+                      return (
+                        <div key={sub.id} className="flex flex-col items-center">
+                          <DiamondNode
+                            label={sub.name}
+                            color={color}
+                            aiSuggested={sub.aiSuggested}
+                            onClick={() => markComplete(sub.id, !sub.completed)}
+                            size={88}
+                          />
+                          <ResourceRow
+                            topic={sub}
+                            onQuiz={() => navigate(`/quiz/${sub.quizzes?.[0]?.id}`)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ width: 2, height: 32, background: YELLOW }} />
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Empty state */}
+        {course.topics.length === 0 && (
+          <div className="flex flex-col items-center gap-3 mt-20 p-10 rounded-3xl border-2 border-dashed" style={{ borderColor: '#e5e7eb' }}>
+            <LayoutList size={40} style={{ color: '#ccc' }} />
+            <p style={{ color: '#aaa', fontWeight: 600 }}>No topics yet</p>
+            <p style={{ color: '#bbb', fontSize: 13 }}>Your professor hasn't added any topics yet.</p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Syllabus drawer ── */}
+      {syllabusOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.3)' }}
+            onClick={() => setSyllabusOpen(false)}
+          />
+          <SyllabusPanel
+            course={course}
+            progressPct={progressPct}
+            onClose={() => setSyllabusOpen(false)}
+          />
+        </>
+      )}
     </div>
   );
 }

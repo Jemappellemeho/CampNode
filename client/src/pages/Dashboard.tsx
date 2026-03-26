@@ -5,17 +5,14 @@ import Layout from '../components/Layout';
 import CreateCourseModal from './CreateCourseModal';
 import { BookOpen, Users, Plus, Copy, Check, ChevronRight } from "lucide-react";
 
-// Displays the course join code with a copy-to-clipboard button.
-// Used only in the professor view — students don't see join codes.
+// JoinCodeBadge remains identical to your original
 function JoinCodeBadge({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
   return (
     <button onClick={handleCopy} className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono transition-colors hover:bg-gray-200">
       {code} {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
@@ -23,23 +20,39 @@ function JoinCodeBadge({ code }: { code: string }) {
   );
 }
 
-// Professors see their courses with student/topic counts and a "Create Course" button.
-// Students see their enrolled courses and a join form to enroll via code.
 export default function Dashboard() {
-  const [user, setUser] = useState<any>(null);
+  const navigate = useNavigate();
+  
+  // 1. IMPROVED STATE: Load user immediately and strictly
+  const [user, setUser] = useState<any>(() => {
+    const saved = localStorage.getItem('user');
+    if (!saved) return null;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return null;
+    }
+  });
+
   const [courses, setCourses] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
-  const navigate = useNavigate();
 
-  // Load user from localStorage — set during login, contains role and name
+  // 2. BULLETPROOF NAME LOGIC
+  // If user.name is missing (common for students), use email prefix. 
+  // If email is missing, use "Student" or "Professor" based on role.
+  const displayName = user?.name || 
+                      user?.email?.split('@')[0] || 
+                      (user?.role === 'STUDENT' ? 'Student' : 'Professor');
+
   useEffect(() => {
-    const saved = localStorage.getItem('user');
-    if (saved) setUser(JSON.parse(saved));
-    fetchCourses();
-  }, []);
+    if (!user) {
+      navigate('/login');
+    } else {
+      fetchCourses();
+    }
+  }, [user, navigate]);
 
-  // Fetches list of courses based on user role (Prof vs Student)
   const fetchCourses = async () => {
     const token = localStorage.getItem('token');
     try {
@@ -47,10 +60,14 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setCourses(res.data);
-    } catch (err) { console.error('Failed to fetch courses:', err); }
+    } catch (err: any) { 
+      if (err.response?.status >= 400) {
+        localStorage.clear();
+        navigate('/login');
+      }
+    }
   };
 
-  // Logic for students to enroll in a new course
   const handleJoinCourse = async () => {
     const token = localStorage.getItem('token');
     try {
@@ -64,7 +81,6 @@ export default function Dashboard() {
     } catch (err) { alert("Invalid join code or already enrolled."); }
   };
 
-  // Don't render until user data is loaded from localStorage
   if (!user) return null;
 
   return (
@@ -73,7 +89,8 @@ export default function Dashboard() {
         {/* Header Section */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold dark:text-white">Welcome, {user.name || 'Guest'}</h1>
+            {/* FIXED: Using the new displayName variable */}
+            <h1 className="text-3xl font-bold dark:text-white">Welcome, {displayName}</h1>
             <p className="text-gray-500">
               {user.role === 'PROFESSOR' ? 'Manage your teaching environment' : 'Continue your learning journey'}
             </p>
@@ -109,7 +126,7 @@ export default function Dashboard() {
 
         {/* Courses Grid */}
         {courses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-gray-800 rounded-3xl border-2 border-dashed border-gray-100 dark:border-gray-700 animate-in fade-in zoom-in duration-500">
+          <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-gray-800 rounded-3xl border-2 border-dashed border-gray-100 dark:border-gray-700">
             <div className="w-24 h-24 bg-blue-50 dark:bg-blue-900/20 rounded-full flex items-center justify-center mb-6">
               <BookOpen size={40} className="text-blue-500" />
             </div>
@@ -120,8 +137,8 @@ export default function Dashboard() {
                 : "You haven't joined any courses yet. Use a join code to get started."}
             </p>
             {user.role === 'PROFESSOR' && (
-              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20">
-                 Create Project
+              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+                  Create Project
               </button>
             )}
           </div>
@@ -136,17 +153,15 @@ export default function Dashboard() {
                 
                 <p className="text-gray-500 text-sm line-clamp-2">{course.description}</p>
                 
-                {/* Show analytics only to professors */}
                 {user.role === 'PROFESSOR' && (
                   <div className="flex gap-4 text-sm text-gray-400">
                     <span className="flex items-center gap-1.5" title="Students">
                       <Users size={16} className="text-blue-500" /> 
-                      {course._count?.students ?? course.students?.length ?? 0}
+                      {course._count?.students ?? 0}
                     </span>
-
                     <span className="flex items-center gap-1.5" title="Topics">
                       <BookOpen size={16} className="text-indigo-500" />
-                      {course._count?.topics ?? course.topics?.length ?? 0}
+                      {course._count?.topics ?? 0}
                     </span>
                   </div>
                 )}
@@ -166,7 +181,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Modal for creating courses */}
         <CreateCourseModal 
           isOpen={isModalOpen} 
           onClose={() => setIsModalOpen(false)} 

@@ -5,12 +5,31 @@ import { useNavigate } from 'react-router-dom';
 function Profile() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+
+  // Initialize state immediately from localStorage to prevent "Loading" flash
+  const [user, setUser] = useState<any>(() => {
+    const saved = localStorage.getItem('user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
 
   useEffect(() => {
-    const saved = localStorage.getItem('user');
-    if (saved) setUser(JSON.parse(saved));
-  }, []);
+    // If no user data is found, redirect to login
+    if (!user) {
+      const saved = localStorage.getItem('user');
+      if (saved) {
+        setUser(JSON.parse(saved));
+      } else {
+        navigate('/login');
+      }
+    }
+  }, [user, navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -20,6 +39,13 @@ function Profile() {
 
   if (!user) return <div>Loading...</div>;
 
+  // --- LOGIC FIX FOR STUDENTS ---
+  // 1. Try user.name
+  // 2. Try email prefix (e.g., "alex" from alex@student.com)
+  // 3. Last resort "Student" or "Professor"
+  const displayName = user.name || (user.email ? user.email.split('@')[0] : (user.role === 'STUDENT' ? 'Student' : 'Professor'));
+  const initial = displayName[0].toUpperCase();
+
   return (
     <div className="max-w-4xl mx-auto mt-8 px-4">
       {/* Profile Card */}
@@ -27,10 +53,10 @@ function Profile() {
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-6">
             <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold">
-              {user.name ? user.name[0].toUpperCase() : user.email[0].toUpperCase()}
+              {initial}
             </div>
             <div>
-              <h1 className="text-3xl font-bold dark:text-white">{user.name || 'User'}</h1>
+              <h1 className="text-3xl font-bold dark:text-white">{displayName}</h1>
               <p className="text-gray-500">{user.email}</p>
               <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
                 user.role === 'PROFESSOR' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'

@@ -108,8 +108,8 @@ exports.getCourseById = async (req, res) => {
         topics: {
           include: {
             quizzes: true,
-            prerequisites: true,
-            requiredBy: true
+            Topic_A: true,
+            Topic_B: true
           }
         },
         students: { select: { id: true, email: true } }
@@ -117,8 +117,19 @@ exports.getCourseById = async (req, res) => {
     });
 
     if (!course) return res.status(404).json({ error: "Kurs nicht gefunden" });
+
+    // Map Prisma schema relations to what the frontend expects
+    const formattedCourse = {
+      ...course,
+      topics: course.topics.map(t => ({
+        ...t,
+        prerequisites: t.Topic_A || [],
+        requiredBy: t.Topic_B || [],
+        subtopics: [] // Prevents frontend from crashing on topic.subtopics.map
+      }))
+    };
     
-    res.json(course);
+    res.json(formattedCourse);
   } catch (error) {
     res.status(500).json({ error: "Fehler beim Abrufen des Kurses" });
   }

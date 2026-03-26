@@ -25,9 +25,9 @@ model Course {
   title        String
   description  String?
   joinCode     String   @unique
-  isPublic     Boolean  @default(false)
   instructorId String
   createdAt    DateTime @default(now())
+  isPublic     Boolean  @default(false)
   instructor   User     @relation("InstructorCourses", fields: [instructorId], references: [id])
   topics       Topic[]
   students     User[]   @relation("EnrolledCourses")
@@ -43,9 +43,9 @@ model Topic {
   wikipediaTitle String?
   progress       Progress[]
   quizzes        Quiz[]
-  course         Course?     @relation(fields: [courseId], references: [id])
-  prerequisites  Topic[]    @relation("TopicHierarchy")
-  requiredBy     Topic[]    @relation("TopicHierarchy")
+  course         Course?    @relation(fields: [courseId], references: [id])
+  Topic_A        Topic[]    @relation("TopicHierarchy")
+  Topic_B        Topic[]    @relation("TopicHierarchy")
 }
 
 model Quiz {

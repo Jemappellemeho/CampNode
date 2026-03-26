@@ -1,11 +1,3 @@
-// =============================================================
-// FILE LOCATION: client/src/App.tsx
-// REPLACE your existing App.tsx entirely
-//
-// KEY CHANGE: every page is now wrapped in <Layout>
-// This means every page automatically gets the shared header.
-// =============================================================
-
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./ThemeContext";
 import Layout from "./components/Layout";
@@ -16,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import CoursePlayer from "./pages/CoursePlayer";
 import CourseManager from "./pages/CourseManager";
+import Playground from "./pages/Playground";
 
 function App() {
   return (
@@ -26,11 +19,14 @@ function App() {
           <Route path="/landing" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/playground/:courseId" element={<CoursePlayer />} />
 
+          {/* Pages that use the shared Layout with top nav */}
           <Route element={<Layout />}>
+            <Route path="/playground/:courseId" element={<Playground />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/profile" element={<Profile />} />
+            {/* NOTE: route changed from /prof/manage/:courseId to /prof/course/:courseId 
+                to match CourseManager and the Dashboard navigate() call */}
             <Route path="/prof/course/:courseId" element={<CourseManager />} />
           </Route>
         </Routes>

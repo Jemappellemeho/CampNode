@@ -1,958 +1,658 @@
-// =============================================================
-// FILE LOCATION: client/src/pages/CourseManager.tsx
-// REPLACE existing file entirely
-// Header handled by Layout.tsx — no header here
-// AI nodes = red border (matches playground)
-// =============================================================
-
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import {
-  ArrowLeft, Users, BookOpen,
-  Copy, Check, Globe, Trash2,
-  Plus, Search, X } from "lucide-react";
+  Plus, Trash2, ChevronLeft, GripVertical,
+  Link, BookOpen, Headphones, Play,
+  Check, X, ArrowRight, AlertTriangle,
+  ChevronDown, ChevronRight,
+} from 'lucide-react';
+import Layout from '../components/Layout';
 
-// Color constants for consistent UI styling
-const CN = {
-  blue: "#1E6FFF",
-  blueDark: "#1557CC",
-  red: "#E63027",
-  green: "#3A9E3F",
-  yellow: "#F5C518",
-};
+const API = 'http://localhost:3000/api';
 
-// A simple button to copy text to clipboard with a visual feedback state
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+const BLUE   = '#1E6FFF';
+const RED    = '#E63027';
+const GREEN  = '#3A9E3F';
+const DARK   = '#0F1628';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface SubTopic {
+  id: string;
+  name: string;
+  description?: string;
+  order: number;
+  aiSuggested?: boolean;
+  videoUrl?: string;
+  articleUrl?: string;
+  podcastUrl?: string;
+  quizzes?: { id: string }[];
+  prerequisites?: { id: string; name: string }[];
+}
+
+interface Topic {
+  id: string;
+  name: string;
+  description?: string;
+  order: number;
+  subtopics: SubTopic[];
+  prerequisites?: { id: string; name: string }[];
+}
+
+interface Course {
+  id: string;
+  title: string;
+  description?: string;
+  joinCode: string;
+  topics: Topic[];
+}
+
+// ─── Small reusable components ────────────────────────────────────────────────
+
+function SectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
-    <button onClick={handleCopy} className="p-1 hover:bg-gray-100 rounded transition-colors">
-      {copied ? <Check size={14} style={{ color: CN.green }} /> : <Copy size={14} className="text-gray-400" />}
-    </button>
+    <div className="flex items-center justify-between mb-4">
+      <h2 style={{ fontWeight: 800, fontSize: 18, color: 'var(--cn-text)' }}>{title}</h2>
+      {action}
+    </div>
   );
 }
 
-// Reusable tab button — active tab gets a blue background, inactive stays transparent
-function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function InputField({
+  label, value, onChange, placeholder, textarea = false,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; textarea?: boolean;
+}) {
+  const shared: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    borderRadius: 10,
+    border: '1px solid var(--cn-border)',
+    background: 'var(--cn-bg)',
+    color: 'var(--cn-text)',
+    fontSize: 13,
+    outline: 'none',
+  };
   return (
-    <button 
-      onClick={onClick}
-      className="px-4 py-2.5 text-sm font-bold rounded-xl transition-all flex-1 md:flex-none"
-      style={{ 
-        background: active ? CN.blue : "transparent", 
-        color: active ? "white" : "#6B7280" 
+    <div className="flex flex-col gap-1">
+      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--cn-muted)' }}>{label}</label>
+      {textarea
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={3} style={{ ...shared, resize: 'vertical' }} />
+        : <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={shared} />
+      }
+    </div>
+  );
+}
+
+// ─── Resource URL editor for a single node ───────────────────────────────────
+function ResourceEditor({
+  topicId, courseId, initialVideo, initialArticle, initialPodcast, onSaved,
+}: {
+  topicId: string; courseId: string;
+  initialVideo?: string; initialArticle?: string; initialPodcast?: string;
+  onSaved: () => void;
+}) {
+  const [video,   setVideo]   = useState(initialVideo   || '');
+  const [article, setArticle] = useState(initialArticle || '');
+  const [podcast, setPodcast] = useState(initialPodcast || '');
+  const [saving,  setSaving]  = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    const token = localStorage.getItem('token');
+    try {
+      await axios.put(`${API}/courses/${courseId}/topics/${topicId}`, {
+        videoUrl: video || null,
+        articleUrl: article || null,
+        podcastUrl: podcast || null,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      onSaved();
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--cn-border)' }}>
+      <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--cn-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Resource Links
+      </p>
+      <div className="flex items-center gap-2">
+        <Play size={13} style={{ color: RED, flexShrink: 0 }} />
+        <input value={video} onChange={e => setVideo(e.target.value)} placeholder="Video URL (YouTube, etc.)" style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--cn-border)', background: 'var(--cn-bg)', color: 'var(--cn-text)', fontSize: 12 }} />
+      </div>
+      <div className="flex items-center gap-2">
+        <BookOpen size={13} style={{ color: BLUE, flexShrink: 0 }} />
+        <input value={article} onChange={e => setArticle(e.target.value)} placeholder="Article URL (Wikipedia, MDN, etc.)" style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--cn-border)', background: 'var(--cn-bg)', color: 'var(--cn-text)', fontSize: 12 }} />
+      </div>
+      <div className="flex items-center gap-2">
+        <Headphones size={13} style={{ color: GREEN, flexShrink: 0 }} />
+        <input value={podcast} onChange={e => setPodcast(e.target.value)} placeholder="Podcast URL (Spotify, etc.)" style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--cn-border)', background: 'var(--cn-bg)', color: 'var(--cn-text)', fontSize: 12 }} />
+      </div>
+      <button onClick={save} disabled={saving} className="self-end px-4 py-1.5 rounded-lg text-white text-sm font-bold transition-all" style={{ background: BLUE }}>
+        {saving ? 'Saving…' : 'Save Links'}
+      </button>
+    </div>
+  );
+}
+
+// ─── Subtopic Card ────────────────────────────────────────────────────────────
+function SubtopicCard({
+  sub, courseId, parentId, onDelete, onAcceptAI, onRejectAI, onRefresh,
+  dragHandleProps,
+}: {
+  sub: SubTopic; courseId: string; parentId: string;
+  onDelete: () => void; onAcceptAI: () => void; onRejectAI: () => void;
+  onRefresh: () => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div
+      style={{
+        background: 'var(--cn-card)',
+        border: sub.aiSuggested ? `1.5px dashed ${RED}` : '1px solid var(--cn-border)',
+        borderRadius: 12,
+        padding: '10px 14px',
+        marginBottom: 6,
       }}
     >
-      {label}
-    </button>
-  );
-}
-
-// Inline topic search + add panel, shown inside the Nodes tab
-function AddTopicPanel({ courseId, onTopicAdded }: { courseId: string; onTopicAdded: () => void }) {
-  const [mode, setMode] = useState<"search" | "manual">("search");
-  const [search, setSearch] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [adding, setAdding] = useState(false);
-
-  // Manual State
-  const [manualName, setManualName] = useState("");
-  const [manualDesc, setManualDesc] = useState("");
-  const [manualFile, setManualFile] = useState<File | null>(null);
-  const [manualUrl, setManualUrl] = useState("");
- 
-  const handleSearch = async (q: string) => {
-    setSearch(q);
-    if (q.length > 2) {
-      const res = await axios.get(`http://localhost:3000/api/wiki/search?q=${q}`);
-      setResults(res.data);
-    } else { setResults([]); }
-  };
- 
-  const handleAdd = async (topic: any) => {
-    setAdding(true);
-    try {
-      const token = localStorage.getItem("token");
-      await axios.post("http://localhost:3000/api/topics", {
-        name: topic.label,
-        description: topic.description || "",
-        courseId,
-        wikidataId: topic.id,
-      }, { headers: { Authorization: `Bearer ${token}` } });
-      setSearch("");
-      setResults([]);
-      onTopicAdded();
-    } catch (err) { console.error(err); } finally { setAdding(false); }
-  };
-
-  const handleManualSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualName) return;
-    setAdding(true);
-
-    try {
-      const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("name", manualName);
-      formData.append("description", manualDesc);
-      formData.append("courseId", courseId);
-      if (manualUrl) formData.append("sourceUrl", manualUrl);
-      if (manualFile) formData.append("pdf", manualFile);
-
-      await axios.post("http://localhost:3000/api/topics", formData, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data" 
-        }
-      });
-
-      setManualName("");
-      setManualDesc("");
-      setManualFile(null);
-      setManualUrl("");
-      onTopicAdded();
-    } catch (err) { console.error(err); } finally { setAdding(false); }
-  };
- 
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Neues Thema hinzufügen</p>
-        <div className="flex bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
-          <button 
-            onClick={() => setMode("search")}
-            className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mode === "search" ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm" : "text-gray-400"}`}
-          >
-            WIKIDATA SUCHE
-          </button>
-          <button 
-            onClick={() => setMode("manual")}
-            className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mode === "manual" ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm" : "text-gray-400"}`}
-          >
-            MANUELL / PDF
-          </button>
+      <div className="flex items-center gap-2">
+        {/* Drag handle */}
+        <div {...dragHandleProps} className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0">
+          <GripVertical size={15} />
         </div>
-      </div>
- 
-      {mode === "search" ? (
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={16} />
-          <input
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            placeholder="Nach Themen suchen (z.B. Quantenphysik)..."
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-          />
-          {results.length > 0 && (
-            <div className="mt-3 border dark:border-gray-700 rounded-xl overflow-hidden divide-y dark:divide-gray-700 max-h-48 overflow-y-auto custom-scrollbar">
-              {results.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => handleAdd(r)}
-                  className="w-full text-left px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-start gap-3"
-                >
-                  <Plus size={16} className="mt-0.5 text-blue-500" />
-                  <div>
-                    <p className="font-semibold text-sm dark:text-white">{r.label}</p>
-                    <p className="text-[10px] text-gray-500 line-clamp-1">{r.description}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
+
+        {/* Color dot */}
+        <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: sub.aiSuggested ? RED : BLUE, transform: 'rotate(45deg)' }} />
+
+        <div className="flex-1 min-w-0">
+          <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--cn-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {sub.name}
+          </p>
+          {sub.aiSuggested && (
+            <span style={{ fontSize: 10, color: RED, fontWeight: 600 }}>AI Suggested</span>
           )}
         </div>
-      ) : (
-        <form onSubmit={handleManualSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              placeholder="Themen-Name (z.B. Eigene Notizen)"
-              className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              value={manualName}
-              onChange={(e) => setManualName(e.target.value)}
-              required
-            />
-            <input
-              placeholder="Kurze Beschreibung"
-              className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              value={manualDesc}
-              onChange={(e) => setManualDesc(e.target.value)}
-            />
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-4 items-center">
-             <div className="flex-1 w-full bg-gray-50 dark:bg-gray-900/50 border border-dashed dark:border-gray-700 rounded-xl p-3 flex flex-col items-center justify-center">
-                <input 
-                  type="file" 
-                  accept=".pdf" 
-                  id="pdf-upload"
-                  className="hidden" 
-                  onChange={(e) => setManualFile(e.target.files?.[0] || null)}
-                />
-                <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center">
-                   <Plus size={20} className="text-gray-400 mb-1" />
-                   <span className="text-[10px] font-bold text-gray-500">{manualFile ? manualFile.name : "PDF HOCHLADEN (Optional)"}</span>
-                </label>
-             </div>
-             
-             <div className="text-gray-400 text-[10px] font-bold uppercase">ODER</div>
 
-             <input
-              placeholder="Scraper URL (https://...)"
-              className="flex-1 w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              value={manualUrl}
-              onChange={(e) => setManualUrl(e.target.value)}
-            />
-
-            <button 
-              type="submit"
-              disabled={adding}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
-            >
-              Hinzufügen
+        {/* AI accept/reject */}
+        {sub.aiSuggested && (
+          <div className="flex gap-1">
+            <button onClick={onAcceptAI} className="w-6 h-6 flex items-center justify-center rounded-md" style={{ background: GREEN + '22', color: GREEN }} title="Accept">
+              <Check size={12} />
+            </button>
+            <button onClick={onRejectAI} className="w-6 h-6 flex items-center justify-center rounded-md" style={{ background: RED + '22', color: RED }} title="Reject">
+              <X size={12} />
             </button>
           </div>
-        </form>
+        )}
+
+        {/* Expand/collapse resources */}
+        <button onClick={() => setExpanded(e => !e)} className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-gray-100">
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
+
+        {/* Delete */}
+        <button onClick={onDelete} className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-red-50" style={{ color: RED }}>
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+      {/* Resource editor (expanded) */}
+      {expanded && (
+        <ResourceEditor
+          topicId={sub.id}
+          courseId={courseId}
+          initialVideo={sub.videoUrl}
+          initialArticle={sub.articleUrl}
+          initialPodcast={sub.podcastUrl}
+          onSaved={onRefresh}
+        />
       )}
     </div>
   );
 }
 
-// CourseManager is the professor view for a single course.
-// It has three tabs: Overview (stats + join code), Students, and Nodes (topics + Wikipedia articles).
+// ─── Topic Card ───────────────────────────────────────────────────────────────
+function TopicCard({
+  topic, courseId, allTopics, onDelete, onRefresh, index,
+  onDragStart, onDragOver, onDrop,
+}: {
+  topic: Topic; courseId: string; allTopics: Topic[];
+  onDelete: () => void; onRefresh: () => void; index: number;
+  onDragStart: (e: React.DragEvent, topicId: string) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent, targetTopicId: string) => void;
+}) {
+  const [addingSubtopic, setAddingSubtopic] = useState(false);
+  const [newSubName, setNewSubName]         = useState('');
+  const [newSubDesc, setNewSubDesc]         = useState('');
+  const [addingPrereq, setAddingPrereq]     = useState(false);
+  const [prereqId, setPrereqId]             = useState('');
+  const [draggingSubIdx, setDraggingSubIdx] = useState<number | null>(null);
+  const [dropSubIdx, setDropSubIdx]         = useState<number | null>(null);
+  const [isDragOver, setIsDragOver]         = useState(false);
+  const token = localStorage.getItem('token');
+
+  const addSubtopic = async () => {
+    if (!newSubName.trim()) return;
+    try {
+      await axios.post(`${API}/courses/${courseId}/topics`, {
+        name: newSubName,
+        description: newSubDesc,
+        parentTopicId: topic.id,
+        order: topic.subtopics.length,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setNewSubName(''); setNewSubDesc('');
+      setAddingSubtopic(false);
+      onRefresh();
+    } catch (e) { console.error(e); }
+  };
+
+  const deleteSubtopic = async (subId: string) => {
+    if (!confirm('Delete this subtopic?')) return;
+    await axios.delete(`${API}/courses/${courseId}/topics/${subId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    onRefresh();
+  };
+
+  const acceptAI = async (sub: SubTopic) => {
+    await axios.put(`${API}/courses/${courseId}/topics/${sub.id}`, { aiSuggested: false }, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    onRefresh();
+  };
+
+  const rejectAI = async (sub: SubTopic) => {
+    await axios.delete(`${API}/courses/${courseId}/topics/${sub.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    onRefresh();
+  };
+
+  const addPrereq = async () => {
+    if (!prereqId) return;
+    await axios.post(`${API}/courses/${courseId}/topics/${topic.id}/prereqs`, { prereqId }, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setPrereqId(''); setAddingPrereq(false);
+    onRefresh();
+  };
+
+  const removePrereq = async (pid: string) => {
+    await axios.delete(`${API}/courses/${courseId}/topics/${topic.id}/prereqs/${pid}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    onRefresh();
+  };
+
+  // ── Subtopic drag-to-reorder ─────────────────────────────────────────────
+  const handleSubDragStart = (e: React.DragEvent, i: number) => {
+    setDraggingSubIdx(i);
+    e.dataTransfer.setData('subIdx', String(i));
+    e.dataTransfer.setData('parentTopicId', topic.id);
+    e.stopPropagation();
+  };
+
+  const handleSubDrop = async (e: React.DragEvent, targetIdx: number) => {
+    e.stopPropagation();
+    const srcIdx = Number(e.dataTransfer.getData('subIdx'));
+    const srcParent = e.dataTransfer.getData('parentTopicId');
+    if (srcParent !== topic.id || srcIdx === targetIdx) return;
+
+    // Reorder subtopics locally then save order
+    const reordered = [...topic.subtopics];
+    const [moved] = reordered.splice(srcIdx, 1);
+    reordered.splice(targetIdx, 0, moved);
+
+    // Persist new order
+    for (let i = 0; i < reordered.length; i++) {
+      await axios.put(`${API}/courses/${courseId}/topics/${reordered[i].id}`, { order: i }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+    setDraggingSubIdx(null); setDropSubIdx(null);
+    onRefresh();
+  };
+
+  return (
+    <div
+      draggable
+      onDragStart={e => onDragStart(e, topic.id)}
+      onDragOver={e => { e.preventDefault(); onDragOver(e); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={e => { setIsDragOver(false); onDrop(e, topic.id); }}
+      style={{
+        background: 'var(--cn-card)',
+        border: `1.5px solid ${isDragOver ? BLUE : 'var(--cn-border)'}`,
+        borderRadius: 16,
+        padding: '16px 20px',
+        marginBottom: 12,
+        transition: 'border-color 0.15s, box-shadow 0.15s',
+        boxShadow: isDragOver ? `0 0 0 3px ${BLUE}33` : '0 1px 4px rgba(0,0,0,0.06)',
+      }}
+    >
+      {/* ── Topic header ── */}
+      <div className="flex items-center gap-3 mb-3">
+        <div className="cursor-grab text-gray-400">
+          <GripVertical size={18} />
+        </div>
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-black flex-shrink-0"
+          style={{ background: BLUE }}
+        >
+          {index + 1}
+        </div>
+        <div className="flex-1">
+          <p style={{ fontWeight: 800, fontSize: 15, color: 'var(--cn-text)' }}>{topic.name}</p>
+          {topic.description && (
+            <p style={{ fontSize: 12, color: 'var(--cn-muted)', marginTop: 2 }}>{topic.description}</p>
+          )}
+        </div>
+        <button onClick={onDelete} className="p-2 rounded-lg hover:bg-red-50 transition-colors" style={{ color: RED }}>
+          <Trash2 size={15} />
+        </button>
+      </div>
+
+      {/* ── Prerequisites ── */}
+      {(topic.prerequisites && topic.prerequisites.length > 0) && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {topic.prerequisites.map(p => (
+            <div key={p.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: BLUE + '15', color: BLUE }}>
+              <ArrowRight size={10} /> {p.name}
+              <button onClick={() => removePrereq(p.id)} className="ml-1 hover:text-red-500">
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Subtopics ── */}
+      <div className="pl-4 border-l-2" style={{ borderColor: 'var(--cn-border)' }}>
+        {topic.subtopics.map((sub, si) => (
+          <div
+            key={sub.id}
+            draggable
+            onDragStart={e => handleSubDragStart(e, si)}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropSubIdx(si); }}
+            onDrop={e => handleSubDrop(e, si)}
+            style={{ opacity: draggingSubIdx === si ? 0.4 : 1 }}
+          >
+            <SubtopicCard
+              sub={sub}
+              courseId={courseId}
+              parentId={topic.id}
+              onDelete={() => deleteSubtopic(sub.id)}
+              onAcceptAI={() => acceptAI(sub)}
+              onRejectAI={() => rejectAI(sub)}
+              onRefresh={onRefresh}
+            />
+          </div>
+        ))}
+
+        {/* Add subtopic form */}
+        {addingSubtopic ? (
+          <div className="mt-2 p-3 rounded-xl" style={{ border: '1px dashed var(--cn-border)' }}>
+            <div className="flex flex-col gap-2">
+              <InputField label="Subtopic Name" value={newSubName} onChange={setNewSubName} placeholder="e.g. Bytecode" />
+              <InputField label="Description (optional)" value={newSubDesc} onChange={setNewSubDesc} placeholder="Short description…" textarea />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setAddingSubtopic(false)} className="px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: 'var(--cn-bg)', color: 'var(--cn-muted)', border: '1px solid var(--cn-border)' }}>
+                  Cancel
+                </button>
+                <button onClick={addSubtopic} className="px-3 py-1.5 rounded-lg text-white text-sm font-bold" style={{ background: BLUE }}>
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAddingSubtopic(true)}
+            className="flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors hover:bg-blue-50"
+            style={{ color: BLUE, border: `1px dashed ${BLUE}55` }}
+          >
+            <Plus size={13} /> Add Subtopic
+          </button>
+        )}
+      </div>
+
+      {/* ── Prerequisite connector ── */}
+      <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--cn-border)' }}>
+        {addingPrereq ? (
+          <div className="flex gap-2 items-center">
+            <ArrowRight size={14} style={{ color: BLUE, flexShrink: 0 }} />
+            <select
+              value={prereqId}
+              onChange={e => setPrereqId(e.target.value)}
+              style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--cn-border)', background: 'var(--cn-bg)', color: 'var(--cn-text)', fontSize: 12 }}
+            >
+              <option value="">Select prerequisite topic…</option>
+              {allTopics
+                .filter(t => t.id !== topic.id && !topic.prerequisites?.find(p => p.id === t.id))
+                .map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+            </select>
+            <button onClick={addPrereq} className="px-3 py-1 rounded-lg text-white text-xs font-bold" style={{ background: BLUE }}>
+              Link
+            </button>
+            <button onClick={() => setAddingPrereq(false)} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--cn-muted)' }}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAddingPrereq(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold hover:underline"
+            style={{ color: 'var(--cn-muted)' }}
+          >
+            <ArrowRight size={12} /> Add prerequisite link
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
-  const navigate = useNavigate();
-  
-  // UI State
-  const [tab, setTab] = useState<"overview" | "students" | "nodes">("overview");
-  const [articleLang, setArticleLang] = useState<"en" | "de">("en");
-  
-  // Data State
-  const [course, setCourse] = useState<any>(null);
+  const navigate     = useNavigate();
+  const [course, setCourse]   = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
+  const [addingTopic, setAddingTopic]   = useState(false);
+  const [newTopicName, setNewTopicName] = useState('');
+  const [newTopicDesc, setNewTopicDesc] = useState('');
+  const [dragTopicId, setDragTopicId]   = useState<string | null>(null);
+  const token = localStorage.getItem('token');
 
-  // Stores fetched Wikipedia HTML per topic id to avoid re-fetching on tab switch
-  const [topicContentById, setTopicContentById] = useState<Record<string, string>>({});
-  const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
-  const [deletingTopicId, setDeletingTopicId] = useState<string | null>(null);
-  
-  // Topic Edit State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingTopic, setEditingTopic] = useState<any>(null);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editFile, setEditFile] = useState<File | null>(null);
-  const [editUrl, setEditUrl] = useState("");
-  const [isUpdatingTopic, setIsUpdatingTopic] = useState(false);
-
-  // Quiz Editor State
-  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
-  const [selectedQuiz, setSelectedQuiz] = useState<any>(null);
-  const [tempQuestions, setTempQuestions] = useState<any[]>([]);
-  const [isSavingQuiz, setIsSavingQuiz] = useState(false);
-  
-  // Fetch Wikipedia article for a single topic.
-  // Defined with useCallback to maintain reference stability-
-  // this prevents the nodes useEffect from re-running unnecessarily.
-  const loadTopicContent = useCallback(async (topicId: string, lang: string) => {
-    try {
-      setLoadingTopicId(topicId);
-      const token = localStorage.getItem("token");
-      
-      const res = await axios.get(
-        `http://localhost:3000/api/topics/${topicId}/content?lang=${lang}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      setTopicContentById((prev) => ({ 
-        ...prev, 
-        [topicId]: res.data.content || "No content found for this language." 
-      }));
-    } catch (err) {
-      console.error("Failed to load topic content", err);
-      setTopicContentById((prev) => ({ ...prev, [topicId]: "Error loading article." }));
-    } finally {
-      setLoadingTopicId(null);
-    }
-  }, []);
-
-  // Fetch course data — called on mount and after adding/deleting a topic
   const fetchCourse = useCallback(async () => {
     try {
-      setLoading(true);
-      const token = localStorage.getItem("token");
-      const res = await axios.get(`http://localhost:3000/api/courses/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await axios.get(`${API}/courses/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
       setCourse(res.data);
-    } catch (err) {
-      console.error("Failed to fetch course", err);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }, [courseId]);
- 
-  useEffect(() => {
-    if (courseId) fetchCourse();
-  }, [courseId, fetchCourse]);
 
-  // Trigger Wikipedia content loading when the Nodes tab becomes active or the language changes.
-  useEffect(() => {
-    const nodes = course?.topics || [];
-    if (tab === "nodes" && nodes.length > 0) {
-      nodes.forEach((node: any) => {
-        // load content only if we haven't already fetched it for this topic and language
-        if (!topicContentById[node.id]) {
-          loadTopicContent(node.id, articleLang);
-        }
-      });
-    }
-    // IMPORTANT: topicContentById is NOT in dependencies to avoid re-triggering
-  }, [tab, articleLang, course?.topics, loadTopicContent]);
+  useEffect(() => { fetchCourse(); }, [fetchCourse]);
 
-  // Delete a topic after confirmation — refreshes the course after
-  const handleDeleteTopic = async (topicId: string, topicName: string) => {
-    if (!window.confirm(`Delete topic "${topicName}"? This cannot be undone.`)) return;
-    setDeletingTopicId(topicId);
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`http://localhost:3000/api/topics/${topicId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      // Remove cached content for this topic and refresh the course
-      setTopicContentById((prev) => {
-        const next = { ...prev };
-        delete next[topicId];
-        return next;
-      });
-      await fetchCourse();
-    } catch (err) {
-      console.error("Failed to delete topic", err);
-      alert("Failed to delete topic.");
-    } finally {
-      setDeletingTopicId(null);
-    }
-  }; 
-
-  // Nutzt die KI, um für ein Thema Zusammenfassung und Quizzes zu generieren
-  const handleEnrichTopic = async (topicId: string) => {
-    try {
-      setLoadingTopicId(topicId); // Wir nutzen den gleichen Lade-Status
-      const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:3000/api/topics/${topicId}/enrich`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      fetchCourse(); // Neu laden, um die Zusammenfassung zu sehen
-      alert("KI-Analyse abgeschlossen!");
-    } catch (err) {
-      console.error("Fehler beim KI-Enrichment:", err);
-      alert("KI-Analyse fehlgeschlagen.");
-    } finally {
-      setLoadingTopicId(null);
-    }
+  // ── Add top-level topic ──────────────────────────────────────────────────
+  const addTopic = async () => {
+    if (!newTopicName.trim()) return;
+    await axios.post(`${API}/courses/${courseId}/topics`, {
+      name: newTopicName,
+      description: newTopicDesc,
+      order: course?.topics.length || 0,
+    }, { headers: { Authorization: `Bearer ${token}` } });
+    setNewTopicName(''); setNewTopicDesc('');
+    setAddingTopic(false);
+    fetchCourse();
   };
 
-  // Öffnet den Quiz-Editor
-  const handleOpenQuizEditor = (quiz: any) => {
-    setSelectedQuiz(quiz);
-    setTempQuestions(quiz.questions || []);
-    setIsQuizModalOpen(true);
+  const deleteTopic = async (topicId: string) => {
+    if (!confirm('Delete this topic and all its subtopics?')) return;
+    await axios.delete(`${API}/courses/${courseId}/topics/${topicId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    fetchCourse();
   };
 
-  // Öffnet das Edit-Modal für ein Thema
-  const handleEditOpen = (topic: any) => {
-    setEditingTopic(topic);
-    setEditName(topic.name);
-    setEditDesc(topic.description || "");
-    setEditUrl(""); // Reset files/urls on open
-    setEditFile(null);
-    setIsEditModalOpen(true);
+  // ── Drag-to-reorder topics ───────────────────────────────────────────────
+  const handleTopicDragStart = (e: React.DragEvent, topicId: string) => {
+    setDragTopicId(topicId);
+    e.dataTransfer.setData('topicId', topicId);
   };
 
-  // Speichert die Änderungen an einem Thema (Name, Beschreibung, PDF-Upload)
-  const handleUpdateTopic = async (e: React.FormEvent) => {
+  const handleTopicDrop = async (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    if (!editingTopic) return;
-    setIsUpdatingTopic(true);
+    const srcId = e.dataTransfer.getData('topicId');
+    if (!srcId || srcId === targetId || !course) return;
 
-    try {
-      const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("name", editName);
-      formData.append("description", editDesc);
-      if (editUrl) formData.append("sourceUrl", editUrl);
-      if (editFile) formData.append("pdf", editFile);
+    const topics = [...course.topics];
+    const srcIdx = topics.findIndex(t => t.id === srcId);
+    const tgtIdx = topics.findIndex(t => t.id === targetId);
+    if (srcIdx === -1 || tgtIdx === -1) return;
 
-      await axios.put(`http://localhost:3000/api/topics/${editingTopic.id}`, formData, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data" 
-        }
+    const [moved] = topics.splice(srcIdx, 1);
+    topics.splice(tgtIdx, 0, moved);
+
+    // Persist order
+    for (let i = 0; i < topics.length; i++) {
+      await axios.put(`${API}/courses/${courseId}/topics/${topics[i].id}`, { order: i }, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
-      setIsEditModalOpen(false);
-      fetchCourse();
-      alert("Thema erfolgreich aktualisiert!");
-    } catch (err) {
-      console.error("Failed to update topic", err);
-      alert("Fehler beim Aktualisieren.");
-    } finally {
-      setIsUpdatingTopic(false);
     }
+    setDragTopicId(null);
+    fetchCourse();
   };
 
-  // Speichert die Änderungen am Quiz in der Datenbank
-  const handleSaveQuiz = async () => {
-    if (!selectedQuiz) return;
-    setIsSavingQuiz(true);
-    try {
-      const token = localStorage.getItem("token");
-      await axios.put(
-        `http://localhost:3000/api/topics/quizzes/${selectedQuiz.id}`,
-        { questions: tempQuestions },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsQuizModalOpen(false);
-      fetchCourse(); // Daten neu laden
-      alert("Quiz erfolgreich gespeichert!");
-    } catch (err) {
-      console.error("Failed to save quiz", err);
-      alert("Fehler beim Speichern des Quiz.");
-    } finally {
-      setIsSavingQuiz(false);
-    }
-  };
-
-  // Löscht ein Quiz komplett
-  const handleDeleteQuiz = async (quizId: string) => {
-    if (!window.confirm("Dieses Quiz wirklich löschen?")) return;
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`http://localhost:3000/api/topics/quizzes/${quizId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setIsQuizModalOpen(false);
-      fetchCourse();
-    } catch (err) {
-      console.error("Failed to delete quiz", err);
-    }
-  };
-
-  // Aktualisiert die Voraussetzungen eines Themas in der Datenbank
-  const handleUpdatePrerequisites = async (topicId: string, prerequisiteIds: string[]) => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-
-      await axios.put(
-        `http://localhost:3000/api/topics/${topicId}`,
-        { prerequisiteIds },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      // Den gesamten Kurs neu laden, um die neuen Beziehungen sofort anzuzeigen
-      fetchCourse(); 
-    } catch (err) {
-      console.error("Fehler beim Aktualisieren der Hierarchie:", err);
-      alert("Konnte Themen nicht verknüpfen.");
-    }
-  };
   if (loading) {
-    return <div className="text-center py-32 text-gray-500 font-medium">Loading course details...</div>;
-  }
- 
-  if (!course) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 gap-4">
-        <p className="text-gray-500">Course not found or access denied.</p>
-        <button onClick={() => navigate("/dashboard")} className="text-blue-600 font-bold hover:underline">
-          ← Back to Dashboard
-        </button>
-      </div>
+      <Layout>
+        <div className="flex items-center justify-center py-32">
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
     );
   }
 
-  // DATA MAPPING: Prepare variables for rendering
-  const students = course.students || []; 
-  const nodes = course.topics || [];
+  if (!course) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center py-32 gap-4">
+          <AlertTriangle size={40} style={{ color: RED }} />
+          <p style={{ color: 'var(--cn-text)', fontWeight: 700 }}>Course not found</p>
+          <button onClick={() => navigate('/dashboard')} className="px-6 py-2 rounded-xl text-white font-bold" style={{ background: BLUE }}>
+            Back to Dashboard
+          </button>
+        </div>
+      </Layout>
+    );
+  }
 
-  // Delete course and redirect to dashboard.
-  // Topics are detached (courseId set to null) but not deleted — quizzes are preserved for reuse.
-  const handleDeleteCourse = async () => {
-    if (!window.confirm(`Are you sure you want to delete "${course.title}"? This cannot be undone.`)) return;
-
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`http://localhost:3000/api/courses/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      navigate("/dashboard");
-    } catch (err) {
-      console.error("Failed to delete course", err);
-      alert("Failed to delete course.");
-    }
-  };
-
-  // Helper function to render the content of the currently selected tab.
-  const renderTabContent = () => {
-    switch (tab) {
-      case "overview":
-        return (
-          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {[
-                { label: "Students", value: students.length, icon: Users },
-                { label: "Nodes", value: nodes.length, icon: BookOpen },
-                { label: "Visibility", value: course.isPublic ? "Public" : "Private", icon: Globe },
-              ].map(({ label, value, icon: Icon }) => (
-                <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 flex items-center gap-4 shadow-sm">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-50 dark:bg-blue-900/30 text-blue-600">
-                    <Icon size={20} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{label}</p>
-                    <p className="text-xl font-bold dark:text-white">{value}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Join code section — professors share this with students to enroll */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border dark:border-gray-700 shadow-sm">
-              <h3 className="text-sm font-bold mb-4 dark:text-white uppercase tracking-wider">Access Configuration</h3>
-              <div className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border dark:border-gray-700">
-                <div>
-                  <p className="text-xs text-gray-500">Student Join Code</p>
-                  <p className="text-lg font-mono font-bold text-blue-600 uppercase">{course.joinCode}</p>
-                </div>
-                <CopyBtn text={course.joinCode} />
-              </div>
-            </div>
-          </div>
-        );
-
-      case "students":
-        return (
-          <div className="flex flex-col gap-3 animate-in fade-in">
-            <p className="text-sm text-gray-500 mb-2">{students.length} students enrolled</p>
-            {students.length === 0 ? (
-              <div className="text-center py-10 bg-gray-50 rounded-2xl border-2 border-dashed text-gray-400">
-                No students joined yet.
-              </div>
-            ) : (
-              students.map((s: any) => (
-                <div key={s.id} className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-4 flex items-center justify-between shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700" />
-                    <p className="font-semibold dark:text-gray-200">{s.email}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        );
-
-      case "nodes":
-        return (
-          <div className="flex flex-col gap-4 animate-in fade-in">
-            <div className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl border dark:border-gray-700">
-              <p className="text-sm font-medium text-gray-500">{nodes.length} topics defined</p>
-              <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-900 rounded-lg">
-                {(['en', 'de'] as const).map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => { setTopicContentById({}); setArticleLang(l); }}
-                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${articleLang === l ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600' : 'text-gray-400'}`}
-                  >
-                    {l.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Add topic panel — always visible at the top of the nodes tab */}
-            <AddTopicPanel
-              courseId={courseId!}
-              onTopicAdded={() => {
-                // Clear cached content so the new topic gets fetched on next render
-                setTopicContentById({});
-                fetchCourse();
-              }}
-            />
-            
-            {/* Topic cards */}
-            {nodes.length === 0 ? (
-              <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 text-gray-400">
-                No topics yet — use the panel above to add your first one.
-              </div>
-            ) : (
-              nodes.map((node: any) => (
-                <div key={node.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-6 shadow-sm">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="text-lg font-bold dark:text-white">{node.name}</h4>
-                        {/* Lila Badge wenn die KI bereits am Werk war */}
-                        {node.description?.includes("[KI-ZUSAMMENFASSUNG]") && (
-                          <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-[9px] font-extrabold rounded-md uppercase tracking-wider border border-purple-200 dark:border-purple-800">
-                            ✨ AI Enriched
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                        {node.description || "No description provided."}
-                      </p>
-                      
-                      {/* --- Prerequisites UI (Roadmap Logik) --- */}
-                      <div className="mt-4 pt-4 border-t dark:border-gray-700">
-                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Voraussetzungen (Roadmap-Link)</p>
-                        <div className="flex flex-wrap gap-2">
-                          {/* Zeige alle ANDEREN Themen dieses Kurses als Verknüpfungs-Option an */}
-                          {nodes.filter((other: any) => other.id !== node.id).map((other: any) => {
-                            // Prüfen, ob dieses 'other' Thema bereits eine Voraussetzung für das aktuelle 'node' Thema ist
-                            const isPrereq = node.prerequisites?.some((p: any) => p.id === other.id);
-                            
-                            return (
-                              <button
-                                key={other.id}
-                                onClick={() => {
-                                  const currentIds = node.prerequisites?.map((p: any) => p.id) || [];
-                                  const newIds = isPrereq 
-                                    ? currentIds.filter((id: string) => id !== other.id) 
-                                    : [...currentIds, other.id];
-                                  handleUpdatePrerequisites(node.id, newIds);
-                                }}
-                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wide uppercase transition-all ${
-                                  isPrereq 
-                                    ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20" 
-                                    : "bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-blue-300 dark:hover:border-blue-900"
-                                } border`}
-                              >
-                                {isPrereq ? "✓ " : "+ "} {other.name}
-                              </button>
-                            );
-                          })}
-                          {nodes.length <= 1 && (
-                            <p className="text-xs text-gray-400 italic">No other topics to link yet.</p>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* --- KI-Quiz (Nur falls vorhanden) --- */}
-                      {node.quizzes?.length > 0 && (
-                        <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800/30 rounded-xl">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-[10px] font-bold text-green-600 dark:text-green-500 uppercase tracking-widest">
-                              Vorhandene Quizzes
-                            </p>
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-green-200 dark:bg-green-900 text-green-800 dark:text-green-300 rounded-full">
-                              {node.quizzes.length} Modul(e)
-                            </span>
-                          </div>
-                          <button 
-                            onClick={() => handleOpenQuizEditor(node.quizzes[0])}
-                            className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
-                          >
-                            Quiz jetzt ansehen & bearbeiten
-                          </button>
-                        </div>
-                      )}
-                    </div>
- 
-                    {/* Delete topic button */}
-                    <div className="flex flex-col gap-2">
-                       <button
-                        onClick={() => handleEditOpen(node)}
-                        className="flex-shrink-0 ml-4 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                      >
-                        Bearbeiten
-                      </button>
-
-                      <button
-                        onClick={() => handleDeleteTopic(node.id, node.name)}
-                        disabled={deletingTopicId === node.id}
-                        className="flex-shrink-0 ml-4 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                      >
-                        <Trash2 size={13} />
-                        {deletingTopicId === node.id ? "Deleting..." : "Entfernen"}
-                      </button>
-                    </div>
-                    
-                    {/* KI-Enrichment Button */}
-                    <button
-                      onClick={() => handleEnrichTopic(node.id)}
-                      disabled={loadingTopicId === node.id || (!node.content && !node.wikidataId)}
-                      title={(!node.content && !node.wikidataId) ? "Kein Inhalt oder Wiki-Link zum Analysieren da" : ""}
-                      className="flex-shrink-0 ml-2 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-600 border border-purple-200 dark:border-purple-900 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors disabled:opacity-40"
-                    >
-                      ✨ {loadingTopicId === node.id ? "Analysiere..." : "KI: Zusammenfassung & Quiz"}
-                    </button>
-                  </div>
- 
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 border dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-bold text-gray-400 uppercase">Wikipedia Content</span>
-                      {loadingTopicId === node.id && (
-                        <span className="text-xs text-blue-500 animate-pulse italic">Fetching...</span>
-                      )}
-                    </div>
- 
-                    <div
-                      className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed max-h-60 overflow-y-auto pr-2 custom-scrollbar wikipedia-article-content"
-                      dangerouslySetInnerHTML={{
-                        __html: topicContentById[node.id] || "Loading article..."
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        );
-      default: return null;
-    }
-  };
- 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* Top Navigation */}
-      <button 
-        onClick={() => navigate("/dashboard")} 
-        className="group flex items-center gap-2 text-sm font-semibold mb-8 text-gray-400 hover:text-blue-600 transition-colors"
-      >
-        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" /> 
-        Back to Dashboard
-      </button>
-
-      {/* Course Header */}
-      <div className="mb-10 flex justify-between items-start">
-        <div>
-          <h1 className="text-4xl font-extrabold dark:text-white mb-2 tracking-tight">{course.title}</h1>
-          <p className="text-lg text-gray-500 max-w-2xl">{course.description || "Add a description to help students understand this course."}</p>
-        </div>
-        <button
-          onClick={handleDeleteCourse}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-500 border border-red-200 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-        >
-          <Trash2 size={16} /> Delete Course
-        </button>
-      </div>
-
-      {/* Tab Switcher */}
-      <div className="flex gap-1 mb-8 rounded-2xl p-1.5 bg-gray-100/50 dark:bg-gray-900/50 border dark:border-gray-700 overflow-x-auto">
-        <TabBtn label="Overview" active={tab === "overview"} onClick={() => setTab("overview")} />
-        <TabBtn label={`Students (${students.length})`} active={tab === "students"} onClick={() => setTab("students")} />
-        <TabBtn label={`Nodes (${nodes.length})`} active={tab === "nodes"} onClick={() => setTab("nodes")} />
-      </div>
-
-      {/* Main Tab Content */}
-      <main className="min-h-[400px]">
-        {renderTabContent()}
-      </main>
-
-      {/* --- QUIZ EDITOR MODAL --- */}
-      {isQuizModalOpen && selectedQuiz && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-all">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
-            {/* Modal Header */}
-            <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
-              <div>
-                <h3 className="text-xl font-bold dark:text-white">Quiz Editor ✨</h3>
-                <p className="text-xs text-gray-400 mt-1">Überprüfe und bearbeite die KI-generierten Fragen</p>
-              </div>
-              <button 
-                onClick={() => setIsQuizModalOpen(false)}
-                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              >
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
-
-            {/* Modal Content (Scrollable) */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-              {tempQuestions.map((q, qIdx) => (
-                <div key={qIdx} className="relative p-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border dark:border-gray-700">
-                  <div className="absolute -top-3 -left-3 w-8 h-8 bg-purple-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow-lg">
-                    {qIdx + 1}
-                  </div>
-                  
-                  {/* Question Text */}
-                  <div className="mb-4">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Frage</label>
-                    <input 
-                      type="text"
-                      value={q.question}
-                      onChange={(e) => {
-                        const newQ = [...tempQuestions];
-                        newQ[qIdx].question = e.target.value;
-                        setTempQuestions(newQ);
-                      }}
-                      className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
-                    />
-                  </div>
-
-                  {/* Options */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {q.options.map((opt: string, oIdx: number) => (
-                      <div key={oIdx}>
-                        <label className="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Option {oIdx + 1}</label>
-                        <input 
-                          type="text"
-                          value={opt}
-                          onChange={(e) => {
-                            const newQ = [...tempQuestions];
-                            newQ[qIdx].options[oIdx] = e.target.value;
-                            setTempQuestions(newQ);
-                          }}
-                          className={`w-full bg-white dark:bg-gray-800 border rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white ${
-                            q.answer === opt ? 'border-green-500 ring-1 ring-green-500/20' : 'dark:border-gray-700'
-                          }`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Correct Answer Selector */}
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase">Richtige Lösung:</span>
-                      <select 
-                        value={q.answer}
-                        onChange={(e) => {
-                          const newQ = [...tempQuestions];
-                          newQ[qIdx].answer = e.target.value;
-                          setTempQuestions(newQ);
-                        }}
-                        className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold px-3 py-1 rounded-lg outline-none cursor-pointer"
-                      >
-                        {q.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-
-                    <button 
-                      onClick={() => {
-                        const newQ = tempQuestions.filter((_, i) => i !== qIdx);
-                        setTempQuestions(newQ);
-                      }}
-                      className="text-red-500 hover:text-red-700 p-2 transition-colors"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              <button 
-                onClick={() => {
-                  setTempQuestions([...tempQuestions, { question: "Neue Frage?", options: ["A", "B", "C", "D"], answer: "A" }]);
-                }}
-                className="w-full py-3 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl text-gray-400 hover:text-purple-500 hover:border-purple-300 transition-all flex items-center justify-center gap-2 font-bold text-sm"
-              >
-                <Plus size={18} /> Frage hinzufügen
-              </button>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-6 border-t dark:border-gray-700 flex gap-3 bg-gray-50 dark:bg-gray-900/50">
-              <button 
-                onClick={() => handleDeleteQuiz(selectedQuiz.id)}
-                className="px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
-              >
-                Quiz löschen
-              </button>
-              <div className="flex-1" />
-              <button 
-                onClick={() => setIsQuizModalOpen(false)}
-                className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
-              >
-                Abbrechen
-              </button>
-              <button 
-                onClick={handleSaveQuiz}
-                disabled={isSavingQuiz}
-                className="px-8 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20"
-              >
-                {isSavingQuiz ? "Speichert..." : "Änderungen speichern"}
-              </button>
-            </div>
+    <Layout>
+      <div className="max-w-3xl mx-auto pb-20">
+        {/* ── Page header ── */}
+        <div className="flex items-center gap-4 mb-8">
+          <button onClick={() => navigate('/dashboard')} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+            <ChevronLeft size={20} />
+          </button>
+          <div className="flex-1">
+            <h1 style={{ fontWeight: 900, fontSize: 24, color: 'var(--cn-text)' }}>{course.title}</h1>
+            {course.description && (
+              <p style={{ fontSize: 13, color: 'var(--cn-muted)', marginTop: 2 }}>{course.description}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl" style={{ background: 'var(--cn-card)', border: '1px solid var(--cn-border)' }}>
+            <span style={{ fontSize: 11, color: 'var(--cn-muted)', fontWeight: 600 }}>JOIN CODE</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: 'var(--cn-text)' }}>{course.joinCode}</span>
           </div>
         </div>
-      )}
 
-      {/* --- TOPIC EDIT MODAL --- */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-all">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
-            <form onSubmit={handleUpdateTopic}>
-              <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
-                <h3 className="text-xl font-bold dark:text-white">Thema bearbeiten</h3>
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
-                  <X size={20} className="text-gray-500" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Name</label>
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Beschreibung</label>
-                  <textarea
-                    value={editDesc}
-                    onChange={(e) => setEditDesc(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
-                  />
-                </div>
-
-                <div className="pt-4 border-t dark:border-gray-700">
-                   <p className="text-[10px] font-bold text-blue-500 uppercase mb-3">Inhalt aktualisieren (Optional)</p>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-gray-50 dark:bg-gray-900/50 border border-dashed dark:border-gray-700 rounded-xl p-4 flex flex-col items-center justify-center">
-                        <input type="file" accept=".pdf" id="edit-pdf" className="hidden" onChange={(e) => setEditFile(e.target.files?.[0] || null)} />
-                        <label htmlFor="edit-pdf" className="cursor-pointer flex flex-col items-center">
-                           <Plus size={20} className="text-gray-400 mb-1" />
-                           <span className="text-[10px] font-bold text-gray-500">{editFile ? editFile.name : "NEUES PDF HOCHLADEN"}</span>
-                        </label>
-                      </div>
-                      <input
-                        placeholder="Neue Scraper URL"
-                        className="w-full px-4 py-2.5 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 h-fit"
-                        value={editUrl}
-                        onChange={(e) => setEditUrl(e.target.value)}
-                      />
-                   </div>
-                   <p className="text-[9px] text-gray-400 mt-2 italic">Hinweis: Neue PDFs oder URLs werden zum bestehenden Wissen (z.B. Wikipedia) <b>hinzugefügt</b>, um die KI-Zusammenfassung zu verbessern.</p>
-                </div>
-              </div>
-
-              <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors">Abbrechen</button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingTopic}
-                  className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
-                >
-                  {isUpdatingTopic ? "Speichert..." : "Speichern"}
-                </button>
-              </div>
-            </form>
+        {/* ── Info banner ── */}
+        <div className="flex items-start gap-3 p-4 rounded-2xl mb-6" style={{ background: BLUE + '10', border: `1px solid ${BLUE}33` }}>
+          <div className="mt-0.5">
+            <GripVertical size={16} style={{ color: BLUE }} />
+          </div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: BLUE }}>Drag to reorder</p>
+            <p style={{ fontSize: 12, color: 'var(--cn-muted)', marginTop: 2 }}>
+              Drag topic cards up/down to reorder them. Drag subtopics within a topic to reorder them. 
+              Use "Add prerequisite link" to define which topics must be completed before another.
+            </p>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* ── Topics section ── */}
+        <SectionHeader
+          title={`Topics (${course.topics.length})`}
+          action={
+            <button
+              onClick={() => setAddingTopic(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-bold transition-all hover:opacity-90"
+              style={{ background: BLUE }}
+            >
+              <Plus size={15} /> Add Topic
+            </button>
+          }
+        />
+
+        {/* Add topic form */}
+        {addingTopic && (
+          <div className="p-4 rounded-2xl mb-4" style={{ background: 'var(--cn-card)', border: `1.5px dashed ${BLUE}55` }}>
+            <div className="flex flex-col gap-3">
+              <InputField label="Topic Name *" value={newTopicName} onChange={setNewTopicName} placeholder="e.g. JVM Architecture" />
+              <InputField label="Description (optional)" value={newTopicDesc} onChange={setNewTopicDesc} placeholder="What students will learn…" textarea />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setAddingTopic(false); setNewTopicName(''); setNewTopicDesc(''); }} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'var(--cn-bg)', color: 'var(--cn-muted)', border: '1px solid var(--cn-border)' }}>
+                  Cancel
+                </button>
+                <button onClick={addTopic} disabled={!newTopicName.trim()} className="px-4 py-2 rounded-xl text-white text-sm font-bold disabled:opacity-50" style={{ background: BLUE }}>
+                  Create Topic
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Topic list */}
+        {course.topics.length === 0 && !addingTopic ? (
+          <div className="py-16 flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed" style={{ borderColor: 'var(--cn-border)' }}>
+            <BookOpen size={36} style={{ color: 'var(--cn-muted)' }} />
+            <p style={{ color: 'var(--cn-text)', fontWeight: 700 }}>No topics yet</p>
+            <p style={{ color: 'var(--cn-muted)', fontSize: 13 }}>Click "Add Topic" to build your course structure.</p>
+            <button onClick={() => setAddingTopic(true)} className="mt-2 px-6 py-2.5 rounded-2xl text-white font-bold" style={{ background: BLUE }}>
+              <Plus size={14} className="inline mr-1" />Add First Topic
+            </button>
+          </div>
+        ) : (
+          <div>
+            {course.topics.map((topic, i) => (
+              <TopicCard
+                key={topic.id}
+                topic={topic}
+                index={i}
+                courseId={courseId!}
+                allTopics={course.topics}
+                onDelete={() => deleteTopic(topic.id)}
+                onRefresh={fetchCourse}
+                onDragStart={handleTopicDragStart}
+                onDragOver={e => e.preventDefault()}
+                onDrop={handleTopicDrop}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </Layout>
   );
 }
