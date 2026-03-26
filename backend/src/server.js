@@ -13,6 +13,7 @@ const wikiRoutes = require("./routes/wikiRoutes");
 
 >>>>>>> dev
 
+
 const app = express();
 
 // Middleware: Erlaubt dem Server, JSON-Daten aus dem request body zu lesen
@@ -36,6 +37,7 @@ app.use("/api/quizzes", quizRoutes);
 
 // Hier verbinden wir die neuen Fortschritts-Routen
 app.use("/api/progress", progressRoutes);
+<<<<<<< HEAD
 
 <<<<<<< HEAD
 // Hier verbinden wir Route to Server
@@ -44,6 +46,8 @@ app.use("/api/graph", graphRoutes);
 // Hier verbinden wir die Wiki-Routen
 app.use("/api/wiki", wikiRoutes);
 >>>>>>> dev
+=======
+>>>>>>> 7d22e3f9cbb9159262aac74df6e7c7d87bd0c8c4
     
 
 const port = process.env.PORT || 3000;
