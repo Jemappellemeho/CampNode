@@ -19,22 +19,24 @@ router.post("/", verifyToken, upload.single("pdf"), topicController.createTopic)
 // Route 2: Alle Themen eines bestimmten Kurses abrufen (GET /api/topics/course/:courseId)
 router.get("/course/:courseId", verifyToken, topicController.getTopicsByCourse);
 
-// Route 3: Ein Thema bearbeiten (PUT /api/topics/:id)
+// Route 3: Quiz Management (Update & Delete)
+// WICHTIG: Diese Routen müssen VOR der generischen /:id-Route stehen!
+// Sonst würde Express "quizzes" als topicId interpretieren und den falschen Handler aufrufen.
+router.put("/quizzes/:quizId", verifyToken, topicController.updateQuiz);
+router.delete("/quizzes/:quizId", verifyToken, topicController.deleteQuiz);
+
+// Route 4: Ein Thema bearbeiten (PUT /api/topics/:id)
 // Jetzt auch mit PDF-Upload Support beim Bearbeiten
 router.put("/:id", verifyToken, upload.single("pdf"), topicController.updateTopic);
 
-// Route 4: Ein Thema löschen (DELETE /api/topics/:id)
+// Route 5: Ein Thema löschen (DELETE /api/topics/:id)
 router.delete("/:id", verifyToken, topicController.deleteTopic);
 
-// Route 5: Fetch the Wikipedia article for a topic (GET /api/topics/:id/content)
+// Route 6: Fetch the Wikipedia article for a topic (GET /api/topics/:id/content)
 // Accepts optional ?lang=en or ?lang=de query parameter
 router.get("/:id/content", verifyToken, topicController.getTopicContent);
 
-// Route 6: AI-Enrichment (Zusammenfassung + Quiz generieren)
+// Route 7: AI-Enrichment (Zusammenfassung + Quiz generieren)
 router.post("/:id/enrich", verifyToken, topicController.enrichTopic);
-
-// Route 7: Quiz Management (Update & Delete)
-router.put("/quizzes/:quizId", verifyToken, topicController.updateQuiz);
-router.delete("/quizzes/:quizId", verifyToken, topicController.deleteQuiz);
 
 module.exports = router;

@@ -139,7 +139,7 @@ const addTopic = async (item: any) => {
         { headers: authHeaders } // Token mitschicken!
       );
 
-      const courseId = courseRes.data.id;
+      const courseId = courseRes.data.course.id;
 
       // 2. Themen erstellen (jedes Thema einzeln senden)
       for (const topic of topics) {

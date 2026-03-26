@@ -207,7 +207,7 @@ exports.enrichTopic = async (req, res) => {
     const updatedTopic = await prisma.topic.update({
       where: { id },
       data: {
-        description: summary, 
+        description: `[KI-ZUSAMMENFASSUNG] ${summary}`, 
         quizzes: { create: { questions: quizQuestions } }
       },
       include: { quizzes: true }
