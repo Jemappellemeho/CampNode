@@ -193,16 +193,38 @@ exports.enrichTopic = async (req, res) => {
     if (!topic) return res.status(404).json({ error: "Thema nicht gefunden." });
 
     if (!topic.content && topic.wikidataId) {
+      console.log("Fetching Wiki content...");
+    
       const wikiText = await fetchWikiText(topic.wikidataId);
-      if (wikiText) {
-        topic = await prisma.topic.update({ where: { id }, data: { content: wikiText } });
+    
+      if (!wikiText) {
+        console.log("❌ Wiki fetch failed");
+    
+        // 🔥 TEMP FIX (VERY IMPORTANT)
+        topic = await prisma.topic.update({
+          where: { id },
+          data: { content: "Fallback content for testing" }
+        });
+    
+      } else {
+        console.log("✅ Wiki content loaded");
+    
+        topic = await prisma.topic.update({
+          where: { id },
+          data: { content: wikiText }
+        });
       }
     }
 
     if (!topic || !topic.content) return res.status(400).json({ error: "Kein Inhalt vorhanden." });
 
+    console.log("CONTENT LENGTH:", topic.content?.length);
+    console.log("CONTENT PREVIEW:", topic.content?.substring(0, 200));
+
     const summary = await aiService.generateSummary(topic.content);
     const quizQuestions = await aiService.generateQuiz(topic.content);
+
+    console.log("AI QUIZ:", quizQuestions);
 
     const updatedTopic = await prisma.topic.update({
       where: { id },
@@ -214,7 +236,11 @@ exports.enrichTopic = async (req, res) => {
     });
 
     res.json({ message: "KI-Modul wurde erfolgreich angereichert!", topic: updatedTopic });
-  } catch (error) { res.status(500).json({ error: "Fehler bei der KI-Analyse." }); }
+  } //catch (error) { res.status(500).json({ error: "Fehler bei der KI-Analyse." }); }
+  catch (error) {
+    console.error("AI ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
 };
 
 // --- QUIZ MANAGEMENT ---

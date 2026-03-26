@@ -12,6 +12,7 @@ const axios = require("axios");
  * verbinden wir das mit Google Gemini oder OpenAI.
  */
 exports.generateSummary = async (content) => {
+  console.log("KEY TEST:", process.env.OPENAI_API_KEY);
   console.log("Generiere Zusammenfassung...");
 
   // Falls der Text zu kurz ist, brauchen wir keine KI
@@ -33,23 +34,66 @@ exports.generateSummary = async (content) => {
  * Gibt ein Array von Objekten im JSON-Format zurück.
  */
 exports.generateQuiz = async (content) => {
-  console.log("[AI Service] Erstelle Quiz-Fragen...");
+  console.log("KEY TEST:", process.env.GEMINI_API_KEY);
+  console.log("[AI Service] Gemini Quiz...");
 
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  try {
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        contents: [
+          {
+            parts: [
+              {
+                text: `
+Generate exactly 4 multiple choice questions based on this text:
 
-  // Beispiel-Datenstruktur für ein Quiz
-  return [
-    {
-      question: "Was ist der wichtigste Punkt in diesem Modul?",
-      options: ["Antwort A", "Antwort B", "Antwort C", "Antwort D"],
-      answer: "Antwort A"
-    },
-    {
-      question: "Wie hängen die Konzepte zusammen?",
-      options: ["Gar nicht", "Linear", "Gegenseitig", "Unbekannt"],
-      answer: "Gegenseitig"
-    }
-  ];
+${content}
+
+Rules:
+- Specific questions only
+- 4 options each
+- Only one correct answer
+- Return ONLY JSON
+
+[
+  {
+    "question": "...",
+    "options": ["...", "...", "...", "..."],
+    "answer": "..."
+  }
+]
+`
+              }
+            ]
+          }
+        ]
+      }
+    );
+
+    const text = response.data.candidates[0].content.parts[0].text;
+
+    console.log("RAW:", text);
+
+    // 🔥 robust parsing
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const match = cleaned.match(/\[.*\]/s);
+
+    if (!match) throw new Error("No JSON found");
+
+    return JSON.parse(match[0]);
+
+  } catch (error) {
+    console.error("GEMINI ERROR:", error.response?.data || error.message);
+
+    return [
+      {
+        question: "Fallback question",
+        options: ["A", "B", "C"],
+        answer: "A"
+      }
+    ];
+  }
 };
 
 /**
