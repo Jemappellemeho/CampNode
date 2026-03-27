@@ -317,3 +317,24 @@ exports.updateTopic = async (req, res) => {
     res.status(500).json({ error: "Failed to update topic" });
   }
 };
+
+// Delete a specific topic or subtopic
+exports.deleteTopic = async (req, res) => {
+  try {
+    const { topicId } = req.params;
+
+    if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Only professors can delete topics" });
+    }
+
+    // Prisma handles cascading deletes if configured, but let's just delete the topic
+    await prisma.topic.delete({
+      where: { id: topicId }
+    });
+
+    res.json({ message: "Topic deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting topic:", err);
+    res.status(500).json({ error: "Failed to delete topic" });
+  }
+};

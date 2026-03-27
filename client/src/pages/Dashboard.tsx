@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import Layout from '../components/Layout';
 import CreateCourseModal from './CreateCourseModal';
 import { BookOpen, Users, Plus, Copy, Check, ChevronRight } from "lucide-react";
 
@@ -84,8 +83,8 @@ export default function Dashboard() {
   if (!user) return null;
 
   return (
-    <Layout>
-      <div className="p-6 max-w-6xl mx-auto">
+    <>
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto">
         {/* Header Section */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -187,6 +186,6 @@ export default function Dashboard() {
           onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
         />
       </div>
-    </Layout>
+    </>
   );
 }

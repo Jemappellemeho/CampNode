@@ -39,4 +39,8 @@ router.post("/:id/topics", verifyToken, courseController.addTopic);
 // Update an existing topic (name, links, order, etc)
 router.put("/:id/topics/:topicId", verifyToken, courseController.updateTopic);
 
+// Route: DELETE /api/courses/:id/topics/:topicId
+// Delete a specific topic or subtopic
+router.delete("/:id/topics/:topicId", verifyToken, courseController.deleteTopic);
+
 module.exports = router;

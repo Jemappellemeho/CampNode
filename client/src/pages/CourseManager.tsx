@@ -4,9 +4,8 @@ import axios from 'axios';
 import {
   Plus, Trash2, ChevronLeft, GripVertical,
   BookOpen, X, Users, Globe, Copy, 
-  ChevronRight, Play, Headphones, Sparkles, Lock
+  ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2
 } from 'lucide-react';
-import Layout from '../components/Layout';
 
 const API = 'http://localhost:3000/api';
 const BLUE = '#1E6FFF';
@@ -23,6 +22,12 @@ export default function CourseManager() {
   const [newSubName, setNewSubName] = useState('');
   const [editingSubId, setEditingSubId] = useState<string | null>(null);
   const [linkData, setLinkData] = useState({ video: '', article: '', podcast: '' });
+  const [isAddingTopic, setIsAddingTopic] = useState(false);
+  const [newTopicName, setNewTopicName] = useState('');
+  const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>({});
+  const [expandedMainTopics, setExpandedMainTopics] = useState<Record<string, boolean>>({});
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
   
   const token = localStorage.getItem('token');
 
@@ -57,6 +62,16 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  const addTopic = async () => {
+    if (!newTopicName.trim()) return;
+    try {
+      await axios.post(`${API}/courses/${courseId}/topics`, {
+        name: newTopicName
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setNewTopicName(''); setIsAddingTopic(false); fetchCourse();
+    } catch (e) { console.error(e); }
+  };
+
   const saveLinks = async (subId: string) => {
     try {
       await axios.put(`${API}/courses/${courseId}/topics/${subId}`, {
@@ -69,8 +84,9 @@ export default function CourseManager() {
   const handleTopicDrop = async (srcId: string, targetId: string) => {
     if (!course || srcId === targetId) return;
     const topics = [...course.topics];
-    const srcIdx = topics.findIndex(t => t.id === srcId);
-    const tgtIdx = topics.findIndex(t => t.id === targetId);
+    const srcIdx = topics.findIndex((t: any) => t.id === srcId);
+    const tgtIdx = topics.findIndex((t: any) => t.id === targetId);
+    if (srcIdx === -1 || tgtIdx === -1) return;
     const [moved] = topics.splice(srcIdx, 1);
     topics.splice(tgtIdx, 0, moved);
     setCourse({ ...course, topics });
@@ -79,15 +95,66 @@ export default function CourseManager() {
     }
   };
 
-  if (loading) return <Layout><div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div></Layout>;
+  const handleSubtopicDrop = async (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => {
+    if (!course || srcId === targetId || parentTopicId !== targetParentId) return;
+    
+    const parentTopic = course.topics.find((t: any) => t.id === parentTopicId);
+    if (!parentTopic || !parentTopic.subtopics) return;
+
+    const subtopics = [...parentTopic.subtopics];
+    const srcIdx = subtopics.findIndex((t: any) => t.id === srcId);
+    const tgtIdx = subtopics.findIndex((t: any) => t.id === targetId);
+    
+    if (srcIdx === -1 || tgtIdx === -1) return;
+    
+    const [moved] = subtopics.splice(srcIdx, 1);
+    subtopics.splice(tgtIdx, 0, moved);
+    
+    const updatedTopics = course.topics.map((t: any) => 
+      t.id === parentTopicId ? { ...t, subtopics } : t
+    );
+    setCourse({ ...course, topics: updatedTopics });
+    
+    for (let i = 0; i < subtopics.length; i++) {
+      await axios.put(`${API}/courses/${courseId}/topics/${subtopics[i].id}`, { order: i }, { headers: { Authorization: `Bearer ${token}` } });
+    }
+  };
+
+  const startEditingName = (id: string, currentName: string) => {
+    setEditingNameId(id);
+    setEditingNameValue(currentName);
+  };
+
+  const saveName = async (id: string) => {
+    if (!editingNameValue.trim()) {
+      setEditingNameId(null);
+      return;
+    }
+    try {
+      await axios.put(`${API}/courses/${courseId}/topics/${id}`, { name: editingNameValue }, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingNameId(null);
+      fetchCourse();
+    } catch(e) { console.error(e); }
+  };
+
+  const deleteTopic = async (id: string) => {
+    if (!window.confirm("Delete this topic/subtopic permanently?")) return;
+    try {
+      await axios.delete(`${API}/courses/${courseId}/topics/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (editingSubId === id) setEditingSubId(null);
+      fetchCourse();
+    } catch(e) { console.error(e); }
+  };
+
+  if (loading) return <div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div>;
   if (!course) return null;
 
   return (
-    <Layout>
-      <div className="max-w-5xl mx-auto px-6 py-8">
+    <>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
         <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-gray-400 font-bold text-xs mb-4 hover:text-blue-600 transition-all uppercase"><ChevronLeft size={14} /> Back to Dashboard</button>
 
-        <div className="flex justify-between items-end mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-black text-gray-900 dark:text-white leading-tight">{course.title}</h1>
@@ -103,9 +170,9 @@ export default function CourseManager() {
           <button onClick={async () => { if(window.confirm("Delete?")) { await axios.delete(`${API}/courses/${courseId}`, {headers: {Authorization: `Bearer ${token}`}}); navigate('/dashboard'); } }} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-500 border border-red-100 rounded-xl hover:bg-red-50 transition-all"><Trash2 size={14} /> Delete Course</button>
         </div>
 
-        <div className="bg-gray-100/80 dark:bg-gray-900/50 p-1 rounded-xl flex gap-1 mb-8 border dark:border-gray-800 w-fit">
+        <div className="bg-gray-100/80 dark:bg-gray-900/50 p-1 rounded-xl flex gap-1 mb-8 border dark:border-gray-800 w-full overflow-x-auto sm:w-fit">
           {["overview", "students", "nodes"].map((t) => (
-            <button key={t} onClick={() => setTab(t as any)} className={`px-8 py-2 text-xs font-bold rounded-lg transition-all ${tab === t ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30" : "text-gray-400"}`}>{t.toUpperCase()}</button>
+            <button key={t} onClick={() => setTab(t as any)} className={`shrink-0 px-6 sm:px-8 py-2 text-xs font-bold rounded-lg transition-all ${tab === t ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30" : "text-gray-400"}`}>{t.toUpperCase()}</button>
           ))}
         </div>
 
@@ -126,11 +193,11 @@ export default function CourseManager() {
                   <div><p className="text-[10px] font-bold text-gray-400 uppercase">Visibility</p><p className={`text-2xl font-black ${course.isPublic ? 'text-green-600' : 'text-blue-600'}`}>{course.isPublic ? 'Public' : 'Private'}</p></div>
                 </div>
               </div>
-              <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-800 p-6 sm:p-8 rounded-3xl border dark:border-gray-700 shadow-sm">
                 <h3 className="text-[10px] font-black text-gray-900 dark:text-white mb-6 uppercase tracking-widest">Access Configuration</h3>
-                <div className="bg-gray-50 dark:bg-gray-900/50 p-5 rounded-2xl border dark:border-gray-700 flex justify-between items-center">
+                <div className="bg-gray-50 dark:bg-gray-900/50 p-4 sm:p-5 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Student Join Code</p><p className="text-xl font-mono font-bold text-blue-600 uppercase tracking-widest">{course.joinCode}</p></div>
-                  <button onClick={() => navigator.clipboard.writeText(course.joinCode)} className="p-2.5 bg-white rounded-xl border border-gray-100 hover:bg-gray-50"><Copy size={18} className="text-gray-400" /></button>
+                  <button onClick={() => navigator.clipboard.writeText(course.joinCode)} className="p-2.5 bg-white rounded-xl border border-gray-100 hover:bg-gray-50 flex items-center gap-2 text-xs font-bold text-gray-500 w-full justify-center sm:w-auto"><Copy size={18} /> <span className="sm:hidden">COPY</span></button>
                 </div>
               </div>
             </div>
@@ -162,8 +229,16 @@ export default function CourseManager() {
             <div className="space-y-4 animate-in slide-in-from-bottom-2">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-sm font-black dark:text-white uppercase tracking-widest">Curriculum Nodes</h2>
-                <button className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md">+ Add Topic</button>
+                <button onClick={() => setIsAddingTopic(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md">+ Add Topic</button>
               </div>
+
+              {isAddingTopic && (
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 flex gap-2">
+                  <input autoFocus className="flex-1 px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="New Topic Name..." value={newTopicName} onChange={(e) => setNewTopicName(e.target.value)} />
+                  <button onClick={addTopic} className="bg-blue-600 text-white px-4 rounded-lg text-xs font-bold uppercase">Add</button>
+                  <button onClick={() => setIsAddingTopic(false)} className="p-2 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
+              )}
 
               {course.topics?.map((topic: any, i: number) => (
                 <div 
@@ -174,31 +249,87 @@ export default function CourseManager() {
                   className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
                 >
                   <div className="flex items-center justify-between mb-4 font-bold">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 w-full">
                       <GripVertical size={16} className="text-gray-300 cursor-grab group-hover:text-gray-500" />
-                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black" style={{ background: BLUE }}>{i + 1}</div>
-                      <h3 className="text-base dark:text-white">{topic.name}</h3>
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: BLUE }}>{i + 1}</div>
+                      {editingNameId === topic.id ? (
+                        <div className="flex items-center gap-2 w-full">
+                          <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(topic.id)} />
+                          <button onClick={() => saveName(topic.id)} className="text-xs text-blue-600 font-bold">Save</button>
+                          <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 group/title w-full">
+                          <h3 className="text-base dark:text-white">{topic.name}</h3>
+                          <button onClick={() => startEditingName(topic.id, topic.name)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity p-1"><Edit2 size={12} /></button>
+                          <button onClick={() => deleteTopic(topic.id)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1"><Trash2 size={12} /></button>
+                        </div>
+                      )}
                     </div>
+                    <button 
+                      onClick={() => setExpandedMainTopics(prev => ({...prev, [topic.id]: !prev[topic.id]}))} 
+                      className="p-2 text-gray-400 hover:text-blue-600 transition-colors shrink-0"
+                    >
+                      <ChevronDown size={18} className={`transition-transform duration-200 ${expandedMainTopics[topic.id] ? '' : '-rotate-90'}`} />
+                    </button>
                   </div>
                   
-                  {/* WIKIDATA CONTENT PREVIEW */}
+                  {expandedMainTopics[topic.id] && (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                      {/* WIKIDATA CONTENT PREVIEW */}
                   {topic.content && (
                     <div className="ml-6 mb-6 pl-4 border-l-2 border-gray-100 dark:border-gray-800 relative">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Wikipedia Abstract</p>
-                      <div 
-                         className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 overflow-y-auto max-h-40"
-                         dangerouslySetInnerHTML={{ __html: topic.content }} 
-                      />
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Wikipedia Abstract</p>
+                        <button onClick={() => setExpandedTopics(prev => ({...prev, [topic.id]: prev[topic.id] === undefined ? false : !prev[topic.id]}))} className="text-[10px] text-blue-600 font-bold uppercase transition-all hover:text-blue-700">
+                          {expandedTopics[topic.id] !== false ? "Collapse" : "Expand"}
+                        </button>
+                      </div>
+                      {expandedTopics[topic.id] !== false && (
+                        <div 
+                           className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 overflow-y-auto max-h-40"
+                           dangerouslySetInnerHTML={{ __html: topic.content }} 
+                        />
+                      )}
                     </div>
                   )}
 
                   <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
                     {topic.subtopics?.map((sub: any) => (
-                      <div key={sub.id} className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}>
+                      <div 
+                        key={sub.id} 
+                        draggable
+                        onDragStart={(e) => {
+                           e.stopPropagation();
+                           e.dataTransfer.setData('subtopicId', sub.id);
+                           e.dataTransfer.setData('parentTopicId', topic.id);
+                        }}
+                        onDragOver={(e) => {
+                           e.preventDefault();
+                           e.stopPropagation();
+                        }}
+                        onDrop={(e) => {
+                           e.stopPropagation();
+                           handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, e.dataTransfer.getData('parentTopicId'), topic.id);
+                        }}
+                        className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}
+                      >
                         <div className="flex items-center gap-3">
-                          <GripVertical size={14} className="text-gray-300" />
+                          <GripVertical size={14} className="text-gray-300 cursor-grab hover:text-gray-500 transition-colors" />
                           <div className="flex-1">
-                            <p className="font-bold dark:text-white text-sm">{sub.name}</p>
+                            {editingNameId === sub.id ? (
+                              <div className="flex items-center gap-2">
+                                <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(sub.id)} />
+                                <button onClick={() => saveName(sub.id)} className="text-xs text-blue-600 font-bold">Save</button>
+                                <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 group/subtitle">
+                                <p className="font-bold dark:text-white text-sm">{sub.name}</p>
+                                <button onClick={() => startEditingName(sub.id, sub.name)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity p-1"><Edit2 size={12} /></button>
+                                <button onClick={() => deleteTopic(sub.id)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1"><Trash2 size={12} /></button>
+                              </div>
+                            )}
                             {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
                           </div>
                           <button onClick={() => {
@@ -238,12 +369,14 @@ export default function CourseManager() {
                       <button onClick={() => setAddingSubTo(topic.id)} className="flex items-center gap-2 text-xs font-bold text-blue-600 mt-2 hover:underline"><Plus size={14} /> Add Subtopic / Links</button>
                     )}
                   </div>
+                  </div>
+                )}
                 </div>
               ))}
             </div>
           )}
         </main>
       </div>
-    </Layout>
+    </>
   );
 }

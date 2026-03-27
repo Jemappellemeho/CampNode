@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import NodeDetailPanel from '../components/NodeDetailPanel';
-import { MonitorPlay, BookOpen, Headphones, HelpCircle, ChevronLeft, X } from 'lucide-react';
+import { MonitorPlay, BookOpen, Headphones, HelpCircle, ChevronLeft, X, Info } from 'lucide-react';
 
 // --- Types & Interfaces ---
 type Status = 'completed' | 'current' | 'locked';
@@ -42,6 +42,7 @@ export default function Playground() {
   
   // State for AI Article viewer modal
   const [viewingArticle, setViewingArticle] = useState<{isOpen: boolean, title: string, html: string, loading: boolean} | null>(null);
+  const [activePopupContent, setActivePopupContent] = useState<{title: string, content: string} | null>(null);
 
   // 1. Load User
   useEffect(() => {
@@ -150,7 +151,7 @@ export default function Playground() {
 
       {/* TOP COMPONENT ROW */}
       <div
-        className="sticky top-16 sm:top-20 z-40 px-3 sm:px-6 py-3 border-b flex flex-wrap gap-4 items-center justify-between"
+        className="fixed top-[56px] sm:top-[64px] left-0 right-0 z-40 px-4 sm:px-8 py-3 border-b flex flex-wrap gap-4 items-center justify-between shadow-sm"
         style={{ background: "var(--cn-card)", borderColor: "var(--cn-border)" }}
       >
         <div className="flex items-center gap-4">
@@ -191,7 +192,7 @@ export default function Playground() {
       </div>
 
       {/* MAIN CONTENT */}
-      <main className="pb-16 sm:pb-24 flex flex-col items-center px-3 sm:px-4 pt-6">
+      <main className="pb-16 sm:pb-24 flex flex-col items-center px-3 sm:px-4 pt-16 sm:pt-20">
         <div className="mb-6 text-center">
             <h1
             className="text-xl sm:text-2xl md:text-3xl font-bold mb-1"
@@ -237,28 +238,23 @@ export default function Playground() {
                   </span>
                 </div>
               </button>
+              
+              {node.content && (
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActivePopupContent({ title: node.title, content: node.content! });
+                  }}
+                  className="absolute top-0 right-0 sm:-right-2 bg-white dark:bg-gray-800 text-blue-500 p-1.5 sm:p-2 rounded-full shadow-lg border dark:border-gray-700 hover:scale-110 transition-transform z-30"
+                  title="View Topic Abstract"
+                >
+                  <Info size={16} />
+                </button>
+              )}
             </div>
 
             {/* CONNECTION LINE - active state */}
             {activeId === node.id && (
-              <div
-                className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 z-10"
-                style={{ background: "#F5C518" }}
-              />
-            )}
-
-            {/* MAIN WIKIPEDIA CONTENT OVERVIEW */}
-            {activeId === node.id && node.content && (
-              <div className="w-full max-w-2xl px-4 z-20 animate-in fade-in slide-in-from-top-2">
-                 <div className="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-3xl p-6 shadow-xl relative mt-2 text-center text-gray-700 dark:text-gray-300 text-sm leading-relaxed max-h-48 overflow-y-auto">
-                    <p className="font-bold text-[10px] text-blue-600 dark:text-blue-500 uppercase tracking-widest mb-3">Topic Abstract</p>
-                    {node.content}
-                 </div>
-              </div>
-            )}
-
-            {/* CONNECTION LINE BELOW ABSTRACT */}
-            {activeId === node.id && node.content && (
               <div
                 className="w-0.5 sm:w-1 h-6 sm:h-8 md:h-10 z-10"
                 style={{ background: "#F5C518" }}
@@ -518,6 +514,33 @@ export default function Playground() {
               ) : (
                 <div dangerouslySetInnerHTML={{ __html: viewingArticle.html }} />
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOPIC ABSTRACT POPUP */}
+      {activePopupContent && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" 
+            onClick={() => setActivePopupContent(null)} 
+          />
+          <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" style={{ border: "1px solid var(--cn-border)" }}>
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b" style={{ borderColor: "var(--cn-border)", background: "var(--cn-card)" }}>
+              <h2 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+                <Info className="text-blue-500" />
+                {activePopupContent.title} - Abstract
+              </h2>
+              <button 
+                onClick={() => setActivePopupContent(null)}
+                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-500"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 sm:p-8 bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 text-sm leading-relaxed overflow-y-auto max-h-[60vh]">
+              <div dangerouslySetInnerHTML={{ __html: activePopupContent.content }} />
             </div>
           </div>
         </div>
