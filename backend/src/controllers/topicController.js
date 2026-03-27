@@ -4,7 +4,51 @@ const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
 const aiService = require("../services/aiService");
 
-// Creates a new topic and processes optional sources (Web-Link or PDF)
+/**
+ * GET Quiz for a topic.
+ * Logic: If missing or < 15 questions, it regenerates to ensure a full session.
+ */
+exports.getQuizByTopic = async (req, res) => {
+  try {
+    const { topicId } = req.params;
+
+    let quiz = await prisma.quiz.findFirst({
+      where: { topicId: topicId }
+    });
+
+    // Force refresh if the quiz is the old 5-question version
+    if (quiz && (!quiz.questions || quiz.questions.length < 15)) {
+      console.log("[Quiz] Found old quiz version. Deleting to regenerate 15 unique questions.");
+      await prisma.quiz.delete({ where: { id: quiz.id } });
+      quiz = null;
+    }
+
+    if (!quiz) {
+      console.log(`[Quiz] No valid quiz found for topic ${topicId}. Generating 15 questions...`);
+      const topic = await prisma.topic.findUnique({ where: { id: topicId } });
+      
+      // Ensure aiService.generateQuiz returns exactly 15 unique objects
+      const questions = await aiService.generateQuiz(topic?.name || "General Knowledge");
+      
+      quiz = await prisma.quiz.create({
+        data: {
+          topicId: topicId,
+          questions: questions
+        }
+      });
+    }
+
+    // Return the quiz object directly
+    res.json(quiz);
+  } catch (error) {
+    console.error("Quiz Fetch Error:", error.message);
+    res.status(500).json({ error: "Failed to load or generate quiz." });
+  }
+};
+
+/**
+ * Creates a new topic and processes optional sources (Web-Link or PDF)
+ */
 exports.createTopic = async (req, res) => {
   try {
     const { name, description, courseId, wikidataId, sourceUrl } = req.body;
@@ -18,7 +62,6 @@ exports.createTopic = async (req, res) => {
       console.log("Parsing PDF:", req.file.originalname);
       content = await parsePdf(req.file.buffer);
     }
-    // Automatically fetch Wiki summary if wikidataId is provided
     else if (wikidataId) {
       console.log("Fetching WikiText for:", wikidataId);
       const wikiText = await fetchWikiText(wikidataId);
@@ -42,6 +85,9 @@ exports.createTopic = async (req, res) => {
   }
 };
 
+/**
+ * Fetch all topics that belong to a specific course
+ */
 exports.getTopicsByCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
@@ -57,6 +103,9 @@ exports.getTopicsByCourse = async (req, res) => {
   }
 };
 
+/**
+ * Update a topic, optionally attaching a new PDF file and merging content
+ */
 exports.updateTopic = async (req, res) => {
   try {
     const { id } = req.params;
@@ -66,20 +115,16 @@ exports.updateTopic = async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // 1. Load the existing topic to enable content merging
     const currentTopic = await prisma.topic.findUnique({ where: { id } });
     if (!currentTopic) return res.status(404).json({ error: "Topic not found" });
 
-    // 2. Process new material (if available)
     let newContent = "";
     if (sourceUrl) {
       newContent = await scrapeUrl(sourceUrl);
     } else if (req.file) {
-      console.log("Update: Parsing new PDF:", req.file.originalname);
       newContent = await parsePdf(req.file.buffer);
     }
 
-    // 3. Merge content (Append instead of overwrite)
     let combinedContent = currentTopic.content || "";
     if (newContent) {
       combinedContent = combinedContent 
@@ -105,17 +150,16 @@ exports.updateTopic = async (req, res) => {
       include: { prerequisites: true }
     });
 
-    res.json({ 
-      message: "Topic successfully updated and material appended!", 
-      topic: updatedTopic,
-      contentAppended: !!newContent 
-    });
+    res.json(updatedTopic);
   } catch (error) {
     console.error("Update Topic Error:", error.message);
     res.status(500).json({ error: "Failed to update topic" });
   }
 };
 
+/**
+ * Delete a specific topic
+ */
 exports.deleteTopic = async (req, res) => {
   try {
     const { id } = req.params;
@@ -129,6 +173,9 @@ exports.deleteTopic = async (req, res) => {
   }
 };
 
+/**
+ * Fetch Wikipedia article for display in the frontend
+ */
 exports.getTopicContent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -143,7 +190,7 @@ exports.getTopicContent = async (req, res) => {
       try {
         const entityRes = await axios.get(
           `https://www.wikidata.org/wiki/Special:EntityData/${topic.wikidataId}.json`,
-          { headers: { "User-Agent": "WissenGraph/1.0" } }
+          { headers: { "User-Agent": "CampNode/1.0" } }
         );
         const entity = entityRes.data.entities[topic.wikidataId];
         const langs = lang !== "en" ? [lang, "en"] : ["en"];
@@ -156,17 +203,14 @@ exports.getTopicContent = async (req, res) => {
       }
     } 
     
-    // Fallback: If no Wikidata ID exists (like DBpedia subtopics), or no sitelink was found, use the topic name
-    if (!titleForLang) {
-      titleForLang = topic.name; 
-    }
+    if (!titleForLang) titleForLang = topic.name; 
 
     try {
       const parseUrl = `https://${lang}.wikipedia.org/w/api.php?action=parse&format=json&page=${encodeURIComponent(titleForLang)}&prop=text|displaytitle&disablelimitreport=1&disableeditsection=1&origin=*`;
-      const parseRes = await axios.get(parseUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
+      const parseRes = await axios.get(parseUrl, { headers: { "User-Agent": "CampNode/1.0" } });
       
       if (parseRes.data.error) {
-         return res.status(200).json({ content: `<p>Article for <b>${topic.name}</b> could not be loaded automatically.</p>` });
+         return res.status(200).json({ content: `<p>Article for <b>${topic.name}</b> could not be loaded.</p>` });
       }
 
       let html = parseRes.data.parse.text["*"];
@@ -176,34 +220,39 @@ exports.getTopicContent = async (req, res) => {
       
       return res.json({ content: html.trim() });
     } catch (err) { 
-      return res.status(200).json({ content: `<p>Failed to connect to Wikipedia for summary.</p>` });
+      return res.status(200).json({ content: `<p>Wikipedia summary unavailable.</p>` });
     }
-
   } catch (err) {
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
+/**
+ * Internal helper to fetch plain text from Wikipedia for AI analysis
+ */
 async function fetchWikiText(wikidataId) {
   try {
     const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`;
-    const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
+    const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "CampNode/1.0" } });
     const entity = entityRes.data.entities[wikidataId];
     const wikiTitle = entity.sitelinks?.["enwiki"]?.title || entity.sitelinks?.["dewiki"]?.title;
     if (!wikiTitle) return null;
     const lang = entity.sitelinks?.["enwiki"] ? "en" : "de";
     const wikiUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(wikiTitle)}&format=json&origin=*`;
-    const wikiRes = await axios.get(wikiUrl, { headers: { "User-Agent": "CampNode/1.0 (mehood@example.com)" } });
+    const wikiRes = await axios.get(wikiUrl, { headers: { "User-Agent": "CampNode/1.0" } });
     const pages = wikiRes.data.query.pages;
     const pageId = Object.keys(pages)[0];
     return pages[pageId].extract || null;
   } catch (err) { return null; }
 }
 
+/**
+ * Trigger AI to generate summary and quiz questions based on topic content
+ */
 exports.enrichTopic = async (req, res) => {
   try {
     const { id } = req.params;
-    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Only professors can use AI." });
+    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Unauthorized." });
 
     let topic = await prisma.topic.findUnique({ where: { id } });
     if (!topic) return res.status(404).json({ error: "Topic not found." });
@@ -215,10 +264,10 @@ exports.enrichTopic = async (req, res) => {
       }
     }
 
-    if (!topic || !topic.content) return res.status(400).json({ error: "No content available." });
+    if (!topic.content) return res.status(400).json({ error: "No content available for AI." });
 
     const summary = await aiService.generateSummary(topic.content);
-    const quizQuestions = await aiService.generateQuiz(topic.content);
+    const quizQuestions = await aiService.generateQuiz(topic.name);
 
     const updatedTopic = await prisma.topic.update({
       where: { id },
@@ -230,24 +279,29 @@ exports.enrichTopic = async (req, res) => {
     });
 
     res.json({ message: "AI Enrichment successful!", topic: updatedTopic });
-  } catch (error) { res.status(500).json({ error: "Error during AI analysis." }); }
+  } catch (error) { res.status(500).json({ error: "AI Enrichment failed." }); }
 };
 
-// --- QUIZ MANAGEMENT ---
+/**
+ * Update quiz questions manually (Professor only)
+ */
 exports.updateQuiz = async (req, res) => {
   try {
     const { quizId } = req.params;
     const { questions } = req.body;
-    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Only professors can update quizzes." });
+    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Unauthorized." });
     const updatedQuiz = await prisma.quiz.update({ where: { id: quizId }, data: { questions } });
     res.json({ message: "Quiz updated!", quiz: updatedQuiz });
   } catch (error) { res.status(500).json({ error: "Failed to update quiz." }); }
 };
 
+/**
+ * Delete a quiz manually (Professor only)
+ */
 exports.deleteQuiz = async (req, res) => {
   try {
     const { quizId } = req.params;
-    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Only professors can delete quizzes." });
+    if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Unauthorized." });
     await prisma.quiz.delete({ where: { id: quizId } });
     res.json({ message: "Quiz deleted!" });
   } catch (error) { res.status(500).json({ error: "Failed to delete quiz." }); }

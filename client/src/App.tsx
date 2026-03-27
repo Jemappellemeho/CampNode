@@ -6,28 +6,38 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
-import CoursePlayer from "./pages/CoursePlayer";
 import CourseManager from "./pages/CourseManager";
 import Playground from "./pages/Playground";
+import Quiz from "./pages/Quiz"; 
 
 function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
         <Routes>
+          {/* Auth Flow */}
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/landing" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
-          {/* Pages that use the shared Layout with top nav */}
+          {/* Authenticated Layout Wrapper */}
           <Route element={<Layout />}>
-            <Route path="/playground/:courseId" element={<Playground />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/profile" element={<Profile />} />
-            {/* NOTE: route changed from /prof/manage/:courseId to /prof/course/:courseId 
-                to match CourseManager and the Dashboard navigate() call */}
+            
+            {/* Playground Routing:
+              Supports both specific course context and general entry 
+              to prevent 'No routes matched' errors during navigation.
+            */}
+            <Route path="/playground/:courseId" element={<Playground />} />
+            <Route path="/playground" element={<Playground />} />
+            
+            {/* Administrative Management */}
             <Route path="/prof/course/:courseId" element={<CourseManager />} />
+            
+            {/* Evaluation Module */}
+            <Route path="/quiz/:topicId" element={<Quiz />} />
           </Route>
         </Routes>
       </BrowserRouter>

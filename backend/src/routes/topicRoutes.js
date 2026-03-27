@@ -17,6 +17,11 @@ router.post("/", verifyToken, upload.single("pdf"), topicController.createTopic)
 // Fetch all topics that belong to a specific course
 router.get("/course/:courseId", verifyToken, topicController.getTopicsByCourse);
 
+// NEW ROUTE FOR THE "Q" BUTTON
+// Route: GET /api/topics/quizzes/topic/:topicId
+// Fetch or auto-generate a quiz for a specific topic
+router.get("/quizzes/topic/:topicId", verifyToken, topicController.getQuizByTopic);
+
 // Route: PUT /api/topics/:id
 // Update a topic, optionally attaching a new PDF file
 router.put("/:id", verifyToken, upload.single("pdf"), topicController.updateTopic);
