@@ -33,19 +33,19 @@ exports.generateSummary = async (content) => {
  * Erstellt Quiz-Fragen basierend auf dem Inhalt.
  * Gibt ein Array von Objekten im JSON-Format zurück.
  */
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
 exports.generateQuiz = async (content) => {
-  console.log("KEY TEST:", process.env.GEMINI_API_KEY);
-  console.log("[AI Service] Gemini Quiz...");
+  console.log("[AI Service] Gemini SDK Quiz...");
 
   try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: `
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.0-pro"
+    });
+
+    const result = await model.generateContent(`
 Generate exactly 4 multiple choice questions based on this text:
 
 ${content}
@@ -53,8 +53,8 @@ ${content}
 Rules:
 - Specific questions only
 - 4 options each
-- Only one correct answer
-- Return ONLY JSON
+- One correct answer
+- Output ONLY JSON
 
 [
   {
@@ -63,19 +63,12 @@ Rules:
     "answer": "..."
   }
 ]
-`
-              }
-            ]
-          }
-        ]
-      }
-    );
+`);
 
-    const text = response.data.candidates[0].content.parts[0].text;
+    const text = result.response.text();
 
     console.log("RAW:", text);
 
-    // 🔥 robust parsing
     const cleaned = text.replace(/```json|```/g, "").trim();
     const match = cleaned.match(/\[.*\]/s);
 
@@ -84,7 +77,7 @@ Rules:
     return JSON.parse(match[0]);
 
   } catch (error) {
-    console.error("GEMINI ERROR:", error.response?.data || error.message);
+    console.error("GEMINI ERROR:", error);
 
     return [
       {
