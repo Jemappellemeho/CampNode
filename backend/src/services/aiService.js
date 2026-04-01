@@ -101,3 +101,58 @@ exports.suggestPrerequisites = async (topics) => {
   
   return []; // Noch keine Vorschläge
 };
+
+/**
+ * Erstellt eine Liste sinnvoller Unterthemen zu einem Hauptthema.
+ * Nutzt Gemini falls vorhanden, sonst werden vorhandene Kandidaten zurückgegeben.
+ */
+exports.generateSubtopics = async ({ mainTopicName, contextText = "", candidateSubtopics = [], limit = 8 }) => {
+  const normalizedCandidates = [...new Set(
+    (candidateSubtopics || [])
+      .map((s) => String(s || "").trim())
+      .filter(Boolean)
+  )];
+
+  if (!process.env.GEMINI_API_KEY) {
+    return normalizedCandidates.slice(0, limit);
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
+
+    const prompt = `
+You are creating a learning roadmap.
+
+Main topic: "${mainTopicName}"
+Candidate subtopics: ${JSON.stringify(normalizedCandidates)}
+Context (optional): ${contextText.slice(0, 4000)}
+
+Task:
+- Return ${limit} or fewer highly relevant, concrete subtopics.
+- Prefer foundational and commonly taught subtopics.
+- Keep names short (2-6 words).
+- Avoid duplicates and generic labels.
+- Do NOT include the main topic itself.
+- Output ONLY valid JSON array of strings.
+`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error("No JSON array found for subtopics");
+
+    const parsed = JSON.parse(match[0]);
+    if (!Array.isArray(parsed)) throw new Error("Subtopics response is not an array");
+
+    return [...new Set(
+      parsed
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )].slice(0, limit);
+  } catch (error) {
+    console.error("[AI Service] generateSubtopics error:", error.message);
+    return normalizedCandidates.slice(0, limit);
+  }
+};
