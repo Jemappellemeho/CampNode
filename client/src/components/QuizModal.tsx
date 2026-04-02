@@ -1,5 +1,3 @@
-import { X } from 'lucide-react';
-
 interface QuizProps {
   quiz: { isOpen: boolean; questions: any[]; title: string } | null;
   onClose: () => void;

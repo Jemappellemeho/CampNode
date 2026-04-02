@@ -2,6 +2,9 @@ const express = require("express");
 const router = express.Router();
 const courseController = require("../controllers/courseController");
 const { verifyToken } = require("../middleware/authMiddleware");
+const multer = require("multer");
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Route: POST /api/courses
 // Create a new course (Protected by verifyToken middleware)
@@ -33,11 +36,11 @@ router.delete("/:id", verifyToken, courseController.deleteCourse);
 
 // Route: POST /api/courses/:id/topics
 // Add a new topic or subtopic to the course
-router.post("/:id/topics", verifyToken, courseController.addTopic);
+router.post("/:id/topics", verifyToken, upload.single("pdf"), courseController.addTopic);
 
 // Route: PUT /api/courses/:id/topics/:topicId
 // Update an existing topic (name, links, order, etc)
-router.put("/:id/topics/:topicId", verifyToken, courseController.updateTopic);
+router.put("/:id/topics/:topicId", verifyToken, upload.single("pdf"), courseController.updateTopic);
 
 // Route: DELETE /api/courses/:id/topics/:topicId
 // Delete a specific topic or subtopic

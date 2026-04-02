@@ -1,14 +1,14 @@
 // CoursePlayer is the student view for reading course topics.
 // Layout: fixed sidebar on the left (topics list + language switcher),
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
-  BookOpen, FileText, Headphones, HelpCircle,
-  ChevronLeft, Lock, CheckCircle, Play,
+  BookOpen, Headphones, HelpCircle, Play,
   X, LayoutList
 } from 'lucide-react';
+import TopicAbstractModal from '../components/TopicAbstractModal';
 
 const API = 'http://localhost:3000/api';
 
@@ -24,6 +24,7 @@ interface SubTopic {
   podcastUrl?: string;
   quizzes?: { id: string }[];
   prerequisites?: { id: string; name: string }[];
+  wikidataId?: string;
 }
 
 interface Topic {
@@ -164,26 +165,35 @@ function DiamondNode({
 
 /** Resource icon row under a node */
 function ResourceRow({
-  topic, onQuiz,
+  topic, onQuiz, onArticle,
 }: {
   topic: SubTopic | Topic;
   onQuiz?: () => void;
+  onArticle?: () => void;
 }) {
   const sub = topic as SubTopic;
   const hasVideo   = !!sub.videoUrl;
-  const hasArticle = !!sub.articleUrl;
+  const hasArticle = !!sub.articleUrl || !!onArticle;
   const hasPodcast = !!sub.podcastUrl;
   const hasQuiz    = sub.quizzes && sub.quizzes.length > 0;
 
   const iconBtn = (
-    icon: React.ReactNode,
+    icon: ReactNode,
     url?: string,
     action?: () => void,
     active = true,
   ) => (
     <button
       disabled={!active}
-      onClick={() => (url ? window.open(url, '_blank') : action?.())}
+      onClick={() => {
+        if (action) {
+          action();
+          return;
+        }
+        if (url) {
+          window.open(url, '_blank');
+        }
+      }}
       className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
       style={{
         background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
@@ -198,7 +208,7 @@ function ResourceRow({
   return (
     <div className="flex gap-1 justify-center mt-2">
       {iconBtn(<Play size={12} />, sub.videoUrl, undefined, hasVideo)}
-      {iconBtn(<BookOpen size={12} />, sub.articleUrl, undefined, hasArticle)}
+      {iconBtn(<BookOpen size={12} />, undefined, onArticle, hasArticle)}
       {iconBtn(<Headphones size={12} />, sub.podcastUrl, undefined, hasPodcast)}
       {iconBtn(<HelpCircle size={12} />, undefined, onQuiz, hasQuiz)}
     </div>
@@ -306,6 +316,7 @@ export default function CoursePlayer() {
   const [error, setError]             = useState('');
   const [syllabusOpen, setSyllabusOpen] = useState(false);
   const [user, setUser]               = useState<any>(null);
+  const [activeContent, setActiveContent] = useState<{ title: string; content: string } | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('user');
@@ -338,6 +349,46 @@ export default function CoursePlayer() {
       );
       fetchCourse(); // refresh to update colors
     } catch (e) { console.error(e); }
+  };
+
+  const openSubtopicArticle = async (sub: SubTopic) => {
+    const token = localStorage.getItem('token');
+
+    // Prefer topic-based endpoint: it can resolve article by wikidataId or topic name.
+    try {
+      const res = await axios.get(`${API}/topics/${sub.id}/content?lang=en`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data?.content) {
+        setActiveContent({
+          title: sub.name,
+          content: res.data.content,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to load topic content', e);
+    }
+
+    // Fallback to direct Wikidata route for legacy entries where wikidataId is available.
+    if (sub.wikidataId) {
+      try {
+        const res = await axios.get(`${API}/wiki/article/${sub.wikidataId}?lang=en`);
+        if (res.data?.content) {
+          setActiveContent({
+            title: res.data.title || sub.name,
+            content: res.data.content,
+          });
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to load wiki article', e);
+      }
+    }
+
+    if (sub.articleUrl) {
+      window.open(sub.articleUrl, '_blank', 'noopener,noreferrer');
+    }
   };
 
   // ── Progress calculation ───────────────────────────────────────────────────
@@ -373,6 +424,9 @@ export default function CoursePlayer() {
   }
 
   const progressPct = calcProgress(course);
+
+  const sortedTopics = [...course.topics].sort((a, b) => a.order - b.order);
+
 
   return (
     <div
@@ -434,7 +488,7 @@ export default function CoursePlayer() {
 
         {/* ── Graph ── */}
         <div className="flex flex-col items-center gap-0">
-          {course.topics.map((topic, topicIdx) => (
+          {sortedTopics.map((topic, topicIdx) => (
             <div key={topic.id} className="flex flex-col items-center">
 
               {/* Connector line from previous topic */}
@@ -468,11 +522,15 @@ export default function CoursePlayer() {
                             label={sub.name}
                             color={color}
                             aiSuggested={sub.aiSuggested}
-                            onClick={() => markComplete(sub.id, !sub.completed)}
+                            onClick={async () => {
+                              await openSubtopicArticle(sub);
+                              markComplete(sub.id, !sub.completed);
+                            }}
                             size={88}
                           />
                           <ResourceRow
                             topic={sub}
+                            onArticle={() => openSubtopicArticle(sub)}
                             onQuiz={() => navigate(`/quiz/${sub.quizzes?.[0]?.id}`)}
                           />
                         </div>
@@ -512,6 +570,11 @@ export default function CoursePlayer() {
           />
         </>
       )}
+
+      <TopicAbstractModal
+        activeContent={activeContent}
+        onClose={() => setActiveContent(null)}
+      />
     </div>
   );
 }

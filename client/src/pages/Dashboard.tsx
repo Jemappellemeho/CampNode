@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
-import { BookOpen, Users, Plus, Copy, Check, ChevronRight } from "lucide-react";
+import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Sparkles } from "lucide-react";
 
 // JoinCodeBadge remains identical to your original
 function JoinCodeBadge({ code }: { code: string }) {
@@ -23,7 +23,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   
   // 1. IMPROVED STATE: Load user immediately and strictly
-  const [user, setUser] = useState<any>(() => {
+  const [user] = useState<any>(() => {
     const saved = localStorage.getItem('user');
     if (!saved) return null;
     try {
@@ -137,7 +137,7 @@ export default function Dashboard() {
             </p>
             {user.role === 'PROFESSOR' && (
               <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
-                  Create Project
+                  <Plus size={18} /> Create Course
               </button>
             )}
           </div>

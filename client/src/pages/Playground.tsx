@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
 import { MonitorPlay, BookOpen, Headphones, ChevronLeft, Info } from 'lucide-react';
+
+const API = 'http://localhost:3000/api';
 
 type Status = 'completed' | 'current' | 'locked';
 
@@ -12,6 +14,7 @@ interface Subnode {
   title: string;
   type: 'prof' | 'ai';
   status: Status;
+  hasArticle: boolean;
   resources: Array<{
     type: 'video' | 'article' | 'podcast' | 'quiz';
     title: string;
@@ -40,6 +43,26 @@ export default function Playground() {
   const [loading, setLoading] = useState(true);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
   const [activePopupContent, setActivePopupContent] = useState<{title: string, content: string} | null>(null);
+
+  const openArticleModal = async (topicId: string, title: string, fallbackUrl?: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API}/topics/${topicId}/content?lang=en`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.data?.content) {
+        setActivePopupContent({ title, content: res.data.content });
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to load full wiki article:', err);
+    }
+
+    if (fallbackUrl) {
+      window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('user');
@@ -73,6 +96,8 @@ export default function Playground() {
             title: sub.name,
             type: sub.aiSuggested ? 'ai' : 'prof',
             status: backendCompleted.includes(topic.id) ? 'completed' : 'current',
+            // API can also resolve article by topic name when wikidataId/articleUrl are missing.
+            hasArticle: Boolean(sub.articleUrl || sub.wikidataId || sub.name),
             resources: [
               ...(sub.videoUrl ? [{ type: 'video', title: 'Video', url: sub.videoUrl }] : []),
               ...(sub.articleUrl ? [{ type: 'article', title: 'Article', url: sub.articleUrl }] : []),
@@ -152,9 +177,12 @@ export default function Playground() {
                 <span className="text-white font-black text-[9px] sm:text-xs uppercase px-2">{node.title}</span>
                 <span className="text-white text-[9px] mt-1 opacity-90">{completedIds.includes(node.id) ? 1 : 0}/1</span>
               </button>
-              {node.content && (
-                <button onClick={() => setActivePopupContent({ title: node.title, content: node.content! })} className="absolute top-0 -right-2 bg-white text-blue-500 p-2 rounded-full shadow-lg border z-30"><Info size={16} /></button>
-              )}
+              <button
+                onClick={() => openArticleModal(node.id, node.title)}
+                className="absolute top-0 -right-2 bg-white text-blue-500 p-2 rounded-full shadow-lg border z-30"
+              >
+                <Info size={16} />
+              </button>
             </div>
 
             {/* STICK - PERFECTLY CONTAINED */}
@@ -178,7 +206,16 @@ export default function Playground() {
 
                     <div className="mt-12 flex gap-3 p-2.5 rounded-2xl bg-white dark:bg-gray-800 border shadow-lg z-10">
                       <button onClick={() => { const v = sub.resources.find(r => r.type === 'video'); if(v?.url) window.open(v.url, '_blank'); markComplete(node.id); }} className={`p-1.5 transition-all ${sub.resources.some(r => r.type === 'video') ? 'text-blue-500' : 'text-gray-300'}`}><MonitorPlay size={18} /></button>
-                      <button onClick={() => { const a = sub.resources.find(r => r.type === 'article'); if(a?.url) window.open(a.url, '_blank'); markComplete(node.id); }} className={`p-1.5 transition-all ${sub.resources.some(r => r.type === 'article') ? 'text-blue-500' : 'text-gray-300'}`}><BookOpen size={18} /></button>
+                      <button
+                        onClick={async () => {
+                          const a = sub.resources.find(r => r.type === 'article');
+                          await openArticleModal(sub.id, sub.title, a?.url);
+                          markComplete(node.id);
+                        }}
+                        className={`p-1.5 transition-all ${sub.hasArticle ? 'text-blue-500' : 'text-gray-300'}`}
+                      >
+                        <BookOpen size={18} />
+                      </button>
                       <button onClick={() => { const p = sub.resources.find(r => r.type === 'podcast'); if(p?.url) window.open(p.url, '_blank'); markComplete(node.id); }} className={`p-1.5 transition-all ${sub.resources.some(r => r.type === 'podcast') ? 'text-blue-500' : 'text-gray-300'}`}><Headphones size={18} /></button>
                       {/* Q NOW NAVIGATES TO THE FULL-PAGE QUIZ */}
                       <button 

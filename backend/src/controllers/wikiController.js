@@ -67,18 +67,29 @@ exports.article = async (req, res) => {
  
     let html = parseRes.data.parse.text["*"];
     const displayTitle = parseRes.data.parse.displaytitle;
- 
-    // Step 3: fix relative image/resource URLs → absolute Wikipedia URLs
-    // Wikipedia serves images as "//upload.wikimedia.org/..." (protocol-relative)
-    // and internal links as "/wiki/..." — both need to be made absolute so they render correctly when injected into our page.
-    html = html.replace(/src="\/\//g, 'src="https://');
-    html = html.replace(/srcset="\/\//g, 'srcset="https://');
- 
-    // Internal wiki links- open Wikipedia in a new tab instead of breaking navigation
-    html = html.replace(
-      /href="\/wiki\//g,
-      `href="https://${lang}.wikipedia.org/wiki/`
-    );
+
+    // Step 3: normalize relative URLs so images and links always render correctly.
+    const wikiBase = `https://${lang}.wikipedia.org`;
+    html = html.replace(/\s(src|href|data-src)="\/\/([^\"]*)"/g, ' $1="https://$2"');
+    html = html.replace(/\s(src|href|data-src)="\/(?!\/)([^\"]*)"/g, ` $1="${wikiBase}/$2"`);
+    html = html.replace(/srcset="([^\"]*)"/g, (_m, value) => {
+      const normalized = value
+        .split(',')
+        .map((entry) => {
+          const trimmed = entry.trim();
+          if (!trimmed) return trimmed;
+          const parts = trimmed.split(/\s+/);
+          if (!parts.length) return trimmed;
+          if (parts[0].startsWith('//')) parts[0] = `https:${parts[0]}`;
+          else if (parts[0].startsWith('/')) parts[0] = `${wikiBase}${parts[0]}`;
+          return parts.join(' ');
+        })
+        .join(', ');
+      return `srcset="${normalized}"`;
+    });
+
+    // Internal links should open a new tab.
+    html = html.replace(/<a\b(?![^>]*\btarget=)/g, '<a target="_blank" rel="noopener noreferrer"');
  
     // Step 4: strip elements that break our UI
     // Remove inline <style> blocks injected by the parser

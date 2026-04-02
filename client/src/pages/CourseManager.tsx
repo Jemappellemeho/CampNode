@@ -28,6 +28,12 @@ export default function CourseManager() {
   const [expandedMainTopics, setExpandedMainTopics] = useState<Record<string, boolean>>({});
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
+  const [quizEditorTopic, setQuizEditorTopic] = useState<any>(null);
+  const [quizEditorQuiz, setQuizEditorQuiz] = useState<any>(null);
+  const [quizEditorQuestions, setQuizEditorQuestions] = useState<any[]>([]);
+  const [quizEditorOpen, setQuizEditorOpen] = useState(false);
+  const [quizEditorBusy, setQuizEditorBusy] = useState(false);
+  const [quizEditorSaving, setQuizEditorSaving] = useState(false);
   
   const token = localStorage.getItem('token');
 
@@ -144,6 +150,249 @@ export default function CourseManager() {
       if (editingSubId === id) setEditingSubId(null);
       fetchCourse();
     } catch(e) { console.error(e); }
+  };
+
+  const getEmptyQuestion = () => ({
+    type: 'multiple_choice',
+    question: '',
+    options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+    correctIndex: 0,
+    correctAnswer: true,
+    correctIndices: [0],
+    items: ['Step 1', 'Step 2', 'Step 3'],
+    correctOrder: [0, 1, 2],
+    acceptedAnswers: ['Answer'],
+    explanation: '',
+    points: 10,
+  });
+
+  const openQuizEditor = (topic: any) => {
+    const existingQuiz = Array.isArray(topic.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
+    setQuizEditorTopic(topic);
+    setQuizEditorQuiz(existingQuiz);
+    setQuizEditorQuestions(Array.isArray(existingQuiz?.questions) && existingQuiz.questions.length > 0 ? existingQuiz.questions : [getEmptyQuestion()]);
+    setQuizEditorOpen(true);
+  };
+
+  const generateQuizDraft = async (topic: any) => {
+    try {
+      setQuizEditorBusy(true);
+      const res = await axios.post(
+        `${API}/topics/${topic.id}/enrich`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const updatedTopic = res.data?.topic || topic;
+      const quiz = Array.isArray(updatedTopic?.quizzes) && updatedTopic.quizzes.length > 0 ? updatedTopic.quizzes[0] : null;
+      setQuizEditorTopic(updatedTopic);
+      setQuizEditorQuiz(quiz);
+      setQuizEditorQuestions(Array.isArray(quiz?.questions) && quiz.questions.length > 0 ? quiz.questions : [getEmptyQuestion()]);
+      setQuizEditorOpen(true);
+      fetchCourse();
+    } catch (err) {
+      console.error('Failed to generate quiz draft', err);
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.error || 'AI generation failed.'
+        : 'AI generation failed.';
+      alert(message);
+    } finally {
+      setQuizEditorBusy(false);
+    }
+  };
+
+  const updateQuizQuestion = (index: number, patch: any) => {
+    setQuizEditorQuestions((prev) => prev.map((question, currentIndex) => (currentIndex === index ? { ...question, ...patch } : question)));
+  };
+
+  const saveQuizEditor = async () => {
+    if (!quizEditorTopic) return;
+
+    try {
+      setQuizEditorSaving(true);
+      const questions = quizEditorQuestions
+        .map((question) => ({
+          ...question,
+          question: (question.question || '').trim(),
+          explanation: (question.explanation || '').trim(),
+          points: Number.isFinite(Number(question.points)) ? Number(question.points) : 10,
+        }))
+        .filter((question) => question.question.length > 0);
+
+      if (quizEditorQuiz?.id) {
+        await axios.put(
+          `${API}/topics/quizzes/${quizEditorQuiz.id}`,
+          { questions },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else {
+        await axios.post(
+          `${API}/quizzes`,
+          { topicId: quizEditorTopic.id, questions },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      setQuizEditorOpen(false);
+      setQuizEditorTopic(null);
+      setQuizEditorQuiz(null);
+      setQuizEditorQuestions([]);
+      fetchCourse();
+    } catch (err) {
+      console.error('Failed to save quiz', err);
+      alert('Could not save quiz.');
+    } finally {
+      setQuizEditorSaving(false);
+    }
+  };
+
+  const renderQuestionEditor = (question: any, index: number) => {
+    const setCommaSeparatedValues = (value: string, key: string) => {
+      const parsed = value.split(',').map((item) => item.trim()).filter(Boolean);
+      updateQuizQuestion(index, { [key]: parsed });
+    };
+
+    return (
+      <div key={index} className="relative p-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border dark:border-gray-700">
+        <div className="absolute -top-3 -left-3 w-8 h-8 bg-purple-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow-lg">
+          {index + 1}
+        </div>
+
+        <div className="mb-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Question type</label>
+          <select
+            value={question.type || 'multiple_choice'}
+            onChange={(e) => updateQuizQuestion(index, { type: e.target.value })}
+            className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+          >
+            <option value="multiple_choice">Multiple choice</option>
+            <option value="true_false">True / False</option>
+            <option value="multiple_select">Multiple select</option>
+            <option value="reorder">Reorder</option>
+            <option value="open_answer">Open answer</option>
+          </select>
+        </div>
+
+        <div className="mb-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Question</label>
+          <input
+            type="text"
+            value={question.question || ''}
+            onChange={(e) => updateQuizQuestion(index, { question: e.target.value })}
+            className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+          />
+        </div>
+
+        {(question.type === 'multiple_choice' || question.type === 'multiple_select') && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Options, separated by commas</label>
+            <textarea
+              value={Array.isArray(question.options) ? question.options.join(', ') : ''}
+              onChange={(e) => setCommaSeparatedValues(e.target.value, 'options')}
+              className="w-full min-h-20 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+
+        {question.type === 'multiple_choice' && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct option index</label>
+            <input
+              type="number"
+              value={question.correctIndex ?? 0}
+              onChange={(e) => updateQuizQuestion(index, { correctIndex: Number(e.target.value) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+
+        {question.type === 'true_false' && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct answer</label>
+            <select
+              value={question.correctAnswer ? 'true' : 'false'}
+              onChange={(e) => updateQuizQuestion(index, { correctAnswer: e.target.value === 'true' })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            >
+              <option value="true">True</option>
+              <option value="false">False</option>
+            </select>
+          </div>
+        )}
+
+        {question.type === 'multiple_select' && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct indices, separated by commas</label>
+            <input
+              type="text"
+              value={Array.isArray(question.correctIndices) ? question.correctIndices.join(', ') : ''}
+              onChange={(e) => updateQuizQuestion(index, { correctIndices: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+
+        {question.type === 'reorder' && (
+          <>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Items, separated by commas</label>
+              <textarea
+                value={Array.isArray(question.items) ? question.items.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { items: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
+                className="w-full min-h-20 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct order indexes, separated by commas</label>
+              <input
+                type="text"
+                value={Array.isArray(question.correctOrder) ? question.correctOrder.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { correctOrder: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
+                className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+          </>
+        )}
+
+        {question.type === 'open_answer' && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Accepted answers, separated by commas</label>
+            <input
+              type="text"
+              value={Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers.join(', ') : ''}
+              onChange={(e) => updateQuizQuestion(index, { acceptedAnswers: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Explanation</label>
+            <textarea
+              value={question.explanation || ''}
+              onChange={(e) => updateQuizQuestion(index, { explanation: e.target.value })}
+              className="w-full min-h-20 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Points</label>
+            <input
+              type="number"
+              value={question.points ?? 10}
+              onChange={(e) => updateQuizQuestion(index, { points: Number(e.target.value) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <button onClick={() => setQuizEditorQuestions((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="text-red-500 hover:text-red-700 p-2 transition-colors">
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+    );
   };
 
   if (loading) return <div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div>;
@@ -263,6 +512,8 @@ export default function CourseManager() {
                           <h3 className="text-base dark:text-white">{topic.name}</h3>
                           <button onClick={() => startEditingName(topic.id, topic.name)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity p-1"><Edit2 size={12} /></button>
                           <button onClick={() => deleteTopic(topic.id)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1"><Trash2 size={12} /></button>
+                          <button onClick={() => openQuizEditor(topic)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-purple-600 transition-opacity p-1 text-[10px] font-black uppercase">Quiz</button>
+                          <button onClick={() => generateQuizDraft(topic)} className="opacity-0 group-hover/title:opacity-100 text-gray-400 hover:text-purple-600 transition-opacity p-1 text-[10px] font-black uppercase">AI Quiz</button>
                         </div>
                       )}
                     </div>
@@ -328,6 +579,8 @@ export default function CourseManager() {
                                 <p className="font-bold dark:text-white text-sm">{sub.name}</p>
                                 <button onClick={() => startEditingName(sub.id, sub.name)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity p-1"><Edit2 size={12} /></button>
                                 <button onClick={() => deleteTopic(sub.id)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1"><Trash2 size={12} /></button>
+                                <button onClick={() => openQuizEditor(sub)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-purple-600 transition-opacity p-1 text-[10px] font-black uppercase">Quiz</button>
+                                <button onClick={() => generateQuizDraft(sub)} className="opacity-0 group-hover/subtitle:opacity-100 text-gray-400 hover:text-purple-600 transition-opacity p-1 text-[10px] font-black uppercase">AI Quiz</button>
                               </div>
                             )}
                             {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
@@ -376,6 +629,53 @@ export default function CourseManager() {
             </div>
           )}
         </main>
+
+        {quizEditorOpen && quizEditorTopic && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-all">
+            <div className="bg-white dark:bg-gray-800 w-full max-w-3xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
+              <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+                <div>
+                  <h3 className="text-xl font-bold dark:text-white">Quiz Editor ✨</h3>
+                  <p className="text-xs text-gray-400 mt-1">AI builds a draft from Wikidata, saved article text, or attached source material. Then you can review, edit, and save it.</p>
+                </div>
+                <button onClick={() => setQuizEditorOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors">
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => generateQuizDraft(quizEditorTopic)}
+                    disabled={quizEditorBusy}
+                    className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white disabled:opacity-50"
+                  >
+                    {quizEditorBusy ? 'Generating...' : 'Generate AI Draft'}
+                  </button>
+                  <button
+                    onClick={() => setQuizEditorQuestions((prev) => [...prev, getEmptyQuestion()])}
+                    className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-widest"
+                    style={{ borderColor: 'var(--cn-border)', color: 'var(--cn-text)' }}
+                  >
+                    <Plus size={14} /> Add Question
+                  </button>
+                </div>
+
+                {quizEditorQuestions.map((question, index) => renderQuestionEditor(question, index))}
+              </div>
+
+              <div className="p-6 border-t dark:border-gray-700 flex gap-3 bg-gray-50 dark:bg-gray-900/50">
+                <div className="flex-1" />
+                <button onClick={() => setQuizEditorOpen(false)} className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors">
+                  Cancel
+                </button>
+                <button onClick={saveQuizEditor} disabled={quizEditorSaving} className="px-8 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20">
+                  {quizEditorSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

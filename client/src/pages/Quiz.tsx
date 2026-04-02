@@ -16,6 +16,7 @@ export default function Quiz() {
   const [multiSelect, setMultiSelect] = useState<number[]>([]);
   const [reorderList, setReorderList] = useState<any[]>([]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   // SAFE SHUFFLE: Won't crash if the array is missing or undefined
   const shuffleArray = (array: any[]) => {
@@ -30,6 +31,7 @@ export default function Quiz() {
         const res = await axios.get(`http://localhost:3000/api/topics/quizzes/topic/${topicId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        setLoadError('');
         
         if (res.data && Array.isArray(res.data.questions) && res.data.questions.length > 0) {
           setQuiz(res.data);
@@ -42,7 +44,11 @@ export default function Quiz() {
           setQuiz({ questions: [] });
         }
       } catch (e) { 
-        console.error("API Error:", e); 
+        console.error("API Error:", e);
+        const message = axios.isAxiosError(e)
+          ? e.response?.data?.error || 'Could not load quiz.'
+          : 'Could not load quiz.';
+        setLoadError(message);
       } finally { 
         setLoading(false); 
       }
@@ -70,7 +76,9 @@ export default function Quiz() {
     }
     
     if (q.type === "reorder") {
-      const correctItems = Array.isArray(q.items) ? q.items : [];
+      const sourceItems = Array.isArray(q.items) ? q.items : [];
+      const order = Array.isArray(q.correctOrder) ? q.correctOrder : sourceItems.map((_: unknown, idx: number) => idx);
+      const correctItems = order.map((itemIndex: number) => sourceItems[itemIndex]).filter(Boolean);
       return JSON.stringify(reorderList) === JSON.stringify(correctItems);
     }
     
@@ -97,9 +105,9 @@ export default function Quiz() {
   if (loading) return <div className="h-screen flex items-center justify-center text-xs font-bold uppercase opacity-20">Syncing...</div>;
   
   // Safe fallback if quiz array is empty or malformed
-  if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length === 0 || !q) return (
+  if (loadError || !quiz || !Array.isArray(quiz.questions) || quiz.questions.length === 0 || !q) return (
     <div className="h-screen flex flex-col items-center justify-center p-10 text-center">
-      <p className="text-red-500 font-bold mb-4 uppercase">Error: Quiz data is missing or empty.</p>
+      <p className="text-red-500 font-bold mb-4 uppercase">{loadError || "Error: Quiz data is missing or empty."}</p>
       <button onClick={() => navigate(-1)} className="px-6 py-2 bg-black text-white rounded-full text-xs font-bold">GO BACK</button>
     </div>
   );
@@ -166,6 +174,12 @@ export default function Quiz() {
                   placeholder="Type answer..." 
                   disabled={revealed}
                 />
+              )}
+
+              {q.type === "open_answer" && q.hint && !revealed && (
+                <p className="text-[11px] font-semibold opacity-50" style={{ color: "var(--cn-text)" }}>
+                  Hint: {q.hint}
+                </p>
               )}
               
               {revealed && (

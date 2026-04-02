@@ -149,7 +149,7 @@ const addTopic = async (item: any) => {
         
         if (topic.wikidataId) formData.append("wikidataId", topic.wikidataId);
         if (topic.sourceUrl) formData.append("sourceUrl", topic.sourceUrl);
-        if (topic.file) formData.append("file", topic.file);
+        if (topic.file) formData.append("pdf", topic.file);
 
         // POST-Request mit Token UND Multipart-Header
         await axios.post(

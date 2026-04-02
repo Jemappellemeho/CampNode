@@ -1,6 +1,8 @@
 const prisma = require("../utils/prisma");
 const crypto = require("crypto"); // Built-in Node module for generating random codes
 const axios = require("axios");
+const { scrapeUrl } = require("../services/scraperService");
+const { parsePdf } = require("../services/pdfService");
 
 async function fetchWikiText(wikidataId) {
   try {
@@ -124,9 +126,19 @@ exports.getCourseById = async (req, res) => {
         instructor: { select: { id: true, email: true, role: true } },
         topics: {
           where: { parentTopicId: null }, // Only fetch root topics first
+          orderBy: { order: 'asc' },
           include: {
-            quizzes: true,
-            subtopics: true // Supported now by schema updates
+            quizzes: {
+              orderBy: { createdAt: "desc" }
+            },
+            subtopics: {
+              orderBy: { order: 'asc' },
+              include: {
+                quizzes: {
+                  orderBy: { createdAt: "desc" }
+                }
+              }
+            }
           }
         },
         students: { select: { id: true, email: true } }
@@ -255,14 +267,18 @@ exports.getMyCourses = async (req, res) => {
 // Add a topic or subtopic to a course
 exports.addTopic = async (req, res) => {
   try {
-    const { name, description, parentTopicId, order, aiSuggested, wikidataId } = req.body;
+    const { name, description, parentTopicId, order, aiSuggested, wikidataId, sourceUrl, articleUrl } = req.body;
     
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can add topics" });
     }
 
     let content = null;
-    if (wikidataId) {
+    if (sourceUrl) {
+      content = await scrapeUrl(sourceUrl);
+    } else if (req.file) {
+      content = await parsePdf(req.file.buffer);
+    } else if (wikidataId) {
       console.log("Fetching WikiText on create for:", wikidataId);
       const wikiText = await fetchWikiText(wikidataId);
       if (wikiText) content = wikiText;
@@ -277,6 +293,7 @@ exports.addTopic = async (req, res) => {
         order: order || 0,
         aiSuggested: aiSuggested || false,
         wikidataId: wikidataId || null,
+        articleUrl: articleUrl || sourceUrl || null,
         content: content,
       },
     });
@@ -291,10 +308,21 @@ exports.addTopic = async (req, res) => {
 // Update a specific topic (useful for saving podcast/video links and reordering)
 exports.updateTopic = async (req, res) => {
   try {
-    const { name, description, order, parentTopicId, videoUrl, articleUrl, podcastUrl, aiSuggested } = req.body;
+    const { name, description, order, parentTopicId, videoUrl, articleUrl, podcastUrl, aiSuggested, sourceUrl } = req.body;
     
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can edit topics" });
+    }
+
+    const currentTopic = await prisma.topic.findUnique({
+      where: { id: req.params.topicId }
+    });
+
+    let nextContent = currentTopic?.content || undefined;
+    if (sourceUrl) {
+      nextContent = await scrapeUrl(sourceUrl);
+    } else if (req.file) {
+      nextContent = await parsePdf(req.file.buffer);
     }
 
     const topic = await prisma.topic.update({
@@ -305,9 +333,10 @@ exports.updateTopic = async (req, res) => {
         ...(order !== undefined && { order }),
         ...(parentTopicId !== undefined && { parentTopicId }),
         ...(videoUrl !== undefined && { videoUrl }),
-        ...(articleUrl !== undefined && { articleUrl }),
+        ...((articleUrl !== undefined || sourceUrl !== undefined) && { articleUrl: articleUrl || sourceUrl || null }),
         ...(podcastUrl !== undefined && { podcastUrl }),
         ...(aiSuggested !== undefined && { aiSuggested }),
+        ...(nextContent !== undefined && { content: nextContent }),
       },
     });
     
