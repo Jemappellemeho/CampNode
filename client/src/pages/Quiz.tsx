@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import axios from "axios";
 import { ArrowLeft, Trophy, GripVertical, CheckCircle2, XCircle } from "lucide-react";
 
 export default function Quiz() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { topicId } = useParams();
   const [quiz, setQuiz] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -17,11 +18,60 @@ export default function Quiz() {
   const [reorderList, setReorderList] = useState<any[]>([]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
+  const markAsSkip = Boolean((location.state as { markAsSkip?: boolean } | null)?.markAsSkip);
 
-  // SAFE SHUFFLE: Won't crash if the array is missing or undefined
+  // Namespaced keys for localStorage to track opened resources and completed quizzes per user.
+  const getResourceStorageKey = (userId?: string) => `campnode:resource-opened:${userId || 'anon'}`;
+  const getQuizStorageKey = (userId?: string) => `campnode:quiz-completed:${userId || 'anon'}`;
+
+  const loadStoredIds = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistStoredIds = (key: string, ids: string[]) => {
+    localStorage.setItem(key, JSON.stringify(Array.from(new Set(ids))));
+  };
+
   const shuffleArray = (array: any[]) => {
     if (!Array.isArray(array)) return [];
-    return [...array].sort(() => Math.random() - 0.5);
+    const copy = [...array];
+    for (let index = copy.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+    }
+    return copy;
+  };
+
+  const arraysEqual = (left: any[], right: any[]) => (
+    left.length === right.length && left.every((item, index) => item === right[index])
+  );
+
+  const buildReorderStart = (items: any[]) => {
+    if (!Array.isArray(items)) return [];
+    if (items.length < 2) return [...items];
+
+    // Reorder questions should never start already solved.
+    let shuffled = shuffleArray(items);
+    let attempts = 0;
+
+    while (attempts < 6 && arraysEqual(shuffled, items)) {
+      shuffled = shuffleArray(items);
+      attempts += 1;
+    }
+
+    if (arraysEqual(shuffled, items)) {
+      const fallback = [...items];
+      [fallback[0], fallback[1]] = [fallback[1], fallback[0]];
+      return fallback;
+    }
+
+    return shuffled;
   };
 
   useEffect(() => {
@@ -37,7 +87,7 @@ export default function Quiz() {
           setQuiz(res.data);
           const firstQ = res.data.questions[0];
           if (firstQ?.type === 'reorder') {
-            setReorderList(shuffleArray(firstQ.items));
+            setReorderList(buildReorderStart(firstQ.items));
           }
         } else {
           // If backend sends an empty quiz, don't let it crash
@@ -61,7 +111,10 @@ export default function Quiz() {
   const isCorrect = () => {
     if (!q) return false;
     if (q.type === "multiple_choice") return selected === q.correctIndex;
-    if (q.type === "true_false") return (selected === 0) === q.correctAnswer;
+    if (q.type === "true_false") {
+      const trueFalseOptions = currentIdx % 2 === 0 ? ["True", "False"] : ["False", "True"];
+      return trueFalseOptions[selected] === String(q.correctAnswer ? "True" : "False");
+    }
     
     // SAFE STRING CHECK: Prevents .toLowerCase().trim() from crashing on null
     if (q.type === "open_answer") {
@@ -96,8 +149,37 @@ export default function Quiz() {
       setRevealed(false);
       setSelected(null);
       setMultiSelect([]);
-      if (nextQ?.type === 'reorder') setReorderList(shuffleArray(nextQ.items));
+      if (nextQ?.type === 'reorder') setReorderList(buildReorderStart(nextQ.items));
     } else {
+      if (topicId) {
+        try {
+          // Mark quiz as completed in localStorage and optionally sync with backend.
+          const savedUser = localStorage.getItem('user');
+          const parsedUser = savedUser ? JSON.parse(savedUser) : null;
+          const userId = parsedUser?.id;
+          const quizKey = getQuizStorageKey(userId);
+          const resourceKey = getResourceStorageKey(userId);
+          const nextQuizIds = [...loadStoredIds(quizKey), topicId];
+          persistStoredIds(quizKey, nextQuizIds);
+
+          let nextResourceIds = loadStoredIds(resourceKey);
+          if (markAsSkip && !nextResourceIds.includes(topicId)) {
+            nextResourceIds = [...nextResourceIds, topicId];
+            persistStoredIds(resourceKey, nextResourceIds);
+          }
+
+          if (nextResourceIds.includes(topicId)) {
+            const token = localStorage.getItem('token');
+            if (token) {
+              axios.post(`http://localhost:3000/api/progress`, { topicId, completed: true }, {
+                headers: { Authorization: `Bearer ${token}` }
+              }).catch(() => {});
+            }
+          }
+        } catch {
+          // Ignore local progress persistence errors and still finish the quiz.
+        }
+      }
       setFinished(true);
     }
   };
@@ -124,7 +206,10 @@ export default function Quiz() {
   );
 
   // SAFE ARRAY FALLBACKS for rendering
-  const optionsToRender = Array.isArray(q.options) ? q.options : ["True", "False"];
+  const optionsToRender = q.type === "true_false"
+    ? (currentIdx % 2 === 0 ? ["True", "False"] : ["False", "True"])
+    : (Array.isArray(q.options) ? q.options : ["True", "False"]);
+  const answerState = revealed ? (isCorrect() ? "correct" : "incorrect") : "idle";
 
   return (
     <div className="h-screen w-full flex flex-col transition-colors px-4 pt-2 pb-6" style={{ background: "var(--cn-page)" }}>
@@ -146,11 +231,11 @@ export default function Quiz() {
             
             <div className="space-y-2">
               {(q.type === "multiple_choice" || q.type === "true_false") && optionsToRender.map((opt: any, i: number) => (
-                <button key={i} onClick={() => !revealed && setSelected(i)} className={`w-full text-left p-3.5 rounded-xl border-2 transition-all text-[14px] font-semibold ${selected === i ? 'border-blue-500 bg-blue-500/5' : 'border-[var(--cn-border)]'}`} style={{ color: "var(--cn-text)" }}>{opt}</button>
+                <button key={i} onClick={() => !revealed && setSelected(i)} className={`w-full text-left p-3.5 rounded-xl border-2 transition-all text-[14px] font-semibold ${selected === i ? 'border-blue-500 bg-blue-500/10 dark:bg-blue-500/15 shadow-[0_0_0_1px_rgba(59,130,246,0.25)]' : 'border-[var(--cn-border)] hover:border-blue-400/50'}`} style={{ color: "var(--cn-text)" }}>{opt}</button>
               ))}
               
               {q.type === "multiple_select" && Array.isArray(q.options) && q.options.map((opt: string, i: number) => (
-                <button key={i} onClick={() => !revealed && (multiSelect.includes(i) ? setMultiSelect(multiSelect.filter(x => x !== i)) : setMultiSelect([...multiSelect, i]))} className={`w-full text-left p-3.5 rounded-xl border-2 transition-all text-[14px] font-semibold flex items-center justify-between ${multiSelect.includes(i) ? 'border-blue-500 bg-blue-500/5' : 'border-[var(--cn-border)]'}`} style={{ color: "var(--cn-text)" }}>
+                <button key={i} onClick={() => !revealed && (multiSelect.includes(i) ? setMultiSelect(multiSelect.filter(x => x !== i)) : setMultiSelect([...multiSelect, i]))} className={`w-full text-left p-3.5 rounded-xl border-2 transition-all text-[14px] font-semibold flex items-center justify-between ${multiSelect.includes(i) ? 'border-blue-500 bg-blue-500/10 dark:bg-blue-500/15 shadow-[0_0_0_1px_rgba(59,130,246,0.25)]' : 'border-[var(--cn-border)] hover:border-blue-400/50'}`} style={{ color: "var(--cn-text)" }}>
                   {opt} {multiSelect.includes(i) && <CheckCircle2 size={18} className="text-blue-500" />}
                 </button>
               ))}
@@ -183,11 +268,11 @@ export default function Quiz() {
               )}
               
               {revealed && (
-                <div className={`mt-4 p-4 rounded-xl border-2 animate-in slide-in-from-top-2 ${isCorrect() ? 'bg-[#F5C518]/10 border-[#F5C518]/40' : 'bg-red-500/10 border-red-500/40'}`}>
-                  <div className="flex items-center gap-2 mb-1.5 font-black text-[10px] tracking-widest uppercase">
-                    {isCorrect() ? <><CheckCircle2 size={14} className="text-[#F5C518]"/> CORRECT</> : <><XCircle size={14} className="text-red-600"/> INCORRECT</>}
+                <div className={`mt-4 p-4 rounded-2xl border-2 animate-in slide-in-from-top-2 shadow-lg ${answerState === 'correct' ? 'bg-emerald-100 border-emerald-400/80 shadow-emerald-500/10 dark:bg-emerald-900/45 dark:border-emerald-500/65 dark:shadow-emerald-950/25' : 'bg-red-100 border-red-400/80 shadow-red-500/10 dark:bg-red-900/40 dark:border-red-500/65 dark:shadow-red-950/25'}`}>
+                  <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
+                    {isCorrect() ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
                   </div>
-                  <p className="text-[11px] font-medium leading-relaxed opacity-60 italic" style={{ color: "var(--cn-text)" }}>{q.explanation}</p>
+                  <p className="text-[11px] font-medium leading-relaxed text-slate-800 dark:text-slate-100 italic">{q.explanation}</p>
                 </div>
               )}
             </div>
@@ -197,7 +282,7 @@ export default function Quiz() {
             <button 
               onClick={revealed ? handleNext : () => setRevealed(true)} 
               disabled={!revealed && selected === null && multiSelect.length === 0 && q.type !== 'reorder'} 
-              className={`w-full py-4 rounded-2xl font-bold text-white transition-all text-xs uppercase tracking-widest ${revealed ? 'bg-slate-900' : 'bg-blue-600 shadow-lg'}`}
+              className={`w-full py-4 rounded-2xl font-bold transition-all text-xs uppercase tracking-widest ${revealed ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-lg shadow-blue-500/25' : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'}`}
             >
               {revealed ? "Continue" : "Check Answer"}
             </button>

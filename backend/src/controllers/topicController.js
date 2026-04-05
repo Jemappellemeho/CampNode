@@ -2,6 +2,7 @@ const prisma = require("../utils/prisma");
 const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
+const { storeUploadedPdf } = require("../services/uploadedAssetService");
 const aiService = require("../services/aiService");
 
 const MOCK_QUESTION_MARKERS = [
@@ -9,8 +10,15 @@ const MOCK_QUESTION_MARKERS = [
   "which layer usually handles",
   "what is the biggest risk here",
   "what is the common 4-letter acronym for database operations",
-  "what is the short name for a web application interface"
+  "what is the short name for a web application interface",
+  "the source mentions",
+  "which of these terms appear in the source",
+  "order the key ideas from the source",
+  "name one key idea from the source",
+  "which concept is most central to"
 ];
+
+const MIN_ACCEPTABLE_QUIZ_QUESTIONS = 8;
 
 async function upsertTopicQuiz(topicId, questions) {
   const existingQuiz = await prisma.quiz.findFirst({
@@ -44,7 +52,7 @@ function isFallbackQuiz(questions) {
 
 /**
  * GET Quiz for a topic.
- * Logic: If missing or < 15 questions, it regenerates to ensure a full session.
+ * Logic: If missing or < 10 questions, it regenerates to ensure a full session.
  */
 exports.getQuizByTopic = async (req, res) => {
   try {
@@ -54,15 +62,23 @@ exports.getQuizByTopic = async (req, res) => {
       where: { topicId: topicId }
     });
 
-    // Force refresh if the quiz is the old 5-question version
-    if (quiz && (!quiz.questions || quiz.questions.length < 15 || isFallbackQuiz(quiz.questions))) {
-      console.log("[Quiz] Found old quiz version. Deleting to regenerate 15 unique questions.");
-      await prisma.quiz.delete({ where: { id: quiz.id } });
-      quiz = null;
-    }
+    // Accept 8-10 valid questions to avoid endless regeneration loops caused by strict dedupe.
+    // Regenerate only when quiz is clearly legacy/fallback/too short.
+    const needsRegeneration = Boolean(
+      quiz
+      && (
+        !Array.isArray(quiz.questions)
+        || quiz.questions.length < MIN_ACCEPTABLE_QUIZ_QUESTIONS
+        || isFallbackQuiz(quiz.questions)
+      )
+    );
 
-    if (!quiz) {
-      console.log(`[Quiz] No valid quiz found for topic ${topicId}. Generating 15 questions...`);
+    if (!quiz || needsRegeneration) {
+      if (needsRegeneration) {
+        const questionsCount = Array.isArray(quiz?.questions) ? quiz.questions.length : 0;
+        console.log(`[Quiz] Outdated quiz detected for topic ${topicId} (count=${questionsCount}). Regenerating...`);
+      }
+      console.log(`[Quiz] No valid quiz found for topic ${topicId}. Generating 10 questions...`);
       const topic = await prisma.topic.findUnique({ where: { id: topicId } });
       if (!topic) return res.status(404).json({ error: "Topic not found." });
 
@@ -78,7 +94,7 @@ exports.getQuizByTopic = async (req, res) => {
     res.json(quiz);
   } catch (error) {
     console.error("Quiz Fetch Error:", error.message);
-    const statusCode = error.message?.includes("GEMINI_API_KEY") ? 503 : 500;
+    const statusCode = error.message?.toLowerCase().includes("quota") ? 503 : 500;
     res.status(statusCode).json({ error: error.message || "Failed to load or generate quiz." });
   }
 };
@@ -90,6 +106,8 @@ exports.createTopic = async (req, res) => {
   try {
     const { name, description, courseId, wikidataId, sourceUrl } = req.body;
     let content = "";
+    // articleUrl is used as the learner-facing source pointer when a real source exists.
+    let resolvedArticleUrl = sourceUrl || null;
 
     if (sourceUrl) {
       console.log("Scraping website:", sourceUrl);
@@ -98,6 +116,7 @@ exports.createTopic = async (req, res) => {
     else if (req.file) {
       console.log("Parsing PDF:", req.file.originalname);
       content = await parsePdf(req.file.buffer);
+      resolvedArticleUrl = await storeUploadedPdf(req.file);
     }
     else if (wikidataId) {
       console.log("Fetching WikiText for:", wikidataId);
@@ -111,6 +130,7 @@ exports.createTopic = async (req, res) => {
         description,
         courseId,
         wikidataId,
+        articleUrl: resolvedArticleUrl,
         content: content || null,
       }
     });
@@ -156,12 +176,16 @@ exports.updateTopic = async (req, res) => {
     if (!currentTopic) return res.status(404).json({ error: "Topic not found" });
 
     let newContent = "";
+    let nextArticleUrl = currentTopic.articleUrl || null;
     if (sourceUrl) {
       newContent = await scrapeUrl(sourceUrl);
+      nextArticleUrl = sourceUrl;
     } else if (req.file) {
       newContent = await parsePdf(req.file.buffer);
+      nextArticleUrl = await storeUploadedPdf(req.file);
     }
 
+    // Keep existing extracted material and append new source text as supplementary content.
     let combinedContent = currentTopic.content || "";
     if (newContent) {
       combinedContent = combinedContent 
@@ -172,6 +196,7 @@ exports.updateTopic = async (req, res) => {
     const data = { 
       name, 
       description,
+      articleUrl: nextArticleUrl,
       content: combinedContent 
     };
 
@@ -221,6 +246,12 @@ exports.getTopicContent = async (req, res) => {
 
     if (!topic) return res.status(404).json({ error: "Topic not found" });
 
+    // Do not infer Wikipedia pages from a plain node name.
+    // A topic should resolve article content only from an explicit Wikidata selection.
+    if (!topic.wikidataId) {
+      return res.status(200).json({ content: `<p>No Wikidata article is attached to this topic.</p>` });
+    }
+
     let titleForLang = null;
 
     if (topic.wikidataId) {
@@ -240,7 +271,9 @@ exports.getTopicContent = async (req, res) => {
       }
     } 
     
-    if (!titleForLang) titleForLang = topic.name; 
+    if (!titleForLang) {
+      return res.status(200).json({ content: `<p>No Wikidata article is available for this topic.</p>` });
+    }
 
     try {
       const parseUrl = `https://${lang}.wikipedia.org/w/api.php?action=parse&format=json&page=${encodeURIComponent(titleForLang)}&prop=text|displaytitle&disablelimitreport=1&disableeditsection=1&origin=*`;
@@ -354,17 +387,15 @@ exports.enrichTopic = async (req, res) => {
 
     if (!source.content) return res.status(400).json({ error: "No content available for AI." });
 
-    const summary = await aiService.generateSummary(source.content);
     const quizQuestions = await aiService.generateQuiz(source.content, topic.name);
     const quiz = await upsertTopicQuiz(id, quizQuestions);
 
-    const updatedTopic = await prisma.topic.update({
+    const updatedTopic = await prisma.topic.findUnique({
       where: { id },
-      data: {
-        description: summary
-      },
       include: { quizzes: true }
     });
+
+    if (!updatedTopic) return res.status(404).json({ error: "Topic not found." });
 
     res.json({
       message: "AI Enrichment successful!",
@@ -377,7 +408,7 @@ exports.enrichTopic = async (req, res) => {
     });
   } catch (error) {
     console.error("AI Enrichment failed:", error.message);
-    const statusCode = error.message?.includes("GEMINI_API_KEY") ? 503 : 500;
+    const statusCode = error.message?.toLowerCase().includes("quota") ? 503 : 500;
     res.status(statusCode).json({ error: error.message || "AI Enrichment failed." });
   }
 };

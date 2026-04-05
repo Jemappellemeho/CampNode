@@ -3,6 +3,7 @@ const crypto = require("crypto"); // Built-in Node module for generating random 
 const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
+const { storeUploadedPdf, removeUploadedAsset } = require("../services/uploadedAssetService");
 
 async function fetchWikiText(wikidataId) {
   try {
@@ -267,17 +268,23 @@ exports.getMyCourses = async (req, res) => {
 // Add a topic or subtopic to a course
 exports.addTopic = async (req, res) => {
   try {
-    const { name, description, parentTopicId, order, aiSuggested, wikidataId, sourceUrl, articleUrl } = req.body;
+    const { name, description, parentTopicId, order, aiSuggested, wikidataId, sourceUrl, articleUrl, videoUrl, podcastUrl } = req.body;
+    // Multipart form fields may arrive as strings, so Prisma order must be normalized.
+    const normalizedOrder = Number.isFinite(Number(order)) ? Number(order) : 0;
     
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can add topics" });
     }
 
     let content = null;
+    // articleUrl becomes the student-facing source pointer:
+    // an external URL or a local /uploads/... PDF path.
+    let resolvedArticleUrl = articleUrl || sourceUrl || null;
     if (sourceUrl) {
       content = await scrapeUrl(sourceUrl);
     } else if (req.file) {
       content = await parsePdf(req.file.buffer);
+      resolvedArticleUrl = await storeUploadedPdf(req.file);
     } else if (wikidataId) {
       console.log("Fetching WikiText on create for:", wikidataId);
       const wikiText = await fetchWikiText(wikidataId);
@@ -290,10 +297,12 @@ exports.addTopic = async (req, res) => {
         description,
         courseId: req.params.id,
         parentTopicId: parentTopicId || null,
-        order: order || 0,
+        order: normalizedOrder,
         aiSuggested: aiSuggested || false,
         wikidataId: wikidataId || null,
-        articleUrl: articleUrl || sourceUrl || null,
+        articleUrl: resolvedArticleUrl,
+        videoUrl: videoUrl || null,
+        podcastUrl: podcastUrl || null,
         content: content,
       },
     });
@@ -309,6 +318,8 @@ exports.addTopic = async (req, res) => {
 exports.updateTopic = async (req, res) => {
   try {
     const { name, description, order, parentTopicId, videoUrl, articleUrl, podcastUrl, aiSuggested, sourceUrl } = req.body;
+    // Keep reorder updates numeric for Prisma.
+    const normalizedOrder = order !== undefined && Number.isFinite(Number(order)) ? Number(order) : undefined;
     
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can edit topics" });
@@ -319,10 +330,16 @@ exports.updateTopic = async (req, res) => {
     });
 
     let nextContent = currentTopic?.content || undefined;
+    let nextArticleUrl = currentTopic?.articleUrl || null;
+    const previousArticleUrl = currentTopic?.articleUrl || null;
     if (sourceUrl) {
       nextContent = await scrapeUrl(sourceUrl);
+      nextArticleUrl = sourceUrl;
     } else if (req.file) {
       nextContent = await parsePdf(req.file.buffer);
+      nextArticleUrl = await storeUploadedPdf(req.file);
+    } else if (articleUrl !== undefined) {
+      nextArticleUrl = articleUrl || null;
     }
 
     const topic = await prisma.topic.update({
@@ -330,15 +347,20 @@ exports.updateTopic = async (req, res) => {
       data: {
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
-        ...(order !== undefined && { order }),
+        ...(normalizedOrder !== undefined && { order: normalizedOrder }),
         ...(parentTopicId !== undefined && { parentTopicId }),
         ...(videoUrl !== undefined && { videoUrl }),
-        ...((articleUrl !== undefined || sourceUrl !== undefined) && { articleUrl: articleUrl || sourceUrl || null }),
+        ...((articleUrl !== undefined || sourceUrl !== undefined || req.file) && { articleUrl: nextArticleUrl }),
         ...(podcastUrl !== undefined && { podcastUrl }),
         ...(aiSuggested !== undefined && { aiSuggested }),
         ...(nextContent !== undefined && { content: nextContent }),
       },
     });
+
+    // If the source changed away from an older local PDF, remove the old file.
+    if (previousArticleUrl && previousArticleUrl !== nextArticleUrl) {
+      await removeUploadedAsset(previousArticleUrl);
+    }
     
     res.json(topic);
   } catch (err) {
@@ -356,10 +378,35 @@ exports.deleteTopic = async (req, res) => {
       return res.status(403).json({ error: "Only professors can delete topics" });
     }
 
-    // Prisma handles cascading deletes if configured, but let's just delete the topic
-    await prisma.topic.delete({
-      where: { id: topicId }
+    // Delete the selected topic together with its direct subtopics and dependent records.
+    const subtopics = await prisma.topic.findMany({
+      where: { parentTopicId: topicId },
+      select: { id: true }
     });
+
+    const topicIdsToDelete = [topicId, ...subtopics.map((subtopic) => subtopic.id)];
+
+    // Collect local asset URLs first so physical files can be cleaned up after DB deletion.
+    const uploadedAssets = await prisma.topic.findMany({
+      where: { id: { in: topicIdsToDelete } },
+      select: { articleUrl: true }
+    });
+
+    await prisma.$transaction([
+      prisma.progress.deleteMany({
+        where: { topicId: { in: topicIdsToDelete } }
+      }),
+      prisma.quiz.deleteMany({
+        where: { topicId: { in: topicIdsToDelete } }
+      }),
+      prisma.topic.deleteMany({
+        where: { id: { in: topicIdsToDelete } }
+      })
+    ]);
+
+    for (const item of uploadedAssets) {
+      await removeUploadedAsset(item.articleUrl);
+    }
 
     res.json({ message: "Topic deleted successfully" });
   } catch (err) {

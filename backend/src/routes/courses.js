@@ -137,13 +137,14 @@ router.get('/:id', authMiddleware, async (req, res) => {
 router.post('/:courseId/topics', authMiddleware, async (req, res) => {
   try {
     const { name, description, parentTopicId, order, aiSuggested } = req.body;
+    const normalizedOrder = Number.isFinite(Number(order)) ? Number(order) : 0;
     const topic = await prisma.topic.create({
       data: {
         name,
         description,
         courseId: req.params.courseId,
         parentTopicId: parentTopicId || null,
-        order: order || 0,
+        order: normalizedOrder,
         aiSuggested: aiSuggested || false,
       },
     });
@@ -157,12 +158,13 @@ router.post('/:courseId/topics', authMiddleware, async (req, res) => {
 router.put('/:courseId/topics/:topicId', authMiddleware, async (req, res) => {
   try {
     const { name, description, order, parentTopicId, videoUrl, articleUrl, podcastUrl, aiSuggested } = req.body;
+    const normalizedOrder = order !== undefined && Number.isFinite(Number(order)) ? Number(order) : undefined;
     const topic = await prisma.topic.update({
       where: { id: req.params.topicId },
       data: {
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
-        ...(order !== undefined && { order }),
+        ...(normalizedOrder !== undefined && { order: normalizedOrder }),
         ...(parentTopicId !== undefined && { parentTopicId }),
         ...(videoUrl !== undefined && { videoUrl }),
         ...(articleUrl !== undefined && { articleUrl }),

@@ -1,15 +1,40 @@
 const axios = require("axios");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const DEFAULT_PROVIDER = (process.env.AI_PROVIDER || "auto").trim().toLowerCase();
-const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
-const OPENROUTER_BASE_URL = (process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
-const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 12000);
+// Runtime provider configuration (env-driven with safe defaults).
+const DEFAULT_PROVIDER = (process.env.AI_PROVIDER || "groq").trim().toLowerCase();
+const GROQ_BASE_URL = (process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 6500);
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 60000);
 const AI_TEMPERATURE = Number(process.env.AI_TEMPERATURE || 0.7);
+const QUIZ_REPAIR_ENABLED = String(process.env.QUIZ_REPAIR_ENABLED || "false").trim().toLowerCase() === "true";
+const QUIZ_QUESTION_COUNT = 10;
 const QUIZ_TYPES = ["multiple_choice", "true_false", "multiple_select", "reorder", "open_answer"];
+const GENERIC_QUESTION_PATTERNS = [
+  "the source mentions",
+  "which of these terms appear in the source",
+  "order the key ideas from the source",
+  "name one key idea from the source",
+  "which concept is most central",
+  "what is the primary goal of",
+  "which layer usually handles",
+  "what is the biggest risk here",
+];
+const GENERIC_KEYWORDS = new Set([
+  "case",
+  "cases",
+  "diagram",
+  "diagrams",
+  "system",
+  "user",
+  "users",
+  "overview",
+  "concept",
+  "details",
+  "application",
+]);
 
+// Common stopwords used by keyword extraction and fuzzy deduplication.
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "are", "was", "were", "been", "have", "has",
   "had", "into", "over", "under", "your", "their", "there", "about", "what", "when", "where", "which",
@@ -20,6 +45,7 @@ const STOPWORDS = new Set([
   "of", "on", "or", "to", "in", "a", "an"
 ]);
 
+// Keep prompts bounded so free-tier providers are less likely to hit token limits.
 function truncateContent(content) {
   const text = typeof content === "string" ? content.trim() : "";
   if (!text) return "";
@@ -41,6 +67,7 @@ function parseJsonArray(text) {
   return JSON.parse(candidate);
 }
 
+// Shared shuffle helper used for options, reorder payloads, and fallback generation.
 function shuffleArray(items) {
   const copy = Array.isArray(items) ? [...items] : [];
   for (let index = copy.length - 1; index > 0; index -= 1) {
@@ -50,6 +77,7 @@ function shuffleArray(items) {
   return copy;
 }
 
+// Deduplication utilities for cleaning provider output and building compact units
 function dedupeStrings(values = []) {
   const seen = new Set();
   return values
@@ -63,6 +91,40 @@ function dedupeStrings(values = []) {
     });
 }
 
+// Normalize text so semantically similar phrases can be deduplicated
+function normalizeKeyword(word) {
+  return String(word || "")
+    .toLowerCase()
+    .replace(/^['-]+|['-]+$/g, "")
+    .replace(/(?:ing|ed|es|s)$/i, "");
+}
+
+function normalizePhrase(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => !STOPWORDS.has(token))
+    .map((token) => normalizeKeyword(token))
+    .filter(Boolean)
+    .join(" ");
+}
+
+function dedupeByMeaning(values = []) {
+  const seen = new Set();
+  return values
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean)
+    .filter((value) => {
+      const key = normalizePhrase(value) || value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+// Heuristic filters to prevent placeholder or irrelevant content from polluting quizzes
 function isPlaceholderText(value) {
   const text = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!text) return true;
@@ -77,22 +139,27 @@ function isPlaceholderText(value) {
   );
 }
 
+// Quick check to see if any values look like placeholders before including them in the quiz.
 function hasPlaceholderValues(values = []) {
   return values.some((value) => isPlaceholderText(value));
 }
 
+// Clamp numeric question points to a reasonable range and default to 10 for invalid input.
 function clampPoints(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 10;
   return Math.min(100, Math.max(1, Math.round(numeric)));
 }
 
+// Capitalize the first letter of a word and trim it, with a safe default.
 function capitalize(value) {
   const text = typeof value === "string" ? value.trim() : "";
   if (!text) return "Concept";
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+// Extract sentences from the content, filtering out very short ones 
+// and limiting total count to keep prompts focused.
 function extractSentences(content) {
   return truncateContent(content)
     .replace(/\s+/g, " ")
@@ -102,6 +169,99 @@ function extractSentences(content) {
     .slice(0, 20);
 }
 
+function shortenSentence(sentence, maxLength = 140) {
+  const text = String(sentence || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+
+  const clipped = text.slice(0, maxLength);
+  const lastBoundary = Math.max(clipped.lastIndexOf(","), clipped.lastIndexOf(" "), clipped.lastIndexOf(";"));
+  return `${clipped.slice(0, lastBoundary > 40 ? lastBoundary : maxLength).trim()}...`;
+}
+
+// Remove common leading connectors to improve the quality of standalone statements.
+function removeLeadingConnectors(text) {
+  return String(text || "")
+    .replace(/^(however|therefore|thus|moreover|furthermore|for example|for instance|in addition|meanwhile|instead|overall|specifically)\s*,?\s+/i, "")
+    .trim();
+}
+
+// Break complex sentences into standalone fragments that can be used as quiz options or explanations.
+function sentenceFragments(sentence) {
+  const clean = removeLeadingConnectors(sentence)
+    .replace(/[()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return clean
+    .split(/[,:;]|\s(?:because|which|that|while|whereas|although|including)\s/i)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => countMeaningfulWords(fragment) >= 4)
+    .map((fragment) => fragment.replace(/[.]+$/g, "").trim());
+}
+
+// Count words that are not stopwords to determine if a sentence or fragment has enough substance to be a quiz option.
+function toOptionStatement(text) {
+  const clean = shortenSentence(removeLeadingConnectors(text), 120).replace(/[.]+$/g, "").trim();
+  if (!clean) return "";
+  return /[.!?]$/.test(clean) ? clean : `${clean}.`;
+}
+
+// Count words that are not stopwords to determine if a sentence has enough substance to be a quiz option.
+function buildKeywordStatements(keywords = [], topicName = "") {
+  return dedupeByMeaning(
+    keywords
+      .filter((keyword) => !GENERIC_KEYWORDS.has(String(keyword || "").toLowerCase()))
+      .map((keyword, index) => [
+        `${capitalize(keyword)} is one of the ideas emphasized in ${topicName}.`,
+        `${capitalize(keyword)} helps explain part of ${topicName}.`,
+        `${capitalize(keyword)} appears as a relevant concept in this lesson.`,
+      ][index % 3])
+  );
+}
+
+// Build compact source excerpt to reduce prompt size and keep topical context.
+function buildSourceExcerpt(topicName, content) {
+  // Extract only the most topical slices instead of sending the full source every time.
+  const safeTopicName = capitalize(topicName || "General Knowledge");
+  const sentences = extractSentences(content);
+  const keywords = extractKeywords(content, 10);
+  const topicTokens = dedupeByMeaning([safeTopicName, ...keywords]).map((item) => item.toLowerCase());
+  const scored = sentences.map((sentence, index) => {
+    const lower = sentence.toLowerCase();
+    const topicalMatches = topicTokens.filter((token) => token && lower.includes(token)).length;
+    const hasListLikeStructure = /[:,;]/.test(sentence) ? 1 : 0;
+    const score = topicalMatches * 3 + hasListLikeStructure + Math.min(3, Math.floor(countMeaningfulWords(sentence) / 12));
+    return { sentence, index, score };
+  });
+
+  const selected = scored
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 8)
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => shortenSentence(entry.sentence, 220));
+
+  const excerpt = selected.join(" ");
+  return truncateContent(excerpt || content || safeTopicName);
+}
+
+// Build lightweight local knowledge units reused by fallback quiz generation.
+function buildConceptCards(topicName, content) {
+  // Turn raw source text into reusable concept cards for local fallback generation.
+  const safeTopicName = capitalize(topicName || "General Knowledge");
+  const keywords = extractKeywords(content, 18);
+  const sentences = extractSentences(content);
+  const cards = sentences.map((sentence, sentenceIndex) => buildConceptCardFromSentence(sentence, sentenceIndex, keywords, safeTopicName));
+
+  if (!cards.length) {
+    return buildKeywordFallbackCards(keywords, safeTopicName);
+  }
+
+  return cards;
+}
+
+// Extract keywords by frequency while filtering out stopwords 
+// and short terms, to build a topical keyword bank for quiz generation.
 function extractKeywords(content, limit = 12) {
   const words = truncateContent(content)
     .toLowerCase()
@@ -120,7 +280,54 @@ function extractKeywords(content, limit = 12) {
     .slice(0, limit);
 }
 
+// Build one reusable card from a single sentence.
+function buildConceptCardFromSentence(sentence, sentenceIndex, keywords, safeTopicName) {
+  const sentenceLower = sentence.toLowerCase();
+  const fragments = sentenceFragments(sentence);
+  const matchingKeywords = keywords
+    .filter((keyword) => sentenceLower.includes(keyword.toLowerCase()))
+    .filter((keyword) => !GENERIC_KEYWORDS.has(String(keyword || "").toLowerCase()))
+    .slice(0, 3);
+  const answerStatement = toOptionStatement(shortenSentence(sentence, 150));
+  const fragmentOptions = fragments
+    .map((fragment) => toOptionStatement(fragment))
+    .filter((fragment) => fragment.toLowerCase() !== answerStatement.toLowerCase());
+  const keywordOptions = keywords
+    .filter((keyword) => !matchingKeywords.includes(keyword))
+    .filter((keyword) => !GENERIC_KEYWORDS.has(String(keyword || "").toLowerCase()))
+    .slice(0, 4)
+    .map((keyword) => `${capitalize(keyword)} is mentioned nearby, but it is not the best explanation here.`);
+
+  return {
+    id: `sentence-${sentenceIndex}`,
+    sentence,
+    answer: answerStatement,
+    summary: shortenSentence(sentence, 90),
+    keywords: dedupeByMeaning(matchingKeywords.length ? matchingKeywords : keywords.slice(sentenceIndex, sentenceIndex + 3)),
+    distractors: dedupeByMeaning([...fragmentOptions, ...keywordOptions]).slice(0, 5),
+    fragments,
+  };
+}
+
+// Build a keyword-only fallback when the source has no usable sentences.
+function buildKeywordFallbackCards(keywords, safeTopicName) {
+  return keywords.map((keyword, keywordIndex) => ({
+    id: `keyword-${keywordIndex}`,
+    sentence: `${keyword} is one of the important ideas in ${safeTopicName}.`,
+    answer: `${keyword} is one of the important ideas in ${safeTopicName}.`,
+    summary: `${keyword} is one of the important ideas in ${safeTopicName}.`,
+    keywords: [keyword],
+    distractors: keywords
+      .filter((candidate) => candidate !== keyword)
+      .slice(0, 4)
+      .map((candidate) => `${candidate} is related, but it does not best complete this statement.`),
+    fragments: [],
+  }));
+}
+
+// Hard fallback if source is too weak and remote AI is unavailable.
 function createMockQuiz(topicName) {
+  // Last-resort emergency quiz when the source is too weak for a content-aware fallback.
   return [
     { type: "multiple_choice", question: `What is the primary goal of ${topicName}?`, options: ["Efficiency", "Redundancy", "Latency", "Storage"], correctIndex: 0, explanation: "Efficiency is the main driver.", points: 10 },
     { type: "true_false", question: `Is ${topicName} a modern industry standard?`, correctAnswer: true, explanation: "Yes, it is widely adopted.", points: 10 },
@@ -140,50 +347,130 @@ function createMockQuiz(topicName) {
   ];
 }
 
-function takeDistinctFromPool(preferredValues = [], fallbackPool = [], limit = 4) {
-  return dedupeStrings([...preferredValues, ...fallbackPool])
-    .filter((value) => !isPlaceholderText(value))
-    .slice(0, limit);
-}
-
-function buildContentAwareQuiz(topicName, content) {
-  const safeTopicName = capitalize(topicName || "General Knowledge");
-  const keywords = extractKeywords(content, 20);
-  const sentences = extractSentences(content);
-  const seedKeywords = dedupeStrings([safeTopicName, ...keywords, "Overview", "Concept", "Details", "Application"]);
-
-  if (seedKeywords.length < 4) {
-    return createMockQuiz(safeTopicName);
+// Reorder payload formatter keeps UI items shuffled while answer stays solvable.
+function buildShuffledOrderPayload(items = []) {
+  // Reorder questions should be displayed already shuffled, not in the solved order.
+  const logicalItems = dedupeStrings(items).filter((item) => !isPlaceholderText(item)).slice(0, 4);
+  if (logicalItems.length < 3) {
+    return {
+      items: ["Step 1", "Step 2", "Step 3"],
+      correctOrder: [0, 1, 2],
+    };
   }
 
-  const sentenceFor = (index) => sentences[index % sentences.length] || `The source discusses ${safeTopicName}.`;
+  let presentedItems = shuffleArray(logicalItems);
+  let attempts = 0;
+  while (attempts < 6 && presentedItems.every((item, index) => item === logicalItems[index])) {
+    presentedItems = shuffleArray(logicalItems);
+    attempts += 1;
+  }
+
+  if (presentedItems.every((item, index) => item === logicalItems[index]) && logicalItems.length >= 2) {
+    presentedItems = [...logicalItems];
+    [presentedItems[0], presentedItems[1]] = [presentedItems[1], presentedItems[0]];
+  }
+  return {
+    items: presentedItems,
+    correctOrder: logicalItems.map((item) => presentedItems.indexOf(item)),
+  };
+}
+
+// Build the payload for a reorder question, ensuring the presented order
+//  is shuffled but the correct order is still identifiable.
+function buildPresentedReorder(items = [], rawCorrectOrder = []) {
+  const sourceItems = dedupeByMeaning(items).filter((item) => !isPlaceholderText(item));
+  const orderedItems = sourceItems.length >= 3 ? sourceItems : ["Step 1", "Step 2", "Step 3"];
+  const validCorrectOrder = Array.isArray(rawCorrectOrder)
+    && rawCorrectOrder.length === orderedItems.length
+    && rawCorrectOrder.every((value) => Number.isInteger(value) && value >= 0 && value < orderedItems.length)
+      ? rawCorrectOrder
+      : orderedItems.map((_item, itemIndex) => itemIndex);
+  const logicalItems = validCorrectOrder.map((itemIndex) => orderedItems[itemIndex]).filter(Boolean);
+
+  return buildShuffledOrderPayload(logicalItems);
+}
+
+// Main local quiz synthesizer used when provider output is weak or fails.
+function buildContentAwareQuiz(topicName, content) {
+  // Local fallback generator used when the external AI provider fails or returns weak output.
+  const safeTopicName = capitalize(topicName || "General Knowledge");
+  const cards = buildConceptCards(safeTopicName, content);
+  const keywords = extractKeywords(content, 20);
+  const seedKeywords = dedupeByMeaning([safeTopicName, ...keywords, "Overview", "Concept", "Details", "Application"])
+    .filter((keyword, index, collection) => {
+      const normalized = normalizeKeyword(keyword);
+      return normalized && collection.findIndex((candidate) => normalizeKeyword(candidate) === normalized) === index;
+    });
+
+  if (seedKeywords.length < 4 && cards.length < 2) {
+    return createMockQuiz(safeTopicName);
+  }
+  const cardFor = (index) => cards[index % Math.max(cards.length, 1)] || {
+    sentence: `The source discusses ${safeTopicName}.`,
+    answer: `${safeTopicName} is discussed in the source.`,
+    summary: `${safeTopicName} is discussed in the source.`,
+    keywords: [safeTopicName],
+    distractors: [],
+    fragments: [],
+  };
   const keywordFor = (index) => seedKeywords[index % seedKeywords.length] || safeTopicName;
+  const multipleChoiceStems = [
+    `Which statement best explains a core idea in ${safeTopicName}?`,
+    `Which interpretation is most consistent with the material on ${safeTopicName}?`,
+    "Which conclusion follows most directly from the explanation?",
+    "Which option is the best-supported takeaway from the material?",
+  ];
+  const multipleSelectStems = [
+    `Which statements are supported by the lesson on ${safeTopicName}?`,
+    "Which points match the explanation given in the material?",
+    "Which claims are consistent with the passage?",
+  ];
+  const trueFalseStems = [
+    `${capitalize(safeTopicName)} is described in a way that supports this claim.`,
+    "This statement matches the explanation in the material.",
+  ];
+  const reorderStems = [
+    "Arrange these ideas in the order they are explained.",
+    "Put these steps or ideas into the order that best matches the passage.",
+  ];
+  const openAnswerStems = [
+    "Which term best completes this idea:",
+    "Name one important concept linked to this explanation:",
+  ];
 
   const questions = [];
 
-  for (let index = 0; index < 15; index += 1) {
-    const type = QUIZ_TYPES[index % QUIZ_TYPES.length];
+  for (let index = 0; index < QUIZ_QUESTION_COUNT; index += 1) {
+    const typeCycle = ["multiple_choice", "multiple_select", "open_answer", "multiple_choice", "reorder", "multiple_choice", "multiple_select", "open_answer", "multiple_choice", "true_false"];
+    const type = typeCycle[index % typeCycle.length];
+    const card = cardFor(index);
     const keyword = keywordFor(index);
     const nextKeyword = keywordFor(index + 1);
     const thirdKeyword = keywordFor(index + 2);
     const fourthKeyword = keywordFor(index + 3);
-    const sentence = sentenceFor(index);
+    const sentence = card.sentence;
     const contentHasKeyword = truncateContent(content).toLowerCase().includes(keyword.toLowerCase());
+    const correctStatement = card.answer || shortenSentence(sentence, 150);
 
     if (type === "multiple_choice") {
-      const options = takeDistinctFromPool([
-        keyword,
-        nextKeyword,
-        thirdKeyword,
-        fourthKeyword,
-      ], seedKeywords, 4);
+      const relatedStatements = dedupeByMeaning(
+        cards
+          .filter((candidate) => candidate.id !== card.id)
+          .map((candidate) => candidate.answer)
+      ).slice(0, 3);
+      const options = dedupeByMeaning([
+        correctStatement,
+        ...card.distractors,
+        ...relatedStatements,
+        ...buildKeywordStatements([nextKeyword, thirdKeyword, fourthKeyword], safeTopicName),
+      ]).slice(0, 4);
 
       questions.push({
         type,
-        question: `Which concept is most central to ${safeTopicName} in the source?`,
+        question: multipleChoiceStems[index % multipleChoiceStems.length],
         options,
         correctIndex: 0,
-        explanation: sentence,
+        explanation: shortenSentence(sentence, 180),
         points: 10
       });
       continue;
@@ -192,41 +479,77 @@ function buildContentAwareQuiz(topicName, content) {
     if (type === "true_false") {
       questions.push({
         type,
-        question: `The source mentions ${keyword}.`,
+        question: `${trueFalseStems[index % trueFalseStems.length]} ${toOptionStatement(card.answer)}`,
         correctAnswer: contentHasKeyword,
-        explanation: sentence,
+        explanation: shortenSentence(sentence, 180),
         points: 10
       });
       continue;
     }
 
     if (type === "multiple_select") {
-      const options = takeDistinctFromPool([keyword, nextKeyword, thirdKeyword, fourthKeyword], seedKeywords, 4);
+      const possibleCorrectOptions = dedupeByMeaning([
+        card.answer,
+        ...card.fragments.map((fragment) => toOptionStatement(fragment)),
+        ...buildKeywordStatements(card.keywords, safeTopicName),
+      ]).filter((option) => countMeaningfulWords(option) >= 4);
+      const targetCorrectCount = (index % 3) + 1;
+      const selectedCorrectOptions = possibleCorrectOptions.slice(0, targetCorrectCount);
+      const distractorPool = dedupeByMeaning([
+        ...cards.filter((candidate) => candidate.id !== card.id).map((candidate) => candidate.answer),
+        ...buildKeywordStatements(seedKeywords.slice(index, index + 5), safeTopicName),
+      ])
+        .filter((candidate) => !selectedCorrectOptions.includes(candidate))
+        .filter((candidate) => countMeaningfulWords(candidate) >= 4)
+        .slice(0, Math.max(2, 5 - selectedCorrectOptions.length));
+      const options = dedupeByMeaning([...selectedCorrectOptions, ...distractorPool]).slice(0, 5);
 
       const correctIndices = options
-        .map((option, optionIndex) => (truncateContent(content).toLowerCase().includes(option.toLowerCase()) ? optionIndex : -1))
+        .map((option, optionIndex) => (selectedCorrectOptions.includes(option) ? optionIndex : -1))
         .filter((optionIndex) => optionIndex >= 0);
 
       questions.push({
         type,
-        question: `Which of these terms appear in the source?`,
+        question: multipleSelectStems[index % multipleSelectStems.length],
         options,
         correctIndices: correctIndices.length ? correctIndices : [0],
-        explanation: sentence,
+        explanation: shortenSentence(sentence, 180),
         points: 10
       });
       continue;
     }
 
     if (type === "reorder") {
-      const items = takeDistinctFromPool([keyword, nextKeyword, thirdKeyword, fourthKeyword], seedKeywords, 4);
+      const logicalItems = dedupeByMeaning(card.fragments)
+        .filter((item) => countMeaningfulWords(item) >= 4)
+        .slice(0, 4);
+
+      if (logicalItems.length < 3) {
+        const options = dedupeByMeaning([
+          correctStatement,
+          ...card.distractors,
+          ...cards.filter((candidate) => candidate.id !== card.id).map((candidate) => candidate.answer),
+        ]).slice(0, 4);
+
+        questions.push({
+          type: "multiple_choice",
+          question: multipleChoiceStems[(index + 1) % multipleChoiceStems.length],
+          options,
+          correctIndex: 0,
+          explanation: shortenSentence(sentence, 180),
+          points: 10
+        });
+        continue;
+      }
+
+      const { items, correctOrder } = buildShuffledOrderPayload(logicalItems);
 
       questions.push({
         type,
-        question: `Order the key ideas from the source.`,
+        question: reorderStems[index % reorderStems.length],
         items,
-        correctOrder: [0, 1, 2, 3],
-        explanation: sentence,
+        correctOrder,
+        explanation: shortenSentence(sentence, 180),
         points: 10
       });
       continue;
@@ -234,10 +557,10 @@ function buildContentAwareQuiz(topicName, content) {
 
     questions.push({
       type: "open_answer",
-      question: `Name one key idea from the source about ${safeTopicName}.`,
-      acceptedAnswers: dedupeStrings([keyword, nextKeyword, safeTopicName]),
-      hint: sentence.slice(0, 80),
-      explanation: sentence,
+      question: `${openAnswerStems[index % openAnswerStems.length]} ${shortenSentence(sentence, 70)}`,
+      acceptedAnswers: dedupeStrings([...card.keywords, keyword, nextKeyword, safeTopicName]),
+      hint: shortenSentence(sentence, 80),
+      explanation: shortenSentence(sentence, 180),
       points: 10
     });
   }
@@ -245,7 +568,9 @@ function buildContentAwareQuiz(topicName, content) {
   return questions;
 }
 
+// Output normalizers keep AI and fallback payloads in one frontend contract.
 function normalizeQuestion(rawQuestion, index) {
+  // Normalize all question payloads so AI output and fallback output share one frontend shape.
   const baseQuestion = typeof rawQuestion?.question === "string"
     ? rawQuestion.question.trim()
     : `Question ${index + 1}`;
@@ -278,21 +603,15 @@ function normalizeQuestion(rawQuestion, index) {
   }
 
   if (baseType === "reorder") {
-    const items = dedupeStrings(rawQuestion?.items);
-    const orderedItems = items.length >= 3 && !hasPlaceholderValues(items) ? items : ["Step 1", "Step 2", "Step 3"];
-    const correctOrder = Array.isArray(rawQuestion?.correctOrder)
-      && rawQuestion.correctOrder.length === orderedItems.length
-      && rawQuestion.correctOrder.every((value) => Number.isInteger(value) && value >= 0 && value < orderedItems.length)
-        ? rawQuestion.correctOrder
-        : orderedItems.map((_item, itemIndex) => itemIndex);
+    const { items, correctOrder } = buildPresentedReorder(rawQuestion?.items, rawQuestion?.correctOrder);
     return {
       ...base,
-      items: orderedItems,
+      items,
       correctOrder,
     };
   }
 
-  const options = dedupeStrings(rawQuestion?.options);
+  const options = dedupeByMeaning(rawQuestion?.options);
   const usableOptions = options.length >= 2 && !hasPlaceholderValues(options) ? options : ["Option 1", "Option 2", "Option 3", "Option 4"];
 
   if (baseType === "multiple_select") {
@@ -330,6 +649,7 @@ function normalizeQuestion(rawQuestion, index) {
   };
 }
 
+// Main entry point for quiz generation, which applies quality checks and fallback logic.
 function normalizeQuizPayload(questions, topicName, content) {
   const normalized = Array.isArray(questions)
     ? questions.map((question, index) => normalizeQuestion(question, index))
@@ -348,38 +668,114 @@ function normalizeQuizPayload(questions, topicName, content) {
   });
 
   if (unique.length >= 8 && !hasTooManyPlaceholders) {
-    return unique.slice(0, 15);
+    return unique.slice(0, QUIZ_QUESTION_COUNT);
   }
 
   return buildContentAwareQuiz(topicName, content).map((question, index) => normalizeQuestion(question, index));
 }
 
-function isMissingGeminiConfiguration() {
-  return !process.env.GEMINI_API_KEY;
+// Quality heuristics decide whether to trigger quiz repair pass.
+function getQuestionOptions(question) {
+  if (Array.isArray(question?.options)) return question.options;
+  if (question?.type === "true_false") return ["True", "False"];
+  return [];
 }
 
-function isMissingOpenRouterConfiguration() {
-  return !process.env.OPENROUTER_API_KEY;
+function countMeaningfulWords(text) {
+  return String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
 }
 
+function isGenericQuestionText(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  if (!normalized) return true;
+  return GENERIC_QUESTION_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+function hasWeakOptions(question) {
+  const options = getQuestionOptions(question);
+  if (question?.type === "open_answer" || question?.type === "reorder") return false;
+  if (options.length < 2) return true;
+
+  const tooShort = options.filter((option) => countMeaningfulWords(option) <= 2).length;
+  return tooShort >= Math.ceil(options.length * 0.75);
+}
+
+function assessQuizQuality(questions = []) {
+  const normalizedQuestions = Array.isArray(questions) ? questions : [];
+  const genericQuestions = normalizedQuestions.filter((question) => isGenericQuestionText(question?.question)).length;
+  const weakOptions = normalizedQuestions.filter((question) => hasWeakOptions(question)).length;
+  const trueFalseCount = normalizedQuestions.filter((question) => question?.type === "true_false").length;
+  const applicationQuestions = normalizedQuestions.filter((question) => {
+    const text = `${question?.question || ""} ${question?.explanation || ""}`.toLowerCase();
+    return (
+      text.includes("why")
+      || text.includes("how")
+      || text.includes("best explains")
+      || text.includes("scenario")
+      || text.includes("happens if")
+      || text.includes("most likely")
+      || text.includes("because")
+      || text.includes("would")
+    );
+  }).length;
+  const uniqueQuestionStarts = new Set(
+    normalizedQuestions.map((question) => String(question?.question || "").trim().toLowerCase().split(/\s+/).slice(0, 4).join(" "))
+  ).size;
+
+  return {
+    total: normalizedQuestions.length,
+    genericQuestions,
+    weakOptions,
+    trueFalseCount,
+    applicationQuestions,
+    uniqueQuestionStarts,
+    isWeak: (
+      normalizedQuestions.length < 10
+      || genericQuestions >= 3
+      || weakOptions >= 4
+      || trueFalseCount > 4
+      || applicationQuestions < 4
+      || uniqueQuestionStarts < Math.max(6, Math.floor(normalizedQuestions.length * 0.6))
+    ),
+  };
+}
+
+function isMissingGroqConfiguration() {
+  return !process.env.GROQ_API_KEY;
+}
+
+// Convert provider errors to user-readable operational messages.
 function getAiErrorMessage(error) {
   const message = error?.message || "Unknown AI error.";
   const normalized = String(message);
+  const lower = normalized.toLowerCase();
 
   if (
     normalized.includes("429")
-    || normalized.toLowerCase().includes("quota exceeded")
-    || normalized.toLowerCase().includes("too many requests")
-    || normalized.toLowerCase().includes("rate limit")
+    || lower.includes("quota exceeded")
+    || lower.includes("too many requests")
+    || lower.includes("rate limit")
   ) {
-    return "Gemini quota exceeded. The API key is valid, but this project currently has no available quota.";
+    if (lower.includes("groq")) {
+      return "Groq rate limit or daily quota exceeded. Wait for the limit window to reset.";
+    }
+
+    return "AI provider rate limit or quota exceeded.";
   }
 
-  if (normalized.includes("401") || normalized.includes("403") || normalized.toLowerCase().includes("api key")) {
-    return "Gemini API authentication failed. Check whether the API key is valid and attached to the correct project.";
+  if (normalized.includes("401") || normalized.includes("403") || lower.includes("api key")) {
+    if (lower.includes("groq")) {
+      return "Groq API authentication failed. Check the GROQ_API_KEY and project permissions.";
+    }
+
+    return "AI provider authentication failed. Check the configured API key.";
   }
 
-  if (normalized.toLowerCase().includes("openrouter")) {
+  if (lower.includes("groq")) {
     return normalized;
   }
 
@@ -389,15 +785,16 @@ function getAiErrorMessage(error) {
 function shouldPropagateAiError(error) {
   const message = getAiErrorMessage(error).toLowerCase();
   return (
-    message.includes("quota exceeded")
-    || message.includes("authentication failed")
+    message.includes("authentication failed")
     || message.includes("api key")
   );
 }
 
+// Prompt builders for initial generation and optional repair pass.
 function buildPrompt({ topicName, content }) {
+  const excerpt = buildSourceExcerpt(topicName, content);
   return [
-    "Generate exactly 15 quiz questions in strict JSON array format.",
+    `Generate exactly ${QUIZ_QUESTION_COUNT} quiz questions in strict JSON array format.`,
     "Use the topic source only. Do not invent facts that are not supported by the source.",
     "Cover the topic broadly and vary difficulty from basic recall to applied understanding.",
     "Use every supported question type at least twice when the source allows it.",
@@ -406,7 +803,13 @@ function buildPrompt({ topicName, content }) {
     "Avoid repeating the same question openings, sentence patterns, or answer layouts.",
     "Mix factual, conceptual, comparative, cause-and-effect, and scenario-based questions.",
     "Target medium difficulty: not trivial, but still solvable from the source by a student who understood the material.",
-    "At least 5 questions should require understanding or application, not just recall.",
+    "At least 6 questions should require understanding, comparison, or application, not just recall.",
+    "Prefer concrete, content-rich wording over meta phrasing about 'the source' or 'the text'.",
+    "Do not ask generic questions like 'The source mentions X' or 'Which terms appear in the source?'.",
+    "For multiple-choice and multiple-select questions, make answer options full, plausible statements or specific concepts, not one-word placeholders unless the source genuinely requires a short technical term.",
+    "Wrong answers should be believable distractors based on nearby concepts from the topic, not random opposites or obviously silly choices.",
+    "Limit true/false questions to no more than 3 unless the source is extremely narrow.",
+    "Include at least 3 questions that ask the learner to infer, compare, diagnose, or predict what happens in a scenario.",
     "Use specific details and vocabulary from the source instead of generic textbook wording.",
     "Do not produce multiple questions with nearly identical wording.",
     "Vary the question stems. For example, mix prompts like: why, how, what happens if, which statement best explains, choose the best example, identify the correct sequence.",
@@ -422,32 +825,45 @@ function buildPrompt({ topicName, content }) {
     "For open_answer questions, prefer important terms, mechanisms, or examples from the source.",
     "Never use placeholder text such as Option 1, Option 2, Step 1, Question 1, Example A, or similar fillers.",
     "Every option must be a real answer choice with actual content.",
+    "Avoid near-duplicate options such as singular/plural forms of the same word.",
     "Do not wrap the result in markdown. Do not add any commentary. Return valid JSON only.",
     `Topic: ${topicName}`,
-    `Source content: ${content}`
+    `Source content: ${excerpt}`
   ].join("\n");
 }
 
-async function callGemini(prompt) {
-  if (isMissingGeminiConfiguration()) {
-    throw new Error("GEMINI_API_KEY is not configured.");
-  }
-
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+function buildRepairPrompt({ topicName, content, previousQuiz }) {
+  const excerpt = buildSourceExcerpt(topicName, content);
+  return [
+    "Rewrite the quiz from scratch in strict JSON array format.",
+    "The previous attempt was too generic, repetitive, or shallow.",
+    `Generate exactly ${QUIZ_QUESTION_COUNT} stronger questions using only the source below.`,
+    "Do not mention 'the source', 'the text', or 'the article' inside the questions.",
+    "Avoid templates like 'The source mentions...' and avoid vocabulary-matching questions.",
+    "Use these question types: multiple_choice, true_false, multiple_select, reorder, open_answer.",
+    "Use at most 3 true_false questions.",
+    "Include at least 6 questions that require explanation, comparison, inference, or application.",
+    "Make at least 5 multiple-choice or multiple-select answer sets sentence-length or detail-rich rather than single words.",
+    "Use plausible distractors that are close to the topic and force the learner to think.",
+    "Avoid near-duplicate options such as singular/plural forms of the same word.",
+    "Ensure question openings are varied and not repetitive.",
+    "Return valid JSON only.",
+    `Topic: ${topicName}`,
+    `Source content: ${excerpt}`,
+    `Weak previous quiz to improve: ${previousQuiz}`
+  ].join("\n");
 }
 
-async function callOpenRouter(prompt) {
-  if (isMissingOpenRouterConfiguration()) {
-    throw new Error("OPENROUTER_API_KEY is not configured.");
+// Provider-specific transport adapters.
+async function callGroq(prompt) {
+  if (isMissingGroqConfiguration()) {
+    throw new Error("GROQ_API_KEY is not configured.");
   }
 
   const response = await axios.post(
-    `${OPENROUTER_BASE_URL}/chat/completions`,
+    `${GROQ_BASE_URL}/chat/completions`,
     {
-      model: OPENROUTER_MODEL,
+      model: GROQ_MODEL,
       messages: [
         {
           role: "user",
@@ -459,7 +875,7 @@ async function callOpenRouter(prompt) {
     {
       timeout: AI_TIMEOUT_MS,
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         "Content-Type": "application/json",
       },
     }
@@ -467,44 +883,24 @@ async function callOpenRouter(prompt) {
 
   const text = response.data?.choices?.[0]?.message?.content;
   if (!text || !String(text).trim()) {
-    throw new Error("OpenRouter returned an empty response.");
+    throw new Error("Groq returned an empty response.");
   }
 
   return String(text).trim();
 }
 
+// Provider router with auto-fallback chain.
 async function callAi(prompt) {
   const provider = DEFAULT_PROVIDER;
 
-  if (provider === "openrouter") {
-    return callOpenRouter(prompt);
+  if (provider === "groq" || provider === "auto") {
+    return callGroq(prompt);
   }
 
-  if (provider === "gemini") {
-    return callGemini(prompt);
-  }
-
-  if (provider === "auto") {
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        return await callOpenRouter(prompt);
-      } catch (openRouterError) {
-        if (!process.env.GEMINI_API_KEY) throw openRouterError;
-      }
-    }
-
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        return await callGemini(prompt);
-      } catch (geminiError) {
-        throw geminiError;
-      }
-    }
-  }
-
-  throw new Error(`Unsupported AI_PROVIDER: ${provider}`);
+  throw new Error(`Unsupported AI_PROVIDER: ${provider}. Supported: groq (or auto as alias).`);
 }
 
+// Local summary fallback when remote generation is unavailable.
 function buildFallbackSummary(content, topicName) {
   const safeTopicName = capitalize(topicName || "General Knowledge");
   const sentences = extractSentences(content);
@@ -522,6 +918,7 @@ function buildFallbackSummary(content, topicName) {
   return [leadSentence, keywordSentence].filter(Boolean).join(" ");
 }
 
+// Public API consumed by controllers/services.
 exports.generateSummary = async (content, topicName = "General Knowledge") => {
   const safeContent = truncateContent(content);
   const safeTopicName = (topicName || "General Knowledge").trim() || "General Knowledge";
@@ -559,7 +956,33 @@ exports.generateQuiz = async (content, topicName = "General Knowledge") => {
       throw new Error("AI returned an empty quiz payload.");
     }
 
-    return normalizeQuizPayload(parsed, safeTopicName, safeContent);
+    const normalized = normalizeQuizPayload(parsed, safeTopicName, safeContent);
+    const quality = assessQuizQuality(normalized);
+
+    if (!quality.isWeak) {
+      return normalized;
+    }
+
+    if (!QUIZ_REPAIR_ENABLED) {
+      return normalized;
+    }
+
+    const repairPrompt = buildRepairPrompt({
+      topicName: safeTopicName,
+      content: safeContent || safeTopicName,
+      previousQuiz: JSON.stringify(normalized),
+    });
+    const repairedText = await callAi(repairPrompt);
+    if (!repairedText || !repairedText.trim()) {
+      return normalized;
+    }
+
+    const repairedParsed = parseJsonArray(repairedText);
+    if (!Array.isArray(repairedParsed) || repairedParsed.length === 0) {
+      return normalized;
+    }
+
+    return normalizeQuizPayload(repairedParsed, safeTopicName, safeContent);
   } catch (error) {
     const errorMessage = getAiErrorMessage(error);
     console.error("AI quiz error:", errorMessage);
@@ -570,4 +993,5 @@ exports.generateQuiz = async (content, topicName = "General Knowledge") => {
   }
 };
 
+// Reserved hook for future prerequisite recommendation logic.
 exports.suggestPrerequisites = async () => [];

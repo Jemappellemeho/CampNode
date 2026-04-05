@@ -28,6 +28,23 @@ exports.upsertProgress = async (req, res) => {
     res.status(200).json({ message: "Progress saved", progress });
   } catch (error) {
     console.error("Error saving progress:", error);
+
+    // Topic was removed between client state and save attempt.
+    if (error?.code === "P2003") {
+      return res.status(200).json({
+        message: "Progress skipped because the topic no longer exists",
+        skipped: true,
+      });
+    }
+
+    // Connection pool starvation: return a retryable response for transient overload.
+    if (error?.code === "P2024") {
+      return res.status(503).json({
+        error: "Database is busy. Please retry in a moment.",
+        code: "DB_POOL_TIMEOUT",
+      });
+    }
+
     res.status(500).json({ error: "Failed to save progress" });
   }
 };

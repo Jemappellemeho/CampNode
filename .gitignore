@@ -18,6 +18,7 @@ client/dist/
 
 # Uploaded PDFs
 /uploads
+backend/uploads/
 
 #tmp
 /tmp    
