@@ -34,7 +34,11 @@ interface Topic {
   order: number;
   completed: boolean;
   subtopics: SubTopic[];
+  videoUrl?: string;
+  articleUrl?: string;
+  podcastUrl?: string;
   quizzes?: { id: string }[];
+  wikidataId?: string;
 }
 
 interface Course {
@@ -124,11 +128,67 @@ function HexagonNode({
 
 /** Diamond node (rotated square, used for subtopics) */
 function DiamondNode({
-  label, color, onClick, aiSuggested = false, size = 90,
+  label, color, onClick, aiSuggested = false, size = 90, topic, onQuiz, onArticle,
 }: {
   label: string; color: string; onClick?: () => void; aiSuggested?: boolean; size?: number;
+  topic?: SubTopic | Topic;
+  onQuiz?: () => void;
+  onArticle?: () => void;
 }) {
   const s = size;
+  const sub = topic as SubTopic | undefined;
+  const hasVideo = !!sub?.videoUrl;
+  const hasArticle = !!sub?.articleUrl || !!onArticle;
+  const hasPodcast = !!sub?.podcastUrl;
+  const hasQuiz = !!(sub?.quizzes && sub.quizzes.length > 0);
+
+  const miniBtn = (
+    icon: ReactNode,
+    kind: 'video' | 'article' | 'podcast' | 'quiz',
+    url?: string,
+    action?: () => void,
+    active = true,
+  ) => (
+    <button
+      disabled={!active}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (action) {
+          action();
+          return;
+        }
+        if (url) {
+          window.open(url, '_blank');
+        }
+      }}
+      className="h-7 w-7 rounded-md flex items-center justify-center shadow-sm"
+      style={{
+        background: active
+          ? kind === 'video'
+            ? '#fee2e2'
+            : kind === 'article'
+              ? '#dbeafe'
+              : kind === 'podcast'
+                ? '#ede9fe'
+                : '#dcfce7'
+          : '#f3f4f6',
+        color: active
+          ? kind === 'video'
+            ? '#b91c1c'
+            : kind === 'article'
+              ? '#1d4ed8'
+              : kind === 'podcast'
+                ? '#7c3aed'
+                : '#15803d'
+          : '#9ca3af',
+        border: '1px solid rgba(17,24,39,0.12)',
+      }}
+      title={kind}
+    >
+      {icon}
+    </button>
+  );
+
   return (
     <div className="flex flex-col items-center" style={{ width: s + 20 }}>
       <div
@@ -140,6 +200,7 @@ function DiamondNode({
           background: color,
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+          overflow: 'visible',
         }}
       >
         <span
@@ -148,11 +209,23 @@ function DiamondNode({
             color: '#fff', fontWeight: 700, fontSize: 10,
             textAlign: 'center', textTransform: 'uppercase',
             letterSpacing: 0.3, lineHeight: 1.2,
-            maxWidth: s * 0.7, display: 'block',
+            maxWidth: s * 0.72, display: 'block',
+            paddingBottom: 18,
           }}
         >
           {label}
         </span>
+        {(hasVideo || hasArticle || hasPodcast || hasQuiz) && (
+          <div
+            className="absolute left-1/2 bottom-[8px] z-30 flex -translate-x-1/2 gap-1"
+            style={{ transform: 'translateX(-50%) rotate(-45deg)', pointerEvents: 'auto' }}
+          >
+            {miniBtn(<Play size={10} />, 'video', sub?.videoUrl, undefined, hasVideo)}
+            {miniBtn(<BookOpen size={10} />, 'article', undefined, onArticle, hasArticle)}
+            {miniBtn(<Headphones size={10} />, 'podcast', sub?.podcastUrl, undefined, hasPodcast)}
+            {miniBtn(<HelpCircle size={10} />, 'quiz', undefined, onQuiz, hasQuiz)}
+          </div>
+        )}
       </div>
       {aiSuggested && (
         <span style={{ fontSize: 9, color: RED, marginTop: 4, fontWeight: 600 }}>
@@ -177,8 +250,32 @@ function ResourceRow({
   const hasPodcast = !!sub.podcastUrl;
   const hasQuiz    = sub.quizzes && sub.quizzes.length > 0;
 
+  const getButtonPalette = (kind: 'video' | 'article' | 'podcast' | 'quiz', active: boolean) => {
+    if (!active) {
+      return {
+        background: '#f3f4f6',
+        color: '#9ca3af',
+        border: '1px solid #e5e7eb',
+      };
+    }
+
+    switch (kind) {
+      case 'video':
+        return { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca' };
+      case 'article':
+        return { background: '#dbeafe', color: '#1d4ed8', border: '1px solid #bfdbfe' };
+      case 'podcast':
+        return { background: '#ede9fe', color: '#7c3aed', border: '1px solid #ddd6fe' };
+      case 'quiz':
+        return { background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' };
+      default:
+        return { background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb' };
+    }
+  };
+
   const iconBtn = (
     icon: ReactNode,
+    kind: 'video' | 'article' | 'podcast' | 'quiz',
     url?: string,
     action?: () => void,
     active = true,
@@ -194,11 +291,9 @@ function ResourceRow({
           window.open(url, '_blank');
         }
       }}
-      className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+      className="w-7 h-7 rounded-md flex items-center justify-center transition-all shadow-sm"
       style={{
-        background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
-        color: active ? '#fff' : 'rgba(255,255,255,0.25)',
-        border: '1px solid rgba(255,255,255,0.1)',
+        ...getButtonPalette(kind, active),
       }}
     >
       {icon}
@@ -206,11 +301,11 @@ function ResourceRow({
   );
 
   return (
-    <div className="flex gap-1 justify-center mt-2">
-      {iconBtn(<Play size={12} />, sub.videoUrl, undefined, hasVideo)}
-      {iconBtn(<BookOpen size={12} />, undefined, onArticle, hasArticle)}
-      {iconBtn(<Headphones size={12} />, sub.podcastUrl, undefined, hasPodcast)}
-      {iconBtn(<HelpCircle size={12} />, undefined, onQuiz, hasQuiz)}
+    <div className="flex gap-1.5 justify-center mt-2 px-2 py-1.5 rounded-lg bg-white/85 border border-slate-200 shadow-sm backdrop-blur-sm">
+      {iconBtn(<Play size={12} />, 'video', sub.videoUrl, undefined, hasVideo)}
+      {iconBtn(<BookOpen size={12} />, 'article', undefined, onArticle, hasArticle)}
+      {iconBtn(<Headphones size={12} />, 'podcast', sub.podcastUrl, undefined, hasPodcast)}
+      {iconBtn(<HelpCircle size={12} />, 'quiz', undefined, onQuiz, hasQuiz)}
     </div>
   );
 }
@@ -351,17 +446,35 @@ export default function CoursePlayer() {
     } catch (e) { console.error(e); }
   };
 
-  const openSubtopicArticle = async (sub: SubTopic) => {
+  const openNodeArticle = async (node: { id: string; name: string; articleUrl?: string; wikidataId?: string }) => {
     const token = localStorage.getItem('token');
+
+    // Uploaded PDF-backed nodes should render the cleaned text modal instead of hitting /uploads.
+    if (node.articleUrl && node.articleUrl.includes('/uploads/')) {
+      try {
+        const res = await axios.get(`${API}/topics/${node.id}/content?lang=en`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.data?.content) {
+          setActiveContent({
+            title: node.name,
+            content: res.data.content,
+          });
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to load uploaded PDF content', e);
+      }
+    }
 
     // Prefer topic-based endpoint: it can resolve article by wikidataId or topic name.
     try {
-      const res = await axios.get(`${API}/topics/${sub.id}/content?lang=en`, {
+      const res = await axios.get(`${API}/topics/${node.id}/content?lang=en`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.data?.content) {
         setActiveContent({
-          title: sub.name,
+          title: node.name,
           content: res.data.content,
         });
         return;
@@ -371,12 +484,12 @@ export default function CoursePlayer() {
     }
 
     // Fallback to direct Wikidata route for legacy entries where wikidataId is available.
-    if (sub.wikidataId) {
+    if (node.wikidataId) {
       try {
-        const res = await axios.get(`${API}/wiki/article/${sub.wikidataId}?lang=en`);
+        const res = await axios.get(`${API}/wiki/article/${node.wikidataId}?lang=en`);
         if (res.data?.content) {
           setActiveContent({
-            title: res.data.title || sub.name,
+            title: res.data.title || node.name,
             content: res.data.content,
           });
           return;
@@ -386,9 +499,13 @@ export default function CoursePlayer() {
       }
     }
 
-    if (sub.articleUrl) {
-      window.open(sub.articleUrl, '_blank', 'noopener,noreferrer');
+    if (node.articleUrl && !node.articleUrl.includes('/uploads/')) {
+      window.open(node.articleUrl, '_blank', 'noopener,noreferrer');
     }
+  };
+
+  const openSubtopicArticle = async (sub: SubTopic) => {
+    await openNodeArticle(sub);
   };
 
   // ── Progress calculation ───────────────────────────────────────────────────
@@ -507,6 +624,12 @@ export default function CoursePlayer() {
                 size={120}
               />
 
+              <ResourceRow
+                topic={topic}
+                onArticle={() => openNodeArticle(topic)}
+                onQuiz={() => navigate(`/quiz/${topic.quizzes?.[0]?.id}`)}
+              />
+
               {/* Subtopics row */}
               {topic.subtopics.length > 0 && (
                 <>
@@ -522,16 +645,14 @@ export default function CoursePlayer() {
                             label={sub.name}
                             color={color}
                             aiSuggested={sub.aiSuggested}
+                            topic={sub}
+                            onArticle={() => openSubtopicArticle(sub)}
+                            onQuiz={() => navigate(`/quiz/${sub.quizzes?.[0]?.id}`)}
                             onClick={async () => {
                               await openSubtopicArticle(sub);
                               markComplete(sub.id, !sub.completed);
                             }}
                             size={88}
-                          />
-                          <ResourceRow
-                            topic={sub}
-                            onArticle={() => openSubtopicArticle(sub)}
-                            onQuiz={() => navigate(`/quiz/${sub.quizzes?.[0]?.id}`)}
                           />
                         </div>
                       );
