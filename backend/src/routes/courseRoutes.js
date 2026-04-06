@@ -2,26 +2,48 @@ const express = require("express");
 const router = express.Router();
 const courseController = require("../controllers/courseController");
 const { verifyToken } = require("../middleware/authMiddleware");
+const multer = require("multer");
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Route: POST /api/courses
-// WICHTIG: Hier stecken wir "verifyToken" dazwischen!
+// Create a new course (Protected by verifyToken middleware)
 router.post("/", verifyToken, courseController.createCourse);
 
-// Route: GET /api/courses (Alle Kurse abrufen, nur für eingeloggte User)
+// Route: GET /api/courses/me
+// Get all courses that the logged-in user is involved in
+router.get("/me", verifyToken, courseController.getMyCourses);
+
+// Route: GET /api/courses
+// Get a list of all courses
 router.get("/", verifyToken, courseController.getAllCourses);
 
-// Route: POST /api/courses/join (Kurs mit Code beitreten)
+// Route: POST /api/courses/join
+// Join a course using a unique join code
 router.post("/join", verifyToken, courseController.joinCourse);
 
-// Route: GET /api/courses/:id (Einzelnen Kurs abrufen)
+// Route: GET /api/courses/:id
+// Get full details of a single course
 router.get("/:id", verifyToken, courseController.getCourseById);
 
-// Route: PUT /api/courses/:id (Kurs bearbeiten)
+// Route: PUT /api/courses/:id
+// Update course details (title, description, visibility)
 router.put("/:id", verifyToken, courseController.updateCourse);
 
-// Route: DELETE /api/courses/:id (Kurs löschen)
+// Route: DELETE /api/courses/:id
+// Delete a course
 router.delete("/:id", verifyToken, courseController.deleteCourse);
 
+// Route: POST /api/courses/:id/topics
+// Add a new topic or subtopic to the course
+router.post("/:id/topics", verifyToken, upload.single("pdf"), courseController.addTopic);
 
+// Route: PUT /api/courses/:id/topics/:topicId
+// Update an existing topic (name, links, order, etc)
+router.put("/:id/topics/:topicId", verifyToken, upload.single("pdf"), courseController.updateTopic);
+
+// Route: DELETE /api/courses/:id/topics/:topicId
+// Delete a specific topic or subtopic
+router.delete("/:id/topics/:topicId", verifyToken, courseController.deleteTopic);
 
 module.exports = router;

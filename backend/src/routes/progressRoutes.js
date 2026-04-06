@@ -3,10 +3,12 @@ const router = express.Router();
 const progressController = require("../controllers/progressController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// Route 1: Fortschritt speichern oder updaten (POST /api/progress)
+// Route: POST /api/progress
+// Create or update progress for a topic
 router.post("/", verifyToken, progressController.upsertProgress);
 
-// Route 2: Eigenen Fortschritt abrufen (GET /api/progress)
+// Route: GET /api/progress
+// Fetch progress for the currently authenticated user
 router.get("/", verifyToken, progressController.getUserProgress);
 
 module.exports = router;

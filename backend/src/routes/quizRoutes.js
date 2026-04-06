@@ -3,16 +3,20 @@ const router = express.Router();
 const quizController = require("../controllers/quizController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// Route 1: Neues Quiz erstellen (POST /api/quizzes)
+// Route: POST /api/quizzes
+// Create a new quiz
 router.post("/", verifyToken, quizController.createQuiz);
 
-// Route 2: Alle Quizzes zu einem bestimmten Thema abrufen (GET /api/quizzes/topic/:topicId)
+// Route: GET /api/quizzes/topic/:topicId
+// Fetch all quizzes related to a specific topic
 router.get("/topic/:topicId", verifyToken, quizController.getQuizzesByTopic);
 
-// Route 3: Ein Quiz bearbeiten (PUT /api/quizzes/:id)
+// Route: PUT /api/quizzes/:id
+// Update an existing quiz
 router.put("/:id", verifyToken, quizController.updateQuiz);
 
-// Route 4: Ein Quiz löschen (DELETE /api/quizzes/:id)
+// Route: DELETE /api/quizzes/:id
+// Delete a quiz
 router.delete("/:id", verifyToken, quizController.deleteQuiz);
 
 module.exports = router;

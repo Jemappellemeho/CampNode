@@ -15,3 +15,15 @@ client/dist/
 
 # Prisma
 /generated/prisma
+
+# Uploaded PDFs
+/uploads
+backend/uploads/
+
+#tmp
+/tmp    
+
+
+# Lokale Test-Skripte ignorieren
+test-*.js
+

@@ -3,7 +3,8 @@ import { X } from 'lucide-react';
 interface Resource {
   type: 'video' | 'article' | 'podcast' | 'quiz';
   title: string;
-  duration: string;
+  url?: string;
+  duration?: string;
 }
 
 interface NodeDetailPanelProps {
@@ -12,10 +13,23 @@ interface NodeDetailPanelProps {
   nodeName: string;
   nodeColor: string;
   resources: Resource[];
+  completed?: boolean;
+  quizCompleted?: boolean;
+  onOpenResource: (resource: Resource, options?: { markAsSkip?: boolean }) => void | Promise<void>;
 }
 
-function NodeDetailPanel({ isOpen, onClose, nodeName, nodeColor, resources }: NodeDetailPanelProps) {
+function NodeDetailPanel({
+  isOpen,
+  onClose,
+  nodeName,
+  nodeColor,
+  resources,
+  completed = false,
+  quizCompleted = false,
+  onOpenResource,
+}: NodeDetailPanelProps) {
   if (!isOpen) return null;
+  const quizResource = resources.find((resource) => resource.type === 'quiz');
 
   const getIcon = (type: string) => {
     switch(type) {
@@ -71,16 +85,18 @@ function NodeDetailPanel({ isOpen, onClose, nodeName, nodeColor, resources }: No
             <button
               key={idx}
               className={`w-full p-4 rounded-xl ${getBgColor(resource.type)} transition-all text-left flex items-center gap-4 group`}
-              onClick={() => alert(`Opening ${resource.type}: ${resource.title}`)}
+              onClick={() => onOpenResource(resource)}
             >
               <span className="text-3xl">{getIcon(resource.type)}</span>
               <div className="flex-1">
                 <h3 className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white">
                   {resource.title}
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {resource.duration}
-                </p>
+                {resource.duration && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {resource.duration}
+                  </p>
+                )}
               </div>
               <span className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300">
                 →
@@ -95,9 +111,26 @@ function NodeDetailPanel({ isOpen, onClose, nodeName, nodeColor, resources }: No
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
               Already know this?
             </p>
-            <button className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-xl transition-all">
+            <button
+              onClick={() => {
+                if (quizResource) onOpenResource(quizResource, { markAsSkip: true });
+              }}
+              disabled={!quizResource}
+              className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition-all"
+            >
               Take Quiz to Skip →
             </button>
+
+            <div className="mt-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+              <span className={`inline-flex h-2.5 w-2.5 rounded-full ${completed ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+              <span className="text-gray-600 dark:text-gray-300">Resource step: {completed ? 'done' : 'pending'}</span>
+            </div>
+            {resources.some((res) => res.type === 'quiz') && (
+              <div className="mt-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+                <span className={`inline-flex h-2.5 w-2.5 rounded-full ${quizCompleted ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                <span className="text-gray-600 dark:text-gray-300">Quiz step: {quizCompleted ? 'done' : 'pending'}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

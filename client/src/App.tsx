@@ -1,38 +1,47 @@
-// =============================================================
-// FILE LOCATION: client/src/App.tsx
-// REPLACE your existing App.tsx entirely
-//
-// KEY CHANGE: every page is now wrapped in <Layout>
-// This means every page automatically gets the shared header.
-// =============================================================
-
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
-import Landing from './pages/Landing';
-import Register from './pages/Register';
-import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Playground from './pages/Playground';
-import ProfDashboard from "./pages/ProfDashboard";
-import CourseCreator from "./pages/CourseCreator";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ThemeProvider } from "./ThemeContext";
+import Layout from "./components/Layout";
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import Profile from "./pages/Profile";
 import CourseManager from "./pages/CourseManager";
+import Playground from "./pages/Playground";
+import Quiz from "./pages/Quiz"; 
 
 function App() {
   return (
-    <BrowserRouter>
-      <Layout>
+    <ThemeProvider>
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/register" element={<Register />} />
+          {/* Auth Flow */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/landing" element={<Landing />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/playground" element={<Playground />} />
-          <Route path="/prof/dashboard" element={<ProfDashboard />} />
-          <Route path="/prof/create-course" element={<CourseCreator />} />
-          <Route path="/prof/course/:courseId" element={<CourseManager />} />
+          <Route path="/register" element={<Register />} />
+
+          {/* Authenticated Layout Wrapper */}
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
+            
+            {/* Playground Routing:
+              Supports both specific course context and general entry 
+              to prevent 'No routes matched' errors during navigation.
+            */}
+            <Route path="/playground/:courseId" element={<Playground />} />
+            <Route path="/playground" element={<Playground />} />
+            
+            {/* Administrative Management */}
+            <Route path="/prof/course/:courseId" element={<CourseManager />} />
+            
+            {/* Evaluation Module */}
+            <Route path="/quiz/:topicId" element={<Quiz />} />
+          </Route>
         </Routes>
-      </Layout>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

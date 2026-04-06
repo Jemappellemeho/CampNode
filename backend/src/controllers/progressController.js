@@ -1,15 +1,15 @@
 const prisma = require("../utils/prisma");
 
-// 1. Fortschritt setzen/aktualisieren (Create / Update)
+// 1. Set or update progress (Create / Update)
 exports.upsertProgress = async (req, res) => {
   try {
     const { topicId, completed } = req.body;
-    const userId = req.user.userId; // Wieder direkt aus dem JWT
+    const userId = req.user.userId; // Retrieved from the JWT token
 
-    // Ein Upsert = "Mache ein Update, falls es schon existiert, ansonsten erstelle es neu"
+    // Upsert operation: "Update if it exists, otherwise create it"
     const progress = await prisma.progress.upsert({
       where: {
-        // Prisma braucht hierfür eine eindeutige Zusammensetzung (siehe schema.prisma: @@unique([userId, topicId]))
+        // Prisma requires a unique identifier for this (see schema.prisma: @@unique([userId, topicId]))
         userId_topicId: {
           userId: userId,
           topicId: topicId,
@@ -25,18 +25,35 @@ exports.upsertProgress = async (req, res) => {
       },
     });
 
-    res.status(200).json({ message: "Fortschritt gespeichert", progress });
+    res.status(200).json({ message: "Progress saved", progress });
   } catch (error) {
-    console.error("Fehler beim Speichern des Fortschritts:", error);
-    res.status(500).json({ error: "Fehler beim Speichern" });
+    console.error("Error saving progress:", error);
+
+    // Topic was removed between client state and save attempt.
+    if (error?.code === "P2003") {
+      return res.status(200).json({
+        message: "Progress skipped because the topic no longer exists",
+        skipped: true,
+      });
+    }
+
+    // Connection pool starvation: return a retryable response for transient overload.
+    if (error?.code === "P2024") {
+      return res.status(503).json({
+        error: "Database is busy. Please retry in a moment.",
+        code: "DB_POOL_TIMEOUT",
+      });
+    }
+
+    res.status(500).json({ error: "Failed to save progress" });
   }
 };
 
-// 2. Fortschritt eines Studenten für einen bestimmten Kurs abfragen (Read)
+// 2. Fetch a student's progress
 exports.getUserProgress = async (req, res) => {
   try {
     const userId = req.user.userId;
-    // Optional: Filtern nach Kurs, falls der Frontend einen Kurs anfragt
+    // Optional: Filter by course if the frontend specifies a courseId
     
     const progressList = await prisma.progress.findMany({
       where: { userId },
@@ -47,6 +64,6 @@ exports.getUserProgress = async (req, res) => {
 
     res.json(progressList);
   } catch (error) {
-    res.status(500).json({ error: "Fehler beim Abrufen des Fortschritts" });
+    res.status(500).json({ error: "Failed to fetch progress" });
   }
 };

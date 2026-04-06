@@ -2,17 +2,48 @@ const express = require("express");
 const router = express.Router();
 const topicController = require("../controllers/topicController");
 const { verifyToken } = require("../middleware/authMiddleware");
+const wikiController = require("../controllers/wikiController");
+const multer = require("multer");
 
-// Route 1: Neues Thema erstellen (POST /api/topics)
-router.post("/", verifyToken, topicController.createTopic);
+// Use memoryStorage so we process PDFs directly in RAM
+// without needing to save them to disk first.
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Route 2: Alle Themen eines bestimmten Kurses abrufen (GET /api/topics/course/:courseId)
+// Route: POST /api/topics
+// Create a new topic. Expects "pdf" field for file uploads.
+router.post("/", verifyToken, upload.single("pdf"), topicController.createTopic);
+
+// Route: GET /api/topics/course/:courseId
+// Fetch all topics that belong to a specific course
 router.get("/course/:courseId", verifyToken, topicController.getTopicsByCourse);
 
-// Route 3: Ein Thema bearbeiten (PUT /api/topics/:id)
-router.put("/:id", verifyToken, topicController.updateTopic);
+// NEW ROUTE FOR THE "Q" BUTTON
+// Route: GET /api/topics/quizzes/topic/:topicId
+// Fetch or auto-generate a quiz for a specific topic
+router.get("/quizzes/topic/:topicId", verifyToken, topicController.getQuizByTopic);
 
-// Route 4: Ein Thema löschen (DELETE /api/topics/:id)
+// Route: PUT /api/topics/:id
+// Update a topic, optionally attaching a new PDF file
+router.put("/:id", verifyToken, upload.single("pdf"), topicController.updateTopic);
+
+// Route: DELETE /api/topics/:id
+// Delete a specific topic
 router.delete("/:id", verifyToken, topicController.deleteTopic);
+
+// Route: GET /api/topics/:id/content
+// Fetch the Wikipedia article for a topic (Accepts optional ?lang=en or ?lang=de)
+router.get("/:id/content", verifyToken, topicController.getTopicContent);
+
+// Route: POST /api/topics/:id/enrich
+// AI-Enrichment (Generate summary + quiz questions from topic content)
+router.post("/:id/enrich", verifyToken, topicController.enrichTopic);
+
+// Route: PUT /api/topics/quizzes/:quizId
+// Update quiz questions
+router.put("/quizzes/:quizId", verifyToken, topicController.updateQuiz);
+
+// Route: DELETE /api/topics/quizzes/:quizId
+// Delete a quiz
+router.delete("/quizzes/:quizId", verifyToken, topicController.deleteQuiz);
 
 module.exports = router;
