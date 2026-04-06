@@ -691,6 +691,14 @@ export default function CourseManager() {
   if (loading) return <div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div>;
   if (!course) return null;
 
+  // Build one flat topic list so each student's completion can be calculated consistently with the learner view.
+  const flatCourseTopics = Array.isArray(course.topics)
+    ? course.topics.flatMap((topic: any) => [
+        { id: topic.id, name: topic.name },
+        ...(Array.isArray(topic.subtopics) ? topic.subtopics.map((subtopic: any) => ({ id: subtopic.id, name: subtopic.name })) : []),
+      ])
+    : [];
+
   return (
     <>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -752,8 +760,20 @@ export default function CourseManager() {
               {(!course.students || course.students.length === 0) ? (
                 <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">No students yet</div>
               ) : (
-                course.students.map((s: any) => (
-                  <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex items-center justify-between">
+                course.students.map((s: any) => {
+                  // Reuse student progress entries to compute completion and unresolved-topic question markers.
+                  const progressByTopicId = new Map(
+                    (Array.isArray(s.progress) ? s.progress : []).map((item: any) => [item.topicId, Boolean(item.completed)])
+                  );
+                  const completedCount = flatCourseTopics.reduce((count: number, topic: any) => {
+                    return count + (progressByTopicId.get(topic.id) ? 1 : 0);
+                  }, 0);
+                  const totalTopics = flatCourseTopics.length;
+                  const completionPercent = totalTopics === 0 ? 0 : Math.round((completedCount / totalTopics) * 100);
+                  const needsHelpTopics = flatCourseTopics.filter((topic: any) => !progressByTopicId.get(topic.id));
+
+                  return (
+                  <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">{s.email?.[0].toUpperCase()}</div>
                       <div>
@@ -761,8 +781,31 @@ export default function CourseManager() {
                         <p className="text-[10px] text-gray-500">{s.email}</p>
                       </div>
                     </div>
+                    <div className="text-right min-w-[220px]">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase">Progress</p>
+                      <p className="text-sm font-black text-blue-600">{completionPercent}%</p>
+                      {/* Match student syllabus progress look: neutral track + yellow fill. */}
+                      <div className="mt-1 h-2 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
+                        <div
+                          className="h-full transition-all duration-500"
+                          style={{ width: `${completionPercent}%`, background: '#F5C518' }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        {`${completedCount}/${totalTopics} topics completed`}
+                      </p>
+                      {needsHelpTopics.length > 0 && (
+                        <div className="mt-2 flex flex-wrap justify-end gap-1">
+                          {needsHelpTopics.slice(0, 3).map((topic: any) => (
+                            <span key={`${s.id}-${topic.id}`} className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                              {topic.name} ?
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ))
+                )})
               )}
             </div>
           )}

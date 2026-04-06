@@ -3,7 +3,6 @@ const crypto = require("crypto"); // Built-in Node module for generating random 
 const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
-const { storeUploadedPdf, removeUploadedAsset } = require("../services/uploadedAssetService");
 
 async function fetchWikiText(wikidataId) {
   try {
@@ -142,7 +141,24 @@ exports.getCourseById = async (req, res) => {
             }
           }
         },
-        students: { select: { id: true, email: true } }
+        // Include each student's course-scoped progress so the professor view can reuse existing progress logic.
+        students: {
+          select: {
+            id: true,
+            email: true,
+            progress: {
+              where: {
+                topic: {
+                  courseId: id,
+                }
+              },
+              select: {
+                topicId: true,
+                completed: true,
+              }
+            }
+          }
+        }
       }
     });
 
@@ -277,14 +293,14 @@ exports.addTopic = async (req, res) => {
     }
 
     let content = null;
-    // articleUrl becomes the student-facing source pointer:
-    // an external URL or a local /uploads/... PDF path.
+    // articleUrl stays as an external source pointer only.
+    // Uploaded PDFs are parsed to text and are not persisted as files.
     let resolvedArticleUrl = articleUrl || sourceUrl || null;
     if (sourceUrl) {
       content = await scrapeUrl(sourceUrl);
     } else if (req.file) {
       content = await parsePdf(req.file.buffer);
-      resolvedArticleUrl = await storeUploadedPdf(req.file);
+      resolvedArticleUrl = null;
     } else if (wikidataId) {
       console.log("Fetching WikiText on create for:", wikidataId);
       const wikiText = await fetchWikiText(wikidataId);
@@ -331,13 +347,12 @@ exports.updateTopic = async (req, res) => {
 
     let nextContent = currentTopic?.content || undefined;
     let nextArticleUrl = currentTopic?.articleUrl || null;
-    const previousArticleUrl = currentTopic?.articleUrl || null;
     if (sourceUrl) {
       nextContent = await scrapeUrl(sourceUrl);
       nextArticleUrl = sourceUrl;
     } else if (req.file) {
       nextContent = await parsePdf(req.file.buffer);
-      nextArticleUrl = await storeUploadedPdf(req.file);
+      nextArticleUrl = null;
     } else if (articleUrl !== undefined) {
       nextArticleUrl = articleUrl || null;
     }
@@ -357,11 +372,6 @@ exports.updateTopic = async (req, res) => {
       },
     });
 
-    // If the source changed away from an older local PDF, remove the old file.
-    if (previousArticleUrl && previousArticleUrl !== nextArticleUrl) {
-      await removeUploadedAsset(previousArticleUrl);
-    }
-    
     res.json(topic);
   } catch (err) {
     console.error("Error updating topic:", err);
@@ -386,12 +396,6 @@ exports.deleteTopic = async (req, res) => {
 
     const topicIdsToDelete = [topicId, ...subtopics.map((subtopic) => subtopic.id)];
 
-    // Collect local asset URLs first so physical files can be cleaned up after DB deletion.
-    const uploadedAssets = await prisma.topic.findMany({
-      where: { id: { in: topicIdsToDelete } },
-      select: { articleUrl: true }
-    });
-
     await prisma.$transaction([
       prisma.progress.deleteMany({
         where: { topicId: { in: topicIdsToDelete } }
@@ -403,10 +407,6 @@ exports.deleteTopic = async (req, res) => {
         where: { id: { in: topicIdsToDelete } }
       })
     ]);
-
-    for (const item of uploadedAssets) {
-      await removeUploadedAsset(item.articleUrl);
-    }
 
     res.json({ message: "Topic deleted successfully" });
   } catch (err) {

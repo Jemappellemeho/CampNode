@@ -53,6 +53,11 @@ interface SelectedLearningNode {
   quizCompleted: boolean;
 }
 
+interface QuestionEditorTarget {
+  id: string;
+  title: string;
+}
+
 export default function Playground() {
   const { courseId } = useParams();
   const navigate = useNavigate();
@@ -67,10 +72,14 @@ export default function Playground() {
   const [resourceOpenedIds, setResourceOpenedIds] = useState<string[]>([]);
   const [quizCompletedIds, setQuizCompletedIds] = useState<string[]>([]);
   const [selectedSubnode, setSelectedSubnode] = useState<SelectedLearningNode | null>(null);
+  const [topicNotes, setTopicNotes] = useState<Record<string, string>>({});
+  const [questionEditorTarget, setQuestionEditorTarget] = useState<QuestionEditorTarget | null>(null);
+  const [questionDraft, setQuestionDraft] = useState('');
 
   // These keys store lightweight per-user learning state in localStorage.
   const getResourceStorageKey = (userId?: string) => `campnode:resource-opened:${userId || 'anon'}`;
   const getQuizStorageKey = (userId?: string) => `campnode:quiz-completed:${userId || 'anon'}`;
+  const getQuestionNotesStorageKey = (userId?: string, currentCourseId?: string) => `campnode:question-notes:${userId || 'anon'}:${currentCourseId || 'unknown'}`;
 
   const loadStoredIds = (key: string) => {
     try {
@@ -86,6 +95,20 @@ export default function Playground() {
     localStorage.setItem(key, JSON.stringify(Array.from(new Set(ids))));
   };
 
+  const loadStoredNotes = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const persistStoredNotes = (key: string, notes: Record<string, string>) => {
+    localStorage.setItem(key, JSON.stringify(notes));
+  };
+
   // Convert backend-local assets like /uploads/... into full browser URLs.
   const resolveResourceUrl = (url?: string) => {
     if (!url) return null;
@@ -94,12 +117,12 @@ export default function Playground() {
     return `${API_ORIGIN}/${url}`;
   };
 
-  // External links and uploaded PDFs should open directly.
-  // Only internal/generated content is shown inside the modal.
+  // External links open directly.
+  // Uploaded PDFs and generated source content are shown inside the modal.
   const openArticleModal = async (topicId: string, title: string, fallbackUrl?: string) => {
     const resolvedUrl = resolveResourceUrl(fallbackUrl);
 
-    if (resolvedUrl) {
+    if (resolvedUrl && !fallbackUrl?.includes('/uploads/')) {
       window.open(resolvedUrl, '_blank', 'noopener,noreferrer');
       return;
     }
@@ -140,6 +163,8 @@ export default function Playground() {
 
     setResourceOpenedIds(loadStoredIds(getResourceStorageKey(parsedUser?.id)));
     setQuizCompletedIds(loadStoredIds(getQuizStorageKey(parsedUser?.id)));
+    // Restore student question notes for this exact course and user.
+    setTopicNotes(loadStoredNotes(getQuestionNotesStorageKey(parsedUser?.id, courseId)));
   }, [courseId]);
 
   useEffect(() => {
@@ -168,11 +193,11 @@ export default function Playground() {
             title: sub.name,
             type: sub.aiSuggested ? 'ai' : 'prof',
             status: backendCompleted.includes(topic.id) ? 'completed' : 'current',
-            hasArticle: Boolean(sub.articleUrl || sub.wikidataId),
+            hasArticle: Boolean(sub.articleUrl || sub.wikidataId || sub.content),
             hasQuiz: Array.isArray(sub.quizzes) && sub.quizzes.length > 0,
             resources: [
               ...(sub.videoUrl ? [{ type: 'video', title: 'Video', url: sub.videoUrl }] : []),
-              ...(sub.articleUrl ? [{ type: 'article', title: 'Article', url: sub.articleUrl }] : []),
+              ...((sub.articleUrl || sub.wikidataId || sub.content) ? [{ type: 'article', title: 'Article', url: sub.articleUrl }] : []),
               ...(sub.podcastUrl ? [{ type: 'podcast', title: 'Podcast', url: sub.podcastUrl }] : []),
               ...((Array.isArray(sub.quizzes) && sub.quizzes.length > 0) ? [{ type: 'quiz', title: 'Quiz', url: '#' }] : [])
             ]
@@ -183,11 +208,11 @@ export default function Playground() {
             title: `${index + 1}. ${topic.name}`,
             description: topic.description || "No description provided.",
             content: topic.content,
-            hasArticle: Boolean(topic.articleUrl || topic.wikidataId),
+            hasArticle: Boolean(topic.articleUrl || topic.wikidataId || topic.content),
             hasQuiz: Array.isArray(topic.quizzes) && topic.quizzes.length > 0,
             resources: [
               ...(topic.videoUrl ? [{ type: 'video', title: 'Video', url: topic.videoUrl }] : []),
-              ...(topic.articleUrl ? [{ type: 'article', title: 'Article', url: topic.articleUrl }] : []),
+              ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: 'Article', url: topic.articleUrl }] : []),
               ...(topic.podcastUrl ? [{ type: 'podcast', title: 'Podcast', url: topic.podcastUrl }] : []),
               ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Quiz', url: '#' }] : [])
             ],
@@ -302,28 +327,38 @@ export default function Playground() {
     await syncTopicCompletion(topicId, nextIds, quizCompletedIds);
   };
 
-  const handlePanelResourceOpen = async (resource: LearningResource, options?: { markAsSkip?: boolean }) => {
-    if (!selectedSubnode) return;
-
+  const openSubnodeResource = async (subnode: Subnode, resource: LearningResource, options?: { markAsSkip?: boolean }) => {
     if (resource.type === 'quiz') {
-      navigate(`/quiz/${selectedSubnode.id}`, {
+      navigate(`/quiz/${subnode.id}`, {
         state: { markAsSkip: Boolean(options?.markAsSkip) },
       });
-      setSelectedSubnode(null);
       return;
     }
 
     if (resource.type === 'article') {
-      await openArticleModal(selectedSubnode.id, selectedSubnode.name, resource.url);
-      await markResourceOpened(selectedSubnode.id);
+      await openArticleModal(subnode.id, subnode.title, resource.url);
+      await markResourceOpened(subnode.id);
       return;
     }
 
     const resolvedUrl = resolveResourceUrl(resource.url);
     if (resolvedUrl) {
       window.open(resolvedUrl, '_blank', 'noopener,noreferrer');
-      await markResourceOpened(selectedSubnode.id);
+      await markResourceOpened(subnode.id);
     }
+  };
+
+  const handlePanelResourceOpen = async (
+    resource: SelectedLearningNode['resources'][number],
+    options?: { markAsSkip?: boolean }
+  ) => {
+    if (!selectedSubnode) return;
+
+    const parentNode = pathData.find((node) => node.subnodes.some((sub) => sub.id === selectedSubnode.id));
+    const subnode = parentNode?.subnodes.find((sub) => sub.id === selectedSubnode.id);
+    if (!subnode) return;
+
+    await openSubnodeResource(subnode, resource, options);
   };
 
   useEffect(() => {
@@ -335,6 +370,12 @@ export default function Playground() {
     if (!user?.id || !courseId) return;
     persistStoredIds(getResourceStorageKey(user.id), resourceOpenedIds);
   }, [resourceOpenedIds, user?.id, courseId]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    // Persist notes so question markers remain visible after reload.
+    persistStoredNotes(getQuestionNotesStorageKey(user?.id, courseId), topicNotes);
+  }, [topicNotes, user?.id, courseId]);
 
   useEffect(() => {
     const syncStoredQuizProgress = async () => {
@@ -363,6 +404,26 @@ export default function Playground() {
       syncReadOnlyProgress();
     }
   }, [resourceOpenedIds, pathData]);
+
+  const openQuestionEditor = (id: string, title: string) => {
+    setQuestionEditorTarget({ id, title });
+    setQuestionDraft(topicNotes[id] || '');
+  };
+
+  const saveQuestionNote = () => {
+    if (!questionEditorTarget) return;
+    const nextValue = questionDraft.trim();
+
+    setTopicNotes((prev) => {
+      const next = { ...prev };
+      if (nextValue) next[questionEditorTarget.id] = nextValue;
+      else delete next[questionEditorTarget.id];
+      return next;
+    });
+
+    setQuestionEditorTarget(null);
+    setQuestionDraft('');
+  };
 
   const getNodeProgress = (node: MainTopic) => {
     const main = getCoreProgress(node.id);
@@ -452,6 +513,18 @@ export default function Playground() {
                   {getNodeProgress(node).completed}/{getNodeProgress(node).total}
                 </span>
               </button>
+              {/* Student question marker in Playground (outside Syllabus). */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openQuestionEditor(node.id, node.title);
+                }}
+                className={`absolute -top-2 -right-2 h-7 w-7 rounded-full text-[11px] font-black shadow-md border transition-all ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
+                title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
+                aria-label="Topic question note"
+              >
+                ?
+              </button>
 
             </div>
 
@@ -509,12 +582,62 @@ export default function Playground() {
                         <span className="text-white font-black text-[9px] sm:text-[11px] leading-tight line-clamp-3 uppercase">{sub.title}</span>
                       </div>
                     </button>
+                    {/* Student question marker per subtopic in Playground. */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openQuestionEditor(sub.id, sub.title);
+                      }}
+                      className={`absolute -top-3 -right-2 h-7 w-7 rounded-full text-[11px] font-black shadow-md border transition-all z-30 ${topicNotes[sub.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
+                      title={topicNotes[sub.id] ? 'Edit question/note' : 'Add question/note'}
+                      aria-label="Subtopic question note"
+                    >
+                      ?
+                    </button>
 
                     {sub.type === 'ai' && (
                       <div className="mt-5 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border border-red-200" style={{ background: '#FEF2F2', color: '#EF4444' }}>
                         AI suggested
                       </div>
                     )}
+
+                    <div className="mt-5 flex gap-3 p-2.5 rounded-2xl bg-white dark:bg-gray-800 border shadow-lg z-10">
+                      <button
+                        onClick={async () => {
+                          const v = sub.resources.find((resource) => resource.type === 'video');
+                          if (v) await openSubnodeResource(sub, v);
+                        }}
+                        className={`p-1.5 transition-all ${sub.resources.some((resource) => resource.type === 'video') ? 'text-blue-500' : 'text-gray-300'}`}
+                      >
+                        <MonitorPlay size={18} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const a = sub.resources.find((resource) => resource.type === 'article');
+                          if (a) await openSubnodeResource(sub, a);
+                        }}
+                        className={`p-1.5 transition-all ${sub.hasArticle ? 'text-blue-500' : 'text-gray-300'}`}
+                      >
+                        <BookOpen size={18} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const p = sub.resources.find((resource) => resource.type === 'podcast');
+                          if (p) await openSubnodeResource(sub, p);
+                        }}
+                        className={`p-1.5 transition-all ${sub.resources.some((resource) => resource.type === 'podcast') ? 'text-blue-500' : 'text-gray-300'}`}
+                      >
+                        <Headphones size={18} />
+                      </button>
+                      {sub.hasQuiz && (
+                        <button
+                          onClick={() => navigate(`/quiz/${sub.id}`)}
+                          className="p-1.5 text-red-500 font-black text-xs hover:scale-125 transition-all"
+                        >
+                          {isQuizFinished(sub.id) ? 'Q✓' : 'Q'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -553,6 +676,39 @@ export default function Playground() {
           quizCompleted={selectedSubnode.quizCompleted}
           onOpenResource={handlePanelResourceOpen}
         />
+      )}
+
+      {questionEditorTarget && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 shadow-2xl">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Question / Note</p>
+            <p className="mt-1 text-sm font-bold text-gray-900 dark:text-white">{questionEditorTarget.title}</p>
+            {/* Input field requested by the user when pressing question mark. */}
+            <textarea
+              value={questionDraft}
+              onChange={(e) => setQuestionDraft(e.target.value)}
+              placeholder="Type your question or short note here..."
+              className="mt-3 w-full min-h-28 rounded-xl border dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-400 dark:text-white"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setQuestionEditorTarget(null);
+                  setQuestionDraft('');
+                }}
+                className="px-3 py-1.5 text-xs font-bold uppercase text-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveQuestionNote}
+                className="px-4 py-1.5 rounded-lg bg-[#F5C518] text-xs font-black uppercase text-slate-900"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

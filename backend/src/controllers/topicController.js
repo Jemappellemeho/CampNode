@@ -2,7 +2,6 @@ const prisma = require("../utils/prisma");
 const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
-const { storeUploadedPdf } = require("../services/uploadedAssetService");
 const aiService = require("../services/aiService");
 
 const MOCK_QUESTION_MARKERS = [
@@ -48,6 +47,119 @@ function isFallbackQuiz(questions) {
     const text = typeof question?.question === "string" ? question.question.toLowerCase() : "";
     return MOCK_QUESTION_MARKERS.some((marker) => text.includes(marker));
   });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatPlainPdfTextAsHtml(rawText) {
+  const normalized = String(rawText || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u00A0\t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/--- PAGE BREAK ---/g, "\n\n[[PAGE_BREAK]]\n\n")
+    .replace(/([.!?])\s+(?=\d+\.\s+[A-Z])/g, "$1\n\n")
+    .replace(/:\s+(?=\d+\.\s+[A-Z])/g, ":\n\n")
+    .replace(/\s+•\s+/g, "\n• ")
+    .replace(/\s+o\s+/gi, "\no ")
+    .replace(/\s+-\s+/g, "\n- ");
+
+  const blocks = normalized
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const html = [];
+
+  for (const block of blocks) {
+    if (block === "[[PAGE_BREAK]]") {
+      html.push('<hr style="margin: 1.5rem 0; border: 0; border-top: 1px dashed rgba(125, 125, 125, 0.25);" />');
+      continue;
+    }
+
+    const lines = block
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const paragraphs = [];
+    const listItems = [];
+
+    const flushList = () => {
+      if (!listItems.length) return;
+      html.push(`<ul class="pdf-list">${listItems.map((item) => `<li>${item}</li>`).join("")}</ul>`);
+      listItems.length = 0;
+    };
+
+    const flushParagraphs = () => {
+      if (!paragraphs.length) return;
+      paragraphs.forEach((paragraph) => html.push(`<p>${paragraph}</p>`));
+      paragraphs.length = 0;
+    };
+
+    for (const rawLine of lines) {
+      if (rawLine === "[[PAGE_BREAK]]") {
+        flushList();
+        flushParagraphs();
+        html.push('<hr style="margin: 1.5rem 0; border: 0; border-top: 1px dashed rgba(125, 125, 125, 0.25);" />');
+        continue;
+      }
+
+      const sectionMatch = rawLine.match(/^(\d+)\.\s+(.+)$/);
+      if (sectionMatch) {
+        flushList();
+        flushParagraphs();
+
+        const sectionTitle = sectionMatch[2].replace(/\s*•\s*/g, " ").trim();
+        html.push(`<h3 class="pdf-heading">${escapeHtml(`${sectionMatch[1]}. ${sectionTitle}`)}</h3>`);
+
+        const tailParts = sectionTitle
+          .split(/\s*•\s*/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+
+        if (tailParts.length > 1) {
+          tailParts.slice(1).forEach((part) => {
+            if (/^[•o\-*]\s*/.test(part)) {
+              listItems.push(escapeHtml(part.replace(/^[•o\-*]\s*/, "")));
+            } else {
+              paragraphs.push(`<strong>${escapeHtml(part.split(":")[0])}:</strong> ${escapeHtml(part.includes(":") ? part.slice(part.indexOf(":") + 1).trim() : "")}`.trim());
+            }
+          });
+        }
+
+        continue;
+      }
+
+      const bulletMatch = rawLine.match(/^[•o\-*]\s*(.+)$/i);
+      if (bulletMatch) {
+        flushParagraphs();
+        listItems.push(escapeHtml(bulletMatch[1]));
+        continue;
+      }
+
+      const labelMatch = rawLine.match(/^([A-Za-z][A-Za-z\s\/()\-]{1,40}):\s*(.+)$/);
+      if (labelMatch) {
+        flushList();
+        paragraphs.push(`<strong>${escapeHtml(labelMatch[1])}:</strong> ${escapeHtml(labelMatch[2])}`);
+        continue;
+      }
+
+      if (listItems.length) flushList();
+      paragraphs.push(escapeHtml(rawLine));
+    }
+
+    flushList();
+    flushParagraphs();
+  }
+
+  return html.join("");
 }
 
 /**
@@ -106,7 +218,8 @@ exports.createTopic = async (req, res) => {
   try {
     const { name, description, courseId, wikidataId, sourceUrl } = req.body;
     let content = "";
-    // articleUrl is used as the learner-facing source pointer when a real source exists.
+    // articleUrl is used only for external source links.
+    // Uploaded PDFs are parsed and stored as cleaned text only.
     let resolvedArticleUrl = sourceUrl || null;
 
     if (sourceUrl) {
@@ -116,7 +229,7 @@ exports.createTopic = async (req, res) => {
     else if (req.file) {
       console.log("Parsing PDF:", req.file.originalname);
       content = await parsePdf(req.file.buffer);
-      resolvedArticleUrl = await storeUploadedPdf(req.file);
+      resolvedArticleUrl = null;
     }
     else if (wikidataId) {
       console.log("Fetching WikiText for:", wikidataId);
@@ -182,7 +295,7 @@ exports.updateTopic = async (req, res) => {
       nextArticleUrl = sourceUrl;
     } else if (req.file) {
       newContent = await parsePdf(req.file.buffer);
-      nextArticleUrl = await storeUploadedPdf(req.file);
+      nextArticleUrl = null;
     }
 
     // Keep existing extracted material and append new source text as supplementary content.
@@ -246,10 +359,13 @@ exports.getTopicContent = async (req, res) => {
 
     if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-    // Do not infer Wikipedia pages from a plain node name.
-    // A topic should resolve article content only from an explicit Wikidata selection.
+    // For PDF/source-based nodes we return stored cleaned content directly.
     if (!topic.wikidataId) {
-      return res.status(200).json({ content: `<p>No Wikidata article is attached to this topic.</p>` });
+      if (topic.content && topic.content.trim()) {
+        return res.status(200).json({ content: formatPlainPdfTextAsHtml(topic.content) });
+      }
+
+      return res.status(200).json({ content: `<p>No source content is attached to this topic.</p>` });
     }
 
     let titleForLang = null;
