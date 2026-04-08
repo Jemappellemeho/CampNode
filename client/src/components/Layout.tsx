@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { useTheme } from "../ThemeContext";
 import logoFull from "../assets/logo_full.png";
 import logoSmall from "../assets/logo_small.png";
-import { User, BookOpen, LogOut, ChevronDown } from "lucide-react";
+import { User, BookOpen, LogOut, ChevronDown, Globe } from "lucide-react";
 
 const CN = {
   blue: "#1E6FFF",
@@ -129,6 +129,9 @@ export default function Layout({ children }: { children?: any }) {
                     </button>
                     <button onClick={() => navigate("/dashboard")} className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left" style={{ color: "var(--cn-text)" }}>
                       <BookOpen size={15} style={{ color: CN.blue }} /> My Courses
+                    </button>
+                    <button onClick={() => navigate("/courses/public")} className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left" style={{ color: "var(--cn-text)" }}>
+                      <Globe size={15} style={{ color: CN.blue }} /> Public Courses
                     </button>
                     <button onClick={toggleTheme} className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left" style={{ color: "var(--cn-text)" }}>
                       {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}

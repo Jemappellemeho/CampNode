@@ -38,6 +38,7 @@ export default function CreateCourseModal({
   const [loading, setLoading] = useState(false);
   const [manualTopic, setManualTopic] = useState({ name: '', description: '', sourceUrl: '' });
   const [manualFile, setManualFile] = useState<File | null>(null);
+  const wikidataLanguage = 'en';
 
   if (!isOpen) return null;
 
@@ -133,16 +134,18 @@ export default function CreateCourseModal({
         const topic = topics[index];
 
         if (topic.mode === 'wikidata') {
+          // Wikidata topics use English content by default in this modal flow.
           await axios.post(
             `${API}/courses/${newCourseId}/topics`,
-            {
-              name: topic.label,
-              description: topic.description || '',
-              wikidataId: topic.wikidataId,
-              order: index,
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+              {
+                name: topic.label,
+                description: topic.description || '',
+                wikidataId: topic.wikidataId,
+                order: index,
+                language: wikidataLanguage,
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
           continue;
         }
 
@@ -351,6 +354,7 @@ export default function CreateCourseModal({
                           <X size={16} />
                         </button>
                       </div>
+
                     </div>
                   ))}
                 </div>
