@@ -4,14 +4,18 @@ const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
 
-async function fetchWikiText(wikidataId) {
+async function fetchWikiText(wikidataId, preferredLang = "en") {
   try {
     const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`;
     const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
     const entity = entityRes.data.entities[wikidataId];
-    const wikiTitle = entity.sitelinks?.["enwiki"]?.title || entity.sitelinks?.["dewiki"]?.title;
+    // Prefer the teacher-selected wiki language first, then fall back to the other supported language.
+    const normalizedLang = preferredLang === "de" ? "de" : "en";
+    const preferredWikiKey = `${normalizedLang}wiki`;
+    const fallbackWikiKey = normalizedLang === "en" ? "dewiki" : "enwiki";
+    const wikiTitle = entity.sitelinks?.[preferredWikiKey]?.title || entity.sitelinks?.[fallbackWikiKey]?.title;
     if (!wikiTitle) return null;
-    const lang = entity.sitelinks?.["enwiki"] ? "en" : "de";
+    const lang = entity.sitelinks?.[preferredWikiKey] ? normalizedLang : normalizedLang === "en" ? "de" : "en";
     const wikiUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(wikiTitle)}&format=json&origin=*`;
     const wikiRes = await axios.get(wikiUrl, { headers: { "User-Agent": "CampNode/1.0" } });
     const pages = wikiRes.data.query.pages;
@@ -75,6 +79,48 @@ exports.getAllCourses = async (req, res) => {
   }
 };
 
+// Fetch public courses for the discovery page.
+exports.getPublicCourses = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const courses = await prisma.course.findMany({
+      where: { isPublic: true },
+      orderBy: { createdAt: "desc" },
+      include: {
+        instructor: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+        students: {
+          where: { id: userId },
+          select: { id: true },
+        },
+        _count: {
+          select: {
+            students: true,
+            topics: true,
+          }
+        }
+      }
+    });
+
+    const formattedCourses = courses.map((course) => ({
+      ...course,
+      joined: course.students.length > 0,
+      students: undefined,
+    }));
+
+    res.status(200).json(formattedCourses);
+  } catch (error) {
+    console.error("Error fetching public courses:", error);
+    res.status(500).json({ error: "Error fetching public courses" });
+  }
+};
+
 // Join a course as a student
 exports.joinCourse = async (req, res) => {
   try {
@@ -113,6 +159,76 @@ exports.joinCourse = async (req, res) => {
   } catch (error) {
     console.error("Error joining course:", error);
     res.status(500).json({ error: "An error occurred while joining." });
+  }
+};
+
+// Join a public course without using a code from the discovery page.
+exports.joinPublicCourse = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: { students: { select: { id: true } } }
+    });
+
+    if (!course || !course.isPublic) {
+      return res.status(404).json({ error: "Public course not found." });
+    }
+
+    if (course.students.some((student) => student.id === userId)) {
+      return res.status(400).json({ error: "You are already enrolled in this course." });
+    }
+
+    await prisma.course.update({
+      where: { id },
+      data: {
+        students: {
+          connect: { id: userId }
+        }
+      }
+    });
+
+    res.status(200).json({ message: "Successfully joined public course.", courseId: id });
+  } catch (error) {
+    console.error("Error joining public course:", error);
+    res.status(500).json({ error: "An error occurred while joining the public course." });
+  }
+};
+
+// Leave a public course so it can be joined again later from the discovery page.
+exports.leavePublicCourse = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: { students: { select: { id: true } } }
+    });
+
+    if (!course || !course.isPublic) {
+      return res.status(404).json({ error: "Public course not found." });
+    }
+
+    if (!course.students.some((student) => student.id === userId)) {
+      return res.status(400).json({ error: "You are not enrolled in this public course." });
+    }
+
+    await prisma.course.update({
+      where: { id },
+      data: {
+        students: {
+          disconnect: { id: userId }
+        }
+      }
+    });
+
+    res.status(200).json({ message: "Successfully left public course.", courseId: id });
+  } catch (error) {
+    console.error("Error leaving public course:", error);
+    res.status(500).json({ error: "An error occurred while leaving the public course." });
   }
 };
 
@@ -284,7 +400,7 @@ exports.getMyCourses = async (req, res) => {
 // Add a topic or subtopic to a course
 exports.addTopic = async (req, res) => {
   try {
-    const { name, description, parentTopicId, order, aiSuggested, wikidataId, sourceUrl, articleUrl, videoUrl, podcastUrl } = req.body;
+    const { name, description, parentTopicId, order, aiSuggested, wikidataId, sourceUrl, articleUrl, videoUrl, podcastUrl, language } = req.body;
     // Multipart form fields may arrive as strings, so Prisma order must be normalized.
     const normalizedOrder = Number.isFinite(Number(order)) ? Number(order) : 0;
     
@@ -303,7 +419,8 @@ exports.addTopic = async (req, res) => {
       resolvedArticleUrl = null;
     } else if (wikidataId) {
       console.log("Fetching WikiText on create for:", wikidataId);
-      const wikiText = await fetchWikiText(wikidataId);
+      // This keeps the stored source text aligned with the language chosen in the course modal.
+      const wikiText = await fetchWikiText(wikidataId, language);
       if (wikiText) content = wikiText;
     }
 

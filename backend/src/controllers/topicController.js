@@ -216,7 +216,7 @@ exports.getQuizByTopic = async (req, res) => {
  */
 exports.createTopic = async (req, res) => {
   try {
-    const { name, description, courseId, wikidataId, sourceUrl } = req.body;
+    const { name, description, courseId, wikidataId, sourceUrl, language } = req.body;
     let content = "";
     // articleUrl is used only for external source links.
     // Uploaded PDFs are parsed and stored as cleaned text only.
@@ -233,7 +233,8 @@ exports.createTopic = async (req, res) => {
     }
     else if (wikidataId) {
       console.log("Fetching WikiText for:", wikidataId);
-      const wikiText = await fetchWikiText(wikidataId);
+      // The optional language keeps standalone topic creation consistent with the course modal flow.
+      const wikiText = await fetchWikiText(wikidataId, language);
       if (wikiText) content = wikiText;
     }
 
@@ -437,14 +438,18 @@ exports.getTopicContent = async (req, res) => {
 /**
  * Internal helper to fetch plain text from Wikipedia for AI analysis
  */
-async function fetchWikiText(wikidataId) {
+async function fetchWikiText(wikidataId, preferredLang = "en") {
   try {
     const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`;
     const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "CampNode/1.0" } });
     const entity = entityRes.data.entities[wikidataId];
-    const wikiTitle = entity.sitelinks?.["enwiki"]?.title || entity.sitelinks?.["dewiki"]?.title;
+    // Prefer the requested language first, then fall back to the other supported wiki.
+    const normalizedLang = preferredLang === "de" ? "de" : "en";
+    const preferredWikiKey = `${normalizedLang}wiki`;
+    const fallbackWikiKey = normalizedLang === "en" ? "dewiki" : "enwiki";
+    const wikiTitle = entity.sitelinks?.[preferredWikiKey]?.title || entity.sitelinks?.[fallbackWikiKey]?.title;
     if (!wikiTitle) return null;
-    const lang = entity.sitelinks?.["enwiki"] ? "en" : "de";
+    const lang = entity.sitelinks?.[preferredWikiKey] ? normalizedLang : normalizedLang === "en" ? "de" : "en";
     const wikiUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(wikiTitle)}&format=json&origin=*`;
     const wikiRes = await axios.get(wikiUrl, { headers: { "User-Agent": "CampNode/1.0" } });
     const pages = wikiRes.data.query.pages;
