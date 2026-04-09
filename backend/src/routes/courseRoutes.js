@@ -18,9 +18,21 @@ router.get("/me", verifyToken, courseController.getMyCourses);
 // Get a list of all courses
 router.get("/", verifyToken, courseController.getAllCourses);
 
+// Route: GET /api/courses/public
+// Get public courses for the discovery page
+router.get("/public", verifyToken, courseController.getPublicCourses);
+
 // Route: POST /api/courses/join
 // Join a course using a unique join code
 router.post("/join", verifyToken, courseController.joinCourse);
+
+// Route: POST /api/courses/:id/join-public
+// Join a public course directly from the discovery page
+router.post("/:id/join-public", verifyToken, courseController.joinPublicCourse);
+
+// Route: POST /api/courses/:id/leave-public
+// Leave a public course from the dashboard
+router.post("/:id/leave-public", verifyToken, courseController.leavePublicCourse);
 
 // Route: GET /api/courses/:id
 // Get full details of a single course

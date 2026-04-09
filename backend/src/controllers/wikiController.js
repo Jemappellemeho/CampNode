@@ -1,5 +1,64 @@
 const axios = require("axios");
 
+async function fetchWikidataEntity(id) {
+  const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
+  const entityRes = await axios.get(entityUrl, {
+    headers: { "User-Agent": "WissenGraph/1.0" },
+    timeout: 8000,
+  });
+  return entityRes.data.entities[id];
+}
+
+function getWikiTitle(entity, lang) {
+  return entity?.sitelinks?.[`${lang}wiki`]?.title || null;
+}
+
+function normalizeWikiLabel(title) {
+  return String(title || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchWikipediaLinkSuggestions(wikiTitle, lang) {
+  const wikiUrl =
+    `https://${lang}.wikipedia.org/w/api.php` +
+    `?action=query` +
+    `&format=json` +
+    `&prop=links` +
+    `&titles=${encodeURIComponent(wikiTitle)}` +
+    `&plnamespace=0` +
+    `&pllimit=max` +
+    `&origin=*`;
+
+  const wikiRes = await axios.get(wikiUrl, {
+    headers: { "User-Agent": "WissenGraph/1.0" },
+    timeout: 8000,
+  });
+
+  const pages = wikiRes.data?.query?.pages || {};
+  const pageId = Object.keys(pages)[0];
+  const links = pages[pageId]?.links || [];
+  const seen = new Set();
+
+  return links
+    .map((link) => normalizeWikiLabel(link.title))
+    .filter((label) => {
+      if (!label || label.toLowerCase() === normalizeWikiLabel(wikiTitle).toLowerCase()) return false;
+      if (label.length < 3 || label.length > 80) return false;
+      if (seen.has(label.toLowerCase())) return false;
+      seen.add(label.toLowerCase());
+      return true;
+    })
+    .slice(0, 10)
+    .map((label) => ({
+      label,
+      uri: `wikipedia:${lang}:${label.replace(/\s+/g, "_")}`,
+      dbPediaName: label.replace(/\s+/g, "_"),
+    }));
+}
+
 // Search Wikidata entities by keyword
 // Returns a short list of matches with id, label, and description
 exports.search = async (req, res) => {
@@ -35,11 +94,8 @@ exports.article = async (req, res) => {
 
     // Step 1: Resolve the Wikipedia page title from Wikidata
     // Wikidata stores sitelinks like { "enwiki": { title: "HTTP" }, "dewiki": { title: "HTTP" } }
-    const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
-    const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
-    
-    const entity = entityRes.data.entities[id];
-    const wikiTitle = entity.sitelinks?.[`${lang}wiki`]?.title;
+    const entity = await fetchWikidataEntity(id);
+    const wikiTitle = getWikiTitle(entity, lang);
 
     if (!wikiTitle) {
       return res.json({ content: "No Wikipedia page found." });
@@ -111,37 +167,44 @@ exports.suggestions = async (req, res) => {
     const id = req.params.id;
     const lang = req.query.lang || 'en';
 
-    // 1. Get the Wikipedia title from Wikidata (needed for the DBpedia resource path)
-    const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
-    const entityRes = await axios.get(entityUrl, { headers: { "User-Agent": "WissenGraph/1.0" } });
-    const entity = entityRes.data.entities[id];
-    const wikiTitle = entity.sitelinks?.[`${lang}wiki`]?.title;
+    // Resolve the source article title once so we can try multiple suggestion strategies.
+    const entity = await fetchWikidataEntity(id);
+    const wikiTitle = getWikiTitle(entity, lang);
 
     if (!wikiTitle) return res.json([]);
 
-    // 2. DBpedia SPARQL Query
-    // We search for resources that share the same categories (dct:subject)
-    const dbpediaResource = `http://dbpedia.org/resource/${wikiTitle.replace(/ /g, '_')}`;
-    const sparqlQuery = `
-      SELECT DISTINCT ?concept ?label WHERE {
-        <${dbpediaResource}> <http://purl.org/dc/terms/subject> ?category .
-        ?concept <http://purl.org/dc/terms/subject> ?category .
-        ?concept <http://www.w3.org/2000/01/rdf-schema#label> ?label .
-        FILTER (lang(?label) = '${lang}')
-        FILTER (?concept != <${dbpediaResource}>)
-      } LIMIT 10
-    `;
+    try {
+      // Primary source: DBpedia category overlap.
+      const dbpediaResource = `http://dbpedia.org/resource/${wikiTitle.replace(/ /g, '_')}`;
+      const sparqlQuery = `
+        SELECT DISTINCT ?concept ?label WHERE {
+          <${dbpediaResource}> <http://purl.org/dc/terms/subject> ?category .
+          ?concept <http://purl.org/dc/terms/subject> ?category .
+          ?concept <http://www.w3.org/2000/01/rdf-schema#label> ?label .
+          FILTER (lang(?label) = '${lang}')
+          FILTER (?concept != <${dbpediaResource}>)
+        } LIMIT 10
+      `;
 
-    const sparqlUrl = `https://dbpedia.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=application%2Fsparql-results%2Bjson`;
-    const sparqlRes = await axios.get(sparqlUrl);
+      const sparqlUrl = `https://dbpedia.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=application%2Fsparql-results%2Bjson`;
+      const sparqlRes = await axios.get(sparqlUrl, { timeout: 7000 });
 
-    const suggestions = sparqlRes.data.results.bindings.map(b => ({
-      label: b.label.value,
-      uri: b.concept.value,
-      dbPediaName: b.concept.value.split('/').pop()
-    }));
+      const suggestions = (sparqlRes.data?.results?.bindings || []).map((b) => ({
+        label: b.label.value,
+        uri: b.concept.value,
+        dbPediaName: b.concept.value.split('/').pop()
+      }));
 
-    res.json(suggestions);
+      if (suggestions.length > 0) {
+        return res.json(suggestions);
+      }
+    } catch (dbpediaError) {
+      console.warn("DBPEDIA FALLBACK:", dbpediaError.message);
+    }
+
+    // Fallback source: relevant links from the article itself.
+    const fallbackSuggestions = await fetchWikipediaLinkSuggestions(wikiTitle, lang);
+    return res.json(fallbackSuggestions);
   } catch (err) {
     console.error("DBPEDIA ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: "Failed to fetch DBpedia suggestions" });

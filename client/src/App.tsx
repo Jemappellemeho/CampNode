@@ -9,6 +9,7 @@ import Profile from "./pages/Profile";
 import CourseManager from "./pages/CourseManager";
 import Playground from "./pages/Playground";
 import Quiz from "./pages/Quiz"; 
+import PublicCourses from "./pages/PublicCourses";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           {/* Authenticated Layout Wrapper */}
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/courses/public" element={<PublicCourses />} />
             <Route path="/profile" element={<Profile />} />
             
             {/* Playground Routing:

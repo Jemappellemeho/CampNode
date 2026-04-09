@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
-import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Sparkles } from "lucide-react";
+import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Globe, LogOut } from "lucide-react";
 
 // JoinCodeBadge remains identical to your original
 function JoinCodeBadge({ code }: { code: string }) {
@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [courses, setCourses] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
+  const [leavingCourseId, setLeavingCourseId] = useState<string | null>(null);
 
   // 2. BULLETPROOF NAME LOGIC
   // If user.name is missing (common for students), use email prefix. 
@@ -80,6 +81,23 @@ export default function Dashboard() {
     } catch (err) { alert("Invalid join code or already enrolled."); }
   };
 
+  const handleLeavePublicCourse = async (courseId: string) => {
+    const token = localStorage.getItem('token');
+    setLeavingCourseId(courseId);
+    try {
+      await axios.post(
+        `http://localhost:3000/api/courses/${courseId}/leave-public`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      fetchCourses();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Could not leave this public course.');
+    } finally {
+      setLeavingCourseId(null);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -94,12 +112,20 @@ export default function Dashboard() {
               {user.role === 'PROFESSOR' ? 'Manage your teaching environment' : 'Continue your learning journey'}
             </p>
           </div>
-          
-          {user.role === 'PROFESSOR' && (
-            <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
-              <Plus size={20} /> Create Course
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/courses/public')}
+              className="rounded-xl border border-blue-100 bg-white px-5 py-2 text-sm font-bold text-blue-600 transition-all hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800 dark:text-blue-300 dark:hover:bg-gray-700"
+            >
+              <span className="inline-flex items-center gap-2"><Globe size={18} /> Public Courses</span>
             </button>
-          )}
+            {user.role === 'PROFESSOR' && (
+              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+                <Plus size={20} /> Create Course
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Student Enrollment UI */}
@@ -146,11 +172,20 @@ export default function Dashboard() {
             {courses.map(course => (
               <div key={course.id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-4 group hover:shadow-md transition-all">
                 <div className="flex justify-between items-start">
-                  <h3 className="font-bold text-xl dark:text-white">{course.title}</h3>
+                  <div className="pr-3">
+                    <h3 className="font-bold text-xl dark:text-white">{course.title}</h3>
+                    {course.isPublic && (
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                        <Globe size={12} /> Public
+                      </span>
+                    )}
+                  </div>
                   {user.role === 'PROFESSOR' && <JoinCodeBadge code={course.joinCode} />}
                 </div>
-                
-                <p className="text-gray-500 text-sm line-clamp-2">{course.description}</p>
+
+                <p className="text-gray-500 text-sm line-clamp-2">
+                  {course.description || 'No description yet.'}
+                </p>
                 
                 {user.role === 'PROFESSOR' && (
                   <div className="flex gap-4 text-sm text-gray-400">
@@ -165,16 +200,28 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                <button
-                  onClick={() =>
-                    user.role === 'PROFESSOR'
-                      ? navigate(`/prof/course/${course.id}`)
-                      : navigate(`/playground/${course.id}`)
-                  }
-                  className="mt-auto w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
-                >
-                  {user.role === 'PROFESSOR' ? 'Manage' : 'Open Course'} <ChevronRight size={16}/>
-                </button>
+                <div className="mt-auto flex gap-3">
+                  <button
+                    onClick={() =>
+                      user.role === 'PROFESSOR'
+                        ? navigate(`/prof/course/${course.id}`)
+                        : navigate(`/playground/${course.id}`)
+                    }
+                    className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
+                  >
+                    {user.role === 'PROFESSOR' ? 'Manage Course' : 'Open Course'} <ChevronRight size={16}/>
+                  </button>
+                  {user.role === 'STUDENT' && course.isPublic && (
+                    <button
+                      onClick={() => handleLeavePublicCourse(course.id)}
+                      disabled={leavingCourseId === course.id}
+                      className="rounded-xl border border-rose-200 px-3 py-2 text-rose-600 transition-all hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-950/20"
+                      title="Leave public course"
+                    >
+                      <LogOut size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
