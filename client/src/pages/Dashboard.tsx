@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
-import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Globe, LogOut } from "lucide-react";
+import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Globe, LogOut, Lock } from "lucide-react";
 
 // JoinCodeBadge remains identical to your original
 function JoinCodeBadge({ code }: { code: string }) {
@@ -13,8 +13,20 @@ function JoinCodeBadge({ code }: { code: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button onClick={handleCopy} className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono transition-colors hover:bg-gray-200">
-      {code} {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+    <button 
+      onClick={handleCopy} 
+      className="flex items-center justify-center min-w-[110px] gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono transition-colors hover:bg-gray-200"
+    >
+      {copied ? (
+        <span className="text-green-600 dark:text-green-400 font-bold text-xs flex items-center gap-1">
+          <Check size={14} /> Copied!
+        </span>
+      ) : (
+        <>
+          <span className="dark:text-gray-200">{code}</span> 
+          <Copy size={14} className="text-gray-400" />
+        </>
+      )}
     </button>
   );
 }
@@ -174,9 +186,13 @@ export default function Dashboard() {
                 <div className="flex justify-between items-start">
                   <div className="pr-3">
                     <h3 className="font-bold text-xl dark:text-white">{course.title}</h3>
-                    {course.isPublic && (
-                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                    {course.isPublic ? (
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-green-600 dark:bg-green-900/30 dark:text-green-300">
                         <Globe size={12} /> Public
+                      </span>
+                    ) : (
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                        <Lock size={12} /> Private
                       </span>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { X, Search, BookOpen, Plus, FileText, Globe } from 'lucide-react';
+import { X, Search, BookOpen, Plus, FileText, Globe, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const API = 'http://localhost:3000/api';
@@ -210,9 +210,9 @@ export default function CreateCourseModal({
                   <button
                     type="button"
                     onClick={() => setCourse((prev) => ({ ...prev, isPublic: false }))}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition-all ${!course.isPublic ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-700' : 'text-gray-500'}`}
+                    className={`rounded-xl px-4 py-3 text-sm font-bold transition-all flex items-center justify-center gap-2 ${!course.isPublic ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-700' : 'text-gray-500'}`}
                   >
-                    Private
+                    <Lock size={16} /> Private
                   </button>
                 </div>
               </div>
