@@ -138,6 +138,32 @@ export default function Quiz() {
     return false;
   };
 
+  const getCorrectAnswerText = () => {
+    if (!q) return null;
+    if (q.type === "multiple_choice") return <>{q.options[q.correctIndex]}</>;
+    if (q.type === "true_false") return <>{q.correctAnswer ? "True" : "False"}</>;
+    if (q.type === "open_answer") return <>{Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers.join(' / ') : ""}</>;
+    if (q.type === "multiple_select") {
+      const correct = Array.isArray(q.correctIndices) ? q.correctIndices : [];
+      return <>{correct.map((idx: number) => q.options[idx]).join(', ')}</>;
+    }
+    if (q.type === "reorder") {
+      const sourceItems = Array.isArray(q.items) ? q.items : [];
+      const order = Array.isArray(q.correctOrder) ? q.correctOrder : sourceItems.map((_: unknown, idx: number) => idx);
+      return (
+        <div className="flex flex-col gap-1.5 mt-1">
+          {order.map((idx: number, step: number) => (
+            <div key={idx} className="flex gap-2">
+              <span className="opacity-50 font-black">{step + 1}.</span>
+              <span>{sourceItems[idx]}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
   const handleNext = () => {
     if (isCorrect()) setScore(s => s + 1);
     
@@ -272,6 +298,12 @@ export default function Quiz() {
                   <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
                     {isCorrect() ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
                   </div>
+                  {!isCorrect() && (
+                    <div className="mb-2.5 p-2.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10">
+                      <p className="text-[10px] font-black text-red-500/80 dark:text-red-400/80 uppercase tracking-widest mb-1.5">The Correct Answer</p>
+                      <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100">{getCorrectAnswerText()}</p>
+                    </div>
+                  )}
                   <p className="text-[11px] font-medium leading-relaxed text-slate-800 dark:text-slate-100 italic">{q.explanation}</p>
                 </div>
               )}

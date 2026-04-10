@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Plus, Trash2, ChevronLeft, GripVertical,
-  BookOpen, X, Users, Globe, Copy, 
+  BookOpen, X, Users, Globe, Copy, Check,
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search
 } from 'lucide-react';
 
@@ -96,6 +96,7 @@ export default function CourseManager() {
   const [quizEditorOpen, setQuizEditorOpen] = useState(false);
   const [quizEditorBusy, setQuizEditorBusy] = useState(false);
   const [quizEditorSaving, setQuizEditorSaving] = useState(false);
+  const [joinCodeCopied, setJoinCodeCopied] = useState(false);
   
   const token = localStorage.getItem('token');
 
@@ -710,9 +711,9 @@ export default function CourseManager() {
               <h1 className="text-3xl font-black text-gray-900 dark:text-white leading-tight">{course.title}</h1>
               <button 
                 onClick={toggleVisibility}
-                className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${course.isPublic ? 'bg-green-50 text-green-600 border-green-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}
+                className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-1.5 ${course.isPublic ? 'bg-green-50 text-green-600 border-green-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}
               >
-                {course.isPublic ? 'Public' : 'Private'}
+                {course.isPublic ? <><Globe size={10} /> Public</> : <><Lock size={10} /> Private</>}
               </button>
             </div>
             <p className="text-gray-500 text-sm font-medium">{course.description || "Course Management"}</p>
@@ -747,7 +748,20 @@ export default function CourseManager() {
                 <h3 className="text-[10px] font-black text-gray-900 dark:text-white mb-6 uppercase tracking-widest">Access Configuration</h3>
                 <div className="bg-gray-50 dark:bg-gray-900/50 p-4 sm:p-5 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Student Join Code</p><p className="text-xl font-mono font-bold text-blue-600 uppercase tracking-widest">{course.joinCode}</p></div>
-                  <button onClick={() => navigator.clipboard.writeText(course.joinCode)} className="p-2.5 bg-white rounded-xl border border-gray-100 hover:bg-gray-50 flex items-center gap-2 text-xs font-bold text-gray-500 w-full justify-center sm:w-auto"><Copy size={18} /> <span className="sm:hidden">COPY</span></button>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(course.joinCode);
+                      setJoinCodeCopied(true);
+                      setTimeout(() => setJoinCodeCopied(false), 2000);
+                    }} 
+                    className="p-2.5 bg-white rounded-xl border border-gray-100 hover:bg-gray-50 flex items-center gap-2 text-xs font-bold text-gray-500 w-full justify-center sm:w-auto min-w-[100px]"
+                  >
+                    {joinCodeCopied ? (
+                      <><Check size={18} className="text-green-500" /> <span className="text-green-600">COPIED!</span></>
+                    ) : (
+                      <><Copy size={18} /> <span className="sm:hidden">COPY</span></>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>

@@ -280,6 +280,15 @@ export default function Playground() {
     return false;
   };
 
+  const hasOpenableResourcesForTopic = (topicId: string) => {
+    for (const node of pathData) {
+      if (node.id === topicId) return node.resources.some((r) => r.type !== 'quiz');
+      const matchedSub = node.subnodes.find((sub) => sub.id === topicId);
+      if (matchedSub) return matchedSub.resources.some((r) => r.type !== 'quiz');
+    }
+    return false;
+  };
+
   // A topic is "complete" when its resources have been opened and its quiz (if any) has been completed.
   const isResourceOpened = (topicId: string) => resourceOpenedIds.includes(topicId) || completedIds.includes(topicId);
   const isQuizFinished = (topicId: string) => quizCompletedIds.includes(topicId) || completedIds.includes(topicId);
@@ -287,14 +296,24 @@ export default function Playground() {
   // For parent nodes, all subnodes must be complete to unlock the parent as "complete".
   const isCoreComplete = (topicId: string) => {
     const requiresQuiz = hasQuizForTopic(topicId);
-    return isResourceOpened(topicId) && (!requiresQuiz || isQuizFinished(topicId));
+    const requiresResource = hasOpenableResourcesForTopic(topicId);
+    
+    if (!requiresQuiz && !requiresResource) return true;
+    
+    const resourceDone = !requiresResource || isResourceOpened(topicId);
+    const quizDone = !requiresQuiz || isQuizFinished(topicId);
+    
+    return resourceDone && quizDone;
   };
 
   // Progress can move partially: resource step and quiz step (if required).
   const getCoreProgress = (topicId: string) => {
     const requiresQuiz = hasQuizForTopic(topicId);
-    const completed = (isResourceOpened(topicId) ? 1 : 0) + (requiresQuiz && isQuizFinished(topicId) ? 1 : 0);
-    const total = 1 + (requiresQuiz ? 1 : 0);
+    const requiresResource = hasOpenableResourcesForTopic(topicId);
+    
+    const completed = (requiresResource && isResourceOpened(topicId) ? 1 : 0) + (requiresQuiz && isQuizFinished(topicId) ? 1 : 0);
+    const total = (requiresResource ? 1 : 0) + (requiresQuiz ? 1 : 0);
+    
     return { completed, total };
   };
 
@@ -308,11 +327,13 @@ export default function Playground() {
   };
 
   const syncTopicCompletion = async (topicId: string, nextResourceOpenedIds: string[], nextQuizCompletedIds: string[]) => {
-    const hasResource = nextResourceOpenedIds.includes(topicId);
+    const requiresResource = hasOpenableResourcesForTopic(topicId);
     const requiresQuiz = hasQuizForTopic(topicId);
-    const hasQuiz = nextQuizCompletedIds.includes(topicId);
+    
+    const hasResource = !requiresResource || nextResourceOpenedIds.includes(topicId);
+    const hasQuiz = !requiresQuiz || nextQuizCompletedIds.includes(topicId);
 
-    if (hasResource && (!requiresQuiz || hasQuiz) && !completedIds.includes(topicId)) {
+    if (hasResource && hasQuiz && !completedIds.includes(topicId)) {
       await saveTopicCompletion(topicId);
     }
   };
