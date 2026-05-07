@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
@@ -31,6 +31,47 @@ function JoinCodeBadge({ code }: { code: string }) {
   );
 }
 
+function GuidePopup({
+  targetRef,
+  text,
+  step
+}: {
+  targetRef: React.RefObject<HTMLButtonElement | null>;
+  text: string;
+  step: number;
+}) {
+  const [style, setStyle] = useState<any>({});
+
+  useEffect(() => {
+    if (targetRef.current) {
+      const rect = targetRef.current.getBoundingClientRect();
+      setStyle({
+        position: "fixed",
+        top: rect.top - 110,
+        left: rect.left,
+        zIndex: 9999
+      });
+    }
+  }, [targetRef]);
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-[9998]" />
+
+      <div
+        style={style}
+        className="relative bg-white dark:bg-gray-800 p-5 rounded-xl shadow-xl z-[9999] w-72 border border-blue-200"
+      >
+        <div className="absolute -top-4 -left-4 bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold">
+          {step}
+        </div>
+
+        <p className="text-sm dark:text-white">{text}</p>
+      </div>
+    </>
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   
@@ -49,7 +90,10 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [leavingCourseId, setLeavingCourseId] = useState<string | null>(null);
-
+  const [showGuide, setShowGuide] = useState(false);
+  const createBtnRef = useRef<HTMLButtonElement | null>(null);
+  const manageBtnRef = useRef<HTMLButtonElement | null>(null);
+  
   // 2. BULLETPROOF NAME LOGIC
   // If user.name is missing (common for students), use email prefix. 
   // If email is missing, use "Student" or "Professor" based on role.
@@ -64,6 +108,18 @@ export default function Dashboard() {
       fetchCourses();
     }
   }, [user, navigate]);
+
+  useEffect(() => {
+    const seen = localStorage.getItem("dashboardGuide");
+    if (!seen && user?.role === "PROFESSOR") {
+      setShowGuide(true);
+    }
+  }, [user]);
+
+  const closeGuide = () => {
+    localStorage.setItem("dashboardGuide", "true");
+    setShowGuide(false);
+  };
 
   const fetchCourses = async () => {
     const token = localStorage.getItem('token');
@@ -127,13 +183,21 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate('/courses/public')}
+              onClick={() => {
+                closeGuide();
+                navigate('/courses/public');
+              }}
               className="rounded-xl border border-blue-100 bg-white px-5 py-2 text-sm font-bold text-blue-600 transition-all hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800 dark:text-blue-300 dark:hover:bg-gray-700"
             >
               <span className="inline-flex items-center gap-2"><Globe size={18} /> Public Courses</span>
             </button>
             {user.role === 'PROFESSOR' && (
-              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+              <button
+              ref={createBtnRef}
+              onClick={() => {
+                closeGuide();
+                setIsModalOpen(true);
+              }} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
                 <Plus size={20} /> Create Course
               </button>
             )}
@@ -174,14 +238,19 @@ export default function Dashboard() {
                 : "You haven't joined any courses yet. Use a join code to get started."}
             </p>
             {user.role === 'PROFESSOR' && (
-              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+              <button
+              ref={createBtnRef}
+              onClick={() => {
+                closeGuide();
+                setIsModalOpen(true);
+              }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
                   <Plus size={18} /> Create Course
               </button>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map(course => (
+            {courses.map((course, index) => (
               <div key={course.id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-4 group hover:shadow-md transition-all">
                 <div className="flex justify-between items-start">
                   <div className="pr-3">
@@ -217,14 +286,16 @@ export default function Dashboard() {
                 )}
 
                 <div className="mt-auto flex gap-3">
-                  <button
-                    onClick={() =>
-                      user.role === 'PROFESSOR'
-                        ? navigate(`/prof/course/${course.id}`)
-                        : navigate(`/playground/${course.id}`)
-                    }
+                <button
+                  ref={index === 0 ? manageBtnRef : null}
+                  onClick={() => {
+                    closeGuide();
+                    user.role === 'PROFESSOR'
+                      ? navigate(`/prof/course/${course.id}`)
+                      : navigate(`/playground/${course.id}`);
+                    }}
                     className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
-                  >
+                >
                     {user.role === 'PROFESSOR' ? 'Manage Course' : 'Open Course'} <ChevronRight size={16}/>
                   </button>
                   {user.role === 'STUDENT' && course.isPublic && (
@@ -248,6 +319,13 @@ export default function Dashboard() {
           onClose={() => setIsModalOpen(false)} 
           onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
         />
+        {showGuide && createBtnRef.current && (
+  <GuidePopup step={1} targetRef={createBtnRef} text="Create your first course here." />
+)}
+
+{showGuide && manageBtnRef.current && (
+  <GuidePopup step={2} targetRef={manageBtnRef} text="Manage your course here." />
+)}
       </div>
     </>
   );
