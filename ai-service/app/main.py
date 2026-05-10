@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from .rag import answer_question
+from .ingest import ingest_course_material
+
 
 # Initialisiere unsere FastAPI Anwendung
 app = FastAPI(title="CampNode AI Service")
@@ -30,3 +32,15 @@ def ask_ai(request: AskRequest):
     return result
 
 
+class IngestRequest(BaseModel):
+    course_id: str
+    title: str
+    content: str
+
+@app.post("/ingest")
+def ingest_data(request: IngestRequest):
+    """
+    Dieser Endpunkt nimmt einen Kurs-Text entgegen und speichert ihn für die KI.
+    """
+    result = ingest_course_material(request.course_id, request.title, request.content)
+    return result

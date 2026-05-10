@@ -77,7 +77,7 @@ def answer_question(course_id: str, question: str):
     
     # 4. Wir schicken alles an OpenAI (gpt-4o-mini ist schnell und günstig)
     response = openai_client.chat.completions.create(
-        model="gemini-1.5-flash",
+        model="gemini-2.5-flash",
         messages=[
             {"role": "system", "content": "You are a helpful learning assistant."},
             {"role": "user", "content": prompt}
