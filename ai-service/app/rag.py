@@ -15,9 +15,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 def create_embedding(text: str):
     """
     Wandelt einen Text in einen Vektor (Zahlenreihe) um.
-    Wir nutzen das Modell 'text-embedding-3-small'.
-    """
-    # OpenAI arbeitet am besten, wenn wir Zeilenumbrüche entfernen
+    """ 
+    
+    # Gemini arbeitet am besten, wenn wir Zeilenumbrüche entfernen
     clean_text = text.replace("\n", " ")
     
     # API Aufruf an OpenAI
