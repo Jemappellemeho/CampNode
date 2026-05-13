@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
@@ -31,44 +31,43 @@ function JoinCodeBadge({ code }: { code: string }) {
   );
 }
 
-function GuidePopup({
-  targetRef,
-  text,
-  step
+function GuideModal({
+  role,
+  onClose
 }: {
-  targetRef: React.RefObject<HTMLButtonElement | null>;
-  text: string;
-  step: number;
+  role: "PROFESSOR" | "STUDENT";
+  onClose: () => void;
 }) {
-  const [style, setStyle] = useState<any>({});
-
-  useEffect(() => {
-    if (targetRef.current) {
-      const rect = targetRef.current.getBoundingClientRect();
-      setStyle({
-        position: "fixed",
-        top: rect.top - 110,
-        left: rect.left,
-        zIndex: 9999
-      });
-    }
-  }, [targetRef]);
-
   return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-[9998]" />
+    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
+      
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 text-center">
+        
+        <h2 className="text-2xl font-bold mb-4 dark:text-white">
+          Welcome to CampNode 🚀
+        </h2>
 
-      <div
-        style={style}
-        className="relative bg-white dark:bg-gray-800 p-5 rounded-xl shadow-xl z-[9999] w-72 border border-blue-200"
-      >
-        <div className="absolute -top-4 -left-4 bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold">
-          {step}
-        </div>
+        {role === "PROFESSOR" ? (
+          <div className="text-left space-y-3 text-sm dark:text-gray-200">
+            <p><strong>1.</strong> Click <b>"Create Course"</b> to get started.</p>
+            <p><strong>2.</strong> Click <b>"Manage Course"</b> to organize and edit your course.</p>
+          </div>
+        ) : (
+          <div className="text-left space-y-3 text-sm dark:text-gray-200">
+            <p><strong>1.</strong> Enter the course code to join a course.</p>
+            <p><strong>2.</strong> Click <b>"Open Course"</b> to start learning.</p>
+          </div>
+        )}
 
-        <p className="text-sm dark:text-white">{text}</p>
+        <button
+          onClick={onClose}
+          className="mt-6 w-full bg-blue-600 text-white py-2 rounded-xl font-bold hover:bg-blue-700 transition"
+        >
+          Start
+        </button>
+
       </div>
-    </>
+    </div>
   );
 }
 
@@ -91,8 +90,6 @@ export default function Dashboard() {
   const [joinCode, setJoinCode] = useState('');
   const [leavingCourseId, setLeavingCourseId] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
-  const createBtnRef = useRef<HTMLButtonElement | null>(null);
-  const manageBtnRef = useRef<HTMLButtonElement | null>(null);
   
   // 2. BULLETPROOF NAME LOGIC
   // If user.name is missing (common for students), use email prefix. 
@@ -110,14 +107,12 @@ export default function Dashboard() {
   }, [user, navigate]);
 
   useEffect(() => {
-    const seen = localStorage.getItem("dashboardGuide");
-    if (!seen && user?.role === "PROFESSOR") {
+    if (user) {
       setShowGuide(true);
     }
   }, [user]);
-
+  
   const closeGuide = () => {
-    localStorage.setItem("dashboardGuide", "true");
     setShowGuide(false);
   };
 
@@ -193,7 +188,6 @@ export default function Dashboard() {
             </button>
             {user.role === 'PROFESSOR' && (
               <button
-              ref={createBtnRef}
               onClick={() => {
                 closeGuide();
                 setIsModalOpen(true);
@@ -239,7 +233,6 @@ export default function Dashboard() {
             </p>
             {user.role === 'PROFESSOR' && (
               <button
-              ref={createBtnRef}
               onClick={() => {
                 closeGuide();
                 setIsModalOpen(true);
@@ -250,7 +243,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map((course, index) => (
+            {courses.map((course) => (
               <div key={course.id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-4 group hover:shadow-md transition-all">
                 <div className="flex justify-between items-start">
                   <div className="pr-3">
@@ -287,7 +280,6 @@ export default function Dashboard() {
 
                 <div className="mt-auto flex gap-3">
                 <button
-                  ref={index === 0 ? manageBtnRef : null}
                   onClick={() => {
                     closeGuide();
                     user.role === 'PROFESSOR'
@@ -313,18 +305,20 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+<CreateCourseModal 
 
-        <CreateCourseModal 
-          isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)} 
-          onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
-        />
-        {showGuide && createBtnRef.current && (
-  <GuidePopup step={1} targetRef={createBtnRef} text="Create your first course here." />
-)}
+isOpen={isModalOpen} 
 
-{showGuide && manageBtnRef.current && (
-  <GuidePopup step={2} targetRef={manageBtnRef} text="Manage your course here." />
+onClose={() => setIsModalOpen(false)} 
+
+onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
+
+/>
+{showGuide && (
+  <GuideModal
+    role={user.role}
+    onClose={closeGuide}
+  />
 )}
       </div>
     </>
