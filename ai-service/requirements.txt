@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+openai
+supabase
+python-dotenv
+pypdf
+requests
+mcp
+
