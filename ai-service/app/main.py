@@ -10,9 +10,9 @@ app = FastAPI(title="CampNode AI Service")
 
 # Ein simpler Test-Endpunkt. Wenn wir localhost:8001/ im Browser öffnen,
 # sehen wir diese Nachricht.
-#@app.get("/")
-#def read_root():
-#    return {"message": "CampNode AI Service runs!"}
+@app.get("/")
+def read_root():
+    return {"message": "CampNode AI Service runs!"}
 
 
 # Wir definieren strikt, welche Daten wir vom Node.js Backend erwarten
