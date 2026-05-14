@@ -107,12 +107,15 @@ export default function Dashboard() {
   }, [user, navigate]);
 
   useEffect(() => {
-    if (user) {
+    const seen = sessionStorage.getItem("guideShown");
+  
+    if (!seen && user) {
       setShowGuide(true);
     }
   }, [user]);
   
   const closeGuide = () => {
+    sessionStorage.setItem("guideShown", "true");
     setShowGuide(false);
   };
 
