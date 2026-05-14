@@ -4,7 +4,7 @@ import axios from 'axios';
 import {
   Plus, Trash2, ChevronLeft, GripVertical,
   BookOpen, X, Users, Globe, Copy, Check,
-  ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search
+  ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search, Loader2
 } from 'lucide-react';
 
 const API = 'http://localhost:3000/api';
@@ -55,6 +55,83 @@ function WikidataSearchField({
   );
 }
 
+function AIVerifyButton({ topic, courseId }: { topic: any, courseId: string }) {
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{isValid: boolean, explanation: string} | null>(null);
+
+  const handleVerifyTopic = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log("handleVerifyTopic triggered for:", topic.name);
+    
+    setIsVerifying(true);
+    try {
+      const resources = [
+        topic.videoUrl,
+        topic.articleUrl,
+        topic.podcastUrl,
+        topic.wikidataId ? `https://www.wikidata.org/wiki/${topic.wikidataId}` : null
+      ].filter(Boolean);
+
+      const question = `Analyze the following topic and its resources.
+Topic: "${topic.name}"
+Resources: ${resources.join(', ')}
+
+Determine if these resources are relevant and appropriate for the topic.
+Please return your analysis strictly as a valid JSON object matching this schema:
+{ "isValid": boolean, "explanation": "string" }
+Do not output any markdown formatting or extra text, only the raw JSON string.`;
+
+      const res = await axios.post(`${API}/ai/ask`, {
+        course_id: courseId,
+        question: question
+      }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      
+      const answerStr = res.data.answer.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedResult = JSON.parse(answerStr);
+      setVerificationResult(parsedResult);
+    } catch (e) {
+      console.error(e);
+      console.log("Backend missing or failed, using mock data for verification...");
+      setVerificationResult({ isValid: false, explanation: "MOCK DATA: This is a test warning badge because the backend is unavailable or timed out." });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  if (verificationResult) {
+    if (verificationResult.isValid) {
+      return (
+        <span className="text-[10px] font-black uppercase text-green-600 bg-green-50 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded-md border border-green-200 dark:border-green-800 shadow-sm flex items-center">
+          ✅ Verified
+        </span>
+      );
+    } else {
+      return (
+        <div className="relative group flex items-center">
+          <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 cursor-help shadow-sm flex items-center">
+            ⚠️ Warning
+          </span>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 bg-gray-900 text-white text-xs p-2.5 rounded-xl shadow-xl z-50 whitespace-normal text-center pointer-events-none transition-all">
+            {verificationResult.explanation}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  return (
+    <button 
+      onClick={handleVerifyTopic}
+      disabled={isVerifying}
+      className="text-gray-400 hover:text-red-500 transition-colors p-1 text-[10px] font-black uppercase flex items-center gap-1 disabled:opacity-50"
+    >
+      {isVerifying ? <Loader2 size={12} className="animate-spin text-red-500" /> : '✨'}
+      <span className={isVerifying ? 'text-red-500' : ''}>{isVerifying ? 'Verifying...' : 'Verify Resources'}</span>
+    </button>
+  );
+}
+
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
@@ -97,6 +174,8 @@ export default function CourseManager() {
   const [quizEditorBusy, setQuizEditorBusy] = useState(false);
   const [quizEditorSaving, setQuizEditorSaving] = useState(false);
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [isSuggestingSubtopic, setIsSuggestingSubtopic] = useState<string | null>(null);
   
   const token = localStorage.getItem('token');
 
@@ -197,6 +276,152 @@ export default function CourseManager() {
       setIsAddingTopic(false);
       fetchCourse();
     } catch (e) { console.error(e); }
+  };
+
+  const handleAISuggestion = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log("handleAISuggestion triggered");
+    
+    setIsSuggesting(true);
+    try {
+      const question = `Analyze the following existing course topics:
+[${course?.topics?.map((t: any) => t.name).join(', ')}]
+
+Based on these existing topics, suggest a NEW topic title that logically follows them in the curriculum. The new topic should be related but distinct from the existing ones.
+
+Please return your suggestion strictly as a valid JSON object matching this schema:
+{
+  "title": "Suggested Topic Name",
+  "resources": [
+    { "type": "video" | "article" | "audio", "url": "URL string" }
+  ]
+}
+Ensure exactly 3 resources are provided (one video, one article, one audio) that are highly relevant to the suggested topic. Do not output any markdown formatting or extra text, only the raw JSON string.`;
+
+      const res = await axios.post(`${API}/ai/ask`, {
+        course_id: courseId,
+        question: question
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const answerStr = res.data.answer.replace(/```json/g, '').replace(/```/g, '').trim();
+      const suggestion = JSON.parse(answerStr);
+      
+      // We take the returned JSON structure and push a Draft node into the existing state
+      // mapping the requested AI resources format to the internal node format.
+      const draftNode = {
+        id: `draft-${Date.now()}`, // Temporary local ID
+        name: suggestion.title,
+        videoUrl: suggestion.resources?.find((r: any) => r.type === 'video')?.url || '',
+        articleUrl: suggestion.resources?.find((r: any) => r.type === 'article')?.url || '',
+        podcastUrl: suggestion.resources?.find((r: any) => r.type === 'audio' || r.type === 'podcast')?.url || '',
+        subtopics: [],
+        isDraft: true,
+      };
+      
+      setCourse((prev: any) => ({
+        ...prev,
+        topics: [...(prev?.topics || []), draftNode]
+      }));
+    } catch (e) {
+      console.error('Failed to get AI suggestion', e);
+      console.log("Backend missing or failed, using mock data for AI suggestion...");
+      const mockDraft = {
+        id: `draft-${Date.now()}`,
+        name: "MOCK: Advanced Topics in AI",
+        videoUrl: "https://www.youtube.com/watch?v=mock",
+        articleUrl: "https://en.wikipedia.org/wiki/Artificial_intelligence",
+        podcastUrl: "",
+        subtopics: [],
+        isDraft: true,
+      };
+      setCourse((prev: any) => ({
+        ...prev,
+        topics: [...(prev?.topics || []), mockDraft]
+      }));
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  const handleAISubtopicSuggestion = async (topicId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log("handleAISubtopicSuggestion triggered for topic ID:", topicId);
+    
+    setIsSuggestingSubtopic(topicId);
+    try {
+      const parentTopic = course?.topics?.find((t: any) => t.id === topicId);
+      const existingSubtopics = parentTopic?.subtopics || [];
+      const subtopicsInfo = existingSubtopics.map((s: any) => {
+         return `- ${s.name} (Resources: video=${s.videoUrl || 'none'}, article=${s.articleUrl || 'none'}, podcast=${s.podcastUrl || 'none'})`;
+      }).join('\n');
+
+      const question = `Analyze the existing subtopics for the topic "${parentTopic?.name}":
+${subtopicsInfo}
+
+Based on what is already there, suggest a NEW subtopic that logically follows. Also suggest highly relevant resources for this new subtopic (a video, an article, and a podcast). We can have exactly one resource of each kind only.
+
+Please return your suggestion strictly as a valid JSON object matching this schema:
+{
+  "title": "Suggested Subtopic Name",
+  "resources": [
+    { "type": "video", "url": "URL string" },
+    { "type": "article", "url": "URL string" },
+    { "type": "audio", "url": "URL string" }
+  ]
+}
+Do not output any markdown formatting or extra text, only the raw JSON string.`;
+
+      const res = await axios.post(`${API}/ai/ask`, {
+        course_id: courseId,
+        question: question
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const answerStr = res.data.answer.replace(/```json/g, '').replace(/```/g, '').trim();
+      const suggestion = JSON.parse(answerStr);
+      
+      const draftNode = {
+        id: `draft-sub-${Date.now()}`, // Temporary local ID
+        name: suggestion.title,
+        videoUrl: suggestion.resources?.find((r: any) => r.type === 'video')?.url || '',
+        articleUrl: suggestion.resources?.find((r: any) => r.type === 'article')?.url || '',
+        podcastUrl: suggestion.resources?.find((r: any) => r.type === 'audio' || r.type === 'podcast')?.url || '',
+        aiSuggested: true,
+      };
+      
+      setCourse((prev: any) => ({
+        ...prev,
+        topics: prev.topics.map((t: any) => 
+          t.id === topicId 
+            ? { ...t, subtopics: [...(t.subtopics || []), draftNode] }
+            : t
+        )
+      }));
+    } catch (e) {
+      console.error('Failed to get AI subtopic suggestion', e);
+      console.log("Backend missing or failed, using mock data for AI subtopic suggestion...");
+      const mockDraft = {
+        id: `draft-sub-${Date.now()}`,
+        name: "MOCK: Practical RAG Implementation",
+        videoUrl: "https://www.youtube.com/watch?v=mock-sub",
+        articleUrl: "https://en.wikipedia.org/wiki/Machine_learning",
+        podcastUrl: "",
+        aiSuggested: true,
+      };
+      setCourse((prev: any) => ({
+        ...prev,
+        topics: prev.topics.map((t: any) => 
+          t.id === topicId 
+            ? { ...t, subtopics: [...(t.subtopics || []), mockDraft] }
+            : t
+        )
+      }));
+    } finally {
+      setIsSuggestingSubtopic(null);
+    }
   };
 
   // One editor handles plain links, source re-scraping, and PDF replacement.
@@ -301,6 +526,28 @@ export default function CourseManager() {
 
   const deleteTopic = async (id: string) => {
     if (!window.confirm("Delete this topic/subtopic permanently?")) return;
+    
+    if (id.startsWith('draft-')) {
+      setCourse((prev: any) => {
+        if (!prev) return prev;
+        
+        // Remove from main topics
+        const topics = prev.topics.filter((t: any) => t.id !== id);
+        
+        // Remove from subtopics
+        const cleanedTopics = topics.map((t: any) => {
+          if (!t.subtopics) return t;
+          return {
+            ...t,
+            subtopics: t.subtopics.filter((sub: any) => sub.id !== id)
+          };
+        });
+        
+        return { ...prev, topics: cleanedTopics };
+      });
+      return;
+    }
+
     try {
       await axios.delete(`${API}/courses/${courseId}/topics/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (editingSubId === id) setEditingSubId(null);
@@ -826,9 +1073,19 @@ export default function CourseManager() {
 
           {tab === "nodes" && (
             <div className="space-y-4 animate-in slide-in-from-bottom-2">
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
                 <h2 className="text-sm font-black dark:text-white uppercase tracking-widest">Curriculum Nodes</h2>
-                <button onClick={() => setIsAddingTopic(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md">+ Add Topic</button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button 
+                    onClick={handleAISuggestion} 
+                    disabled={isSuggesting}
+                    className="bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md flex items-center gap-2 transition-all"
+                  >
+                    {isSuggesting ? <Loader2 size={14} className="animate-spin" /> : '✨'}
+                    {isSuggesting ? 'Thinking...' : 'AI TOPIC SUGGESTION'}
+                  </button>
+                  <button onClick={() => setIsAddingTopic(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md transition-all">+ Add Topic</button>
+                </div>
               </div>
 
               {isAddingTopic && (
@@ -885,10 +1142,11 @@ export default function CourseManager() {
                       ) : (
                         <div className="flex items-center gap-2 group/title w-full">
                           <h3 className="text-base dark:text-white">{topic.name}</h3>
+                          <AIVerifyButton topic={topic} courseId={courseId} />
                           <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
                           <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
                           <button onClick={() => openQuizEditor(topic)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
-                          <button onClick={() => generateQuizDraft(topic)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
+                          <button onClick={() => generateQuizDraft(topic)} className="text-gray-400 hover:text-red-500 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
                         </div>
                       )}
                     </div>
@@ -999,10 +1257,11 @@ export default function CourseManager() {
                             ) : (
                               <div className="flex items-center gap-2 group/subtitle">
                                 <p className="font-bold dark:text-white text-sm">{sub.name}</p>
+                                <AIVerifyButton topic={sub} courseId={courseId} />
                                 <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
                                 <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
                                 <button onClick={() => openQuizEditor(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
-                                <button onClick={() => generateQuizDraft(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
+                                <button onClick={() => generateQuizDraft(sub)} className="text-gray-400 hover:text-red-500 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
                               </div>
                             )}
                             {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
@@ -1086,9 +1345,15 @@ export default function CourseManager() {
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => setAddingSubTo(topic.id)} className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline uppercase tracking-widest">
-                        <Plus size={14} /> Add Subtopic / Links
-                      </button>
+                      <div className="flex gap-4 items-center">
+                        <button onClick={() => setAddingSubTo(topic.id)} className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline uppercase tracking-widest">
+                          <Plus size={14} /> Add Subtopic / Links
+                        </button>
+                        <button onClick={(e) => handleAISubtopicSuggestion(topic.id, e)} disabled={isSuggestingSubtopic === topic.id} className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-red-500 hover:underline uppercase tracking-widest disabled:opacity-50">
+                          {isSuggestingSubtopic === topic.id ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} 
+                          {isSuggestingSubtopic === topic.id ? 'Thinking...' : 'AI RESOURCE SUGGESTION'}
+                        </button>
+                      </div>
                     )}
                   </div>
                   </div>

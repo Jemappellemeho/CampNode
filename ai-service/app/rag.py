@@ -56,34 +56,44 @@ def answer_question(course_id: str, question: str):
     """
     Sucht nach Quellen und beantwortet die Frage des Studenten.
     """
+    is_json_request = "valid JSON object matching this schema" in question
+
     # 1. Wir suchen die besten Textabschnitte in Supabase
     chunks = search_chunks(course_id, question, limit=3)
     
     # Wenn wir nichts finden, sagen wir das sofort (Halluzinations-Schutz!)
-    if not chunks:
+    # Except if it's a JSON request, we still want the LLM to generate the JSON (e.g. topic suggestions don't strictly need chunks).
+    if not chunks and not is_json_request:
         return {
             "answer": "Im verfügbaren Kursmaterial gibt es dazu nicht genug Informationen.",
             "sources": []
         }
     
     # 2. Wir kleben alle gefundenen Texte zu einem großen "Kontext" zusammen
-    context_text = "\n\n".join([chunk["content"] for chunk in chunks])
+    context_text = "\n\n".join([chunk["content"] for chunk in chunks]) if chunks else "Kein Kontext verfügbar."
     
     # Wir sammeln auch die Quellen-Titel, um sie dem Studenten später zu zeigen
-    sources = list(set([f"{chunk['title']} (Seite {chunk['page_number']})" for chunk in chunks]))
+    sources = list(set([f"{chunk['title']} (Seite {chunk['page_number']})" for chunk in chunks])) if chunks else []
     
     # 3. Wir füllen unser Prompt-Template mit dem Kontext und der Frage
     prompt = ANSWER_PROMPT.format(context=context_text, question=question)
     
+    messages = [
+        {"role": "system", "content": "You are a helpful learning assistant. If the user requests JSON, you must return ONLY valid JSON without any markdown formatting."},
+        {"role": "user", "content": prompt}
+    ]
+
+    kwargs = {
+        "model": "gemini-2.5-flash",
+        "messages": messages,
+        "temperature": 0.3
+    }
+
+    if is_json_request:
+        kwargs["response_format"] = {"type": "json_object"}
+
     # 4. Wir schicken alles an OpenAI (gpt-4o-mini ist schnell und günstig)
-    response = openai_client.chat.completions.create(
-        model="gemini-2.5-flash",
-        messages=[
-            {"role": "system", "content": "You are a helpful learning assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3 # Niedrige Temperatur = weniger erfinden, strikt an Fakten halten
-    )
+    response = openai_client.chat.completions.create(**kwargs)
     
     # 5. Wir geben die Antwort und die Quellen zurück
     return {
