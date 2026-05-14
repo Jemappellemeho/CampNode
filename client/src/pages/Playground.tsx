@@ -431,9 +431,30 @@ export default function Playground() {
     setQuestionDraft(topicNotes[id] || '');
   };
 
-  const saveQuestionNote = () => {
-    if (!questionEditorTarget) return;
+  const saveQuestionNote = async () => {
+    if (!questionEditorTarget || !courseId) return;
     const nextValue = questionDraft.trim();
+
+    if (nextValue) {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.post(
+          `${API}/feedback`,
+          {
+            courseId,
+            topicId: questionEditorTarget.id,
+            content: nextValue,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch (error) {
+        console.error('Failed to save feedback:', error);
+        alert('Feedback could not be saved.');
+        return;
+      }
+    }
 
     setTopicNotes((prev) => {
       const next = { ...prev };

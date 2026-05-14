@@ -58,8 +58,10 @@ function WikidataSearchField({
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"overview" | "students" | "nodes">("overview");
+  const [tab, setTab] = useState<"overview" | "students" | "nodes" | "statistics" | "feedback">("overview");
   const [course, setCourse] = useState<any>(null);
+  const [feedback, setFeedback] = useState<any[]>([]);
+  const [feedbackError, setFeedbackError] = useState('');
   const [loading, setLoading] = useState(true);
   
   // Logic States
@@ -110,6 +112,25 @@ export default function CourseManager() {
   }, [courseId, token]);
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
+
+  const fetchFeedback = useCallback(async () => {
+    if (!courseId) return;
+    setFeedbackError('');
+    try {
+      const res = await axios.get(`${API}/feedback/course/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setFeedback(res.data || []);
+    } catch (error: any) {
+      console.error('Failed to load feedback', error);
+      setFeedbackError(error.response?.data?.error || 'Could not load feedback.');
+      setFeedback([]);
+    }
+  }, [courseId, token]);
+
+  useEffect(() => {
+    if (tab === 'feedback') fetchFeedback();
+  }, [tab, fetchFeedback]);
 
   const searchWiki = async (
     query: string,
@@ -722,7 +743,7 @@ export default function CourseManager() {
         </div>
 
         <div className="bg-gray-100/80 dark:bg-gray-900/50 p-1 rounded-xl flex gap-1 mb-8 border dark:border-gray-800 w-full overflow-x-auto sm:w-fit">
-          {["overview", "students", "nodes"].map((t) => (
+          {["overview", "students", "nodes", "statistics", "feedback"].map((t) => (
             <button key={t} onClick={() => setTab(t as any)} className={`shrink-0 px-6 sm:px-8 py-2 text-xs font-bold rounded-lg transition-all ${tab === t ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30" : "text-gray-400"}`}>{t.toUpperCase()}</button>
           ))}
         </div>
@@ -820,6 +841,45 @@ export default function CourseManager() {
                     </div>
                   </div>
                 )})
+              )}
+            </div>
+          )}
+
+          {tab === "statistics" && (
+            <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">
+              Statistics coming soon
+            </div>
+          )}
+
+          {tab === "feedback" && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-black dark:text-white uppercase tracking-widest">Student Feedback</h2>
+                <button onClick={fetchFeedback} className="rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                  Refresh
+                </button>
+              </div>
+              {feedbackError ? (
+                <div className="p-6 rounded-3xl border border-red-200 bg-red-50 text-sm font-bold text-red-600">
+                  {feedbackError}
+                </div>
+              ) : feedback.length === 0 ? (
+                <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">
+                  No feedback yet
+                </div>
+              ) : (
+                feedback.map((item) => (
+                  <div key={item.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5">
+                    <div className="flex justify-between gap-4 mb-2">
+                      <div>
+                        <p className="text-xs font-black uppercase text-blue-600">{item.topic?.name || 'Unknown node'}</p>
+                        <p className="text-xs text-gray-500">{item.user?.email || 'Student'}</p>
+                      </div>
+                      <p className="text-[10px] text-gray-400">{new Date(item.createdAt).toLocaleString()}</p>
+                    </div>
+                    <p className="text-sm text-gray-800 dark:text-gray-200">{item.content}</p>
+                  </div>
+                ))
               )}
             </div>
           )}

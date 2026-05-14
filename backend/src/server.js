@@ -8,6 +8,7 @@ const quizRoutes = require("./routes/quizRoutes");
 const progressRoutes = require("./routes/progressRoutes");
 const wikiRoutes = require("./routes/wikiRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const feedbackRoutes = require("./routes/feedbackRoutes");
 
 
 const app = express();
@@ -39,6 +40,10 @@ app.use("/api/wiki", wikiRoutes);
     
 //ai routen anbindung 
 app.use("/api/ai", aiRoutes);
+
+//feedback
+app.use("/api/feedback", feedbackRoutes);
+
 
 
 const port = process.env.PORT || 3000;
