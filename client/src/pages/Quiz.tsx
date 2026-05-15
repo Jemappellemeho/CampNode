@@ -18,6 +18,7 @@ export default function Quiz() {
   const [reorderList, setReorderList] = useState<any[]>([]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean }>>([]);
   const markAsSkip = Boolean((location.state as { markAsSkip?: boolean } | null)?.markAsSkip);
 
   // Namespaced keys for localStorage to track opened resources and completed quizzes per user.
@@ -164,8 +165,40 @@ export default function Quiz() {
     return null;
   };
 
+  const saveQuizResult = async (
+    finalScore: number,
+    totalQuestions: number,
+    finalAnswerResults: Array<{ type: string; correct: boolean }>
+  ) => {
+    if (!quiz?.id || !topicId) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      await axios.post(
+        'http://localhost:3000/api/statistics/quiz-result',
+        {
+          quizId: quiz.id,
+          topicId,
+          score: finalScore,
+          totalQuestions,
+          questionStats: finalAnswerResults,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (error) {
+      console.error('Could not save quiz statistics:', error);
+    }
+  };
+
   const handleNext = () => {
-    if (isCorrect()) setScore(s => s + 1);
+    const correct = isCorrect();
+    const nextScore = correct ? score + 1 : score;
+    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct }];
+
+    setAnswerResults(nextAnswerResults);
+    if (correct) setScore(nextScore);
     
     const totalQuestions = Array.isArray(quiz?.questions) ? quiz.questions.length : 0;
     
@@ -206,6 +239,7 @@ export default function Quiz() {
           // Ignore local progress persistence errors and still finish the quiz.
         }
       }
+      saveQuizResult(nextScore, totalQuestions, nextAnswerResults);
       setFinished(true);
     }
   };

@@ -9,6 +9,7 @@ const progressRoutes = require("./routes/progressRoutes");
 const wikiRoutes = require("./routes/wikiRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const feedbackRoutes = require("./routes/feedbackRoutes");
+const statisticsRoutes = require("./routes/statisticsRoutes");
 
 
 const app = express();
@@ -43,6 +44,9 @@ app.use("/api/ai", aiRoutes);
 
 //feedback
 app.use("/api/feedback", feedbackRoutes);
+
+//statistics
+app.use("/api/statistics", statisticsRoutes);
 
 
 
