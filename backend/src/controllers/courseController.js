@@ -3,6 +3,8 @@ const crypto = require("crypto"); // Built-in Node module for generating random 
 const axios = require("axios");
 const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
+const aiService = require("../services/aiService");
+
 
 async function fetchWikiText(wikidataId, preferredLang = "en") {
   try {
@@ -21,7 +23,10 @@ async function fetchWikiText(wikidataId, preferredLang = "en") {
     const pages = wikiRes.data.query.pages;
     const pageId = Object.keys(pages)[0];
     return pages[pageId].extract || null;
-  } catch (err) { return null; }
+  } catch (err) { 
+    console.error(`[Debug] fetchWikiText error for ${wikidataId}:`, err.message);
+    return null; 
+  }
 }
 
 // Create a new course
@@ -440,6 +445,16 @@ exports.addTopic = async (req, res) => {
       },
     });
     
+    console.log(`[Debug] Topic created in DB. ID: ${topic.id}, CourseID: ${topic.courseId}`);
+    console.log(`[Debug] Content status: ${content ? "Has content (length: " + content.length + ")" : "No content"}`);
+    
+    if (topic.courseId && content) {
+      console.log(`[Debug] Triggering RAG ingestion for course: ${topic.courseId}`);
+      aiService.ingestToRAG(topic.courseId, topic.name, content);
+    } else {
+      console.log("[Debug] Skipping RAG ingestion: missing courseId or content");
+    }
+
     res.status(201).json(topic);
   } catch (err) {
     console.error("Error creating topic:", err);
@@ -488,6 +503,9 @@ exports.updateTopic = async (req, res) => {
         ...(nextContent !== undefined && { content: nextContent }),
       },
     });
+    if (topic.courseId && nextContent) {
+      aiService.ingestToRAG(topic.courseId, topic.name, nextContent);
+      }
 
     res.json(topic);
   } catch (err) {

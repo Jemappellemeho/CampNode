@@ -249,6 +249,10 @@ exports.createTopic = async (req, res) => {
       }
     });
 
+    if (topic.courseId && content) {
+  aiService.ingestToRAG(courseId, name, content);
+}
+
     res.status(201).json(topic);
   } catch (error) {
     console.error("Topic Creation Error:", error.message);
@@ -503,10 +507,20 @@ exports.enrichTopic = async (req, res) => {
     let topic = await prisma.topic.findUnique({ where: { id } });
     if (!topic) return res.status(404).json({ error: "Topic not found." });
 
-    const source = await ensureTopicSourceContent(topic);
+        const source = await ensureTopicSourceContent(topic);
     topic = source.topic;
 
+    console.log(`[Debug] Enriching Topic: ${topic.name}. Content found: ${!!source.content}`);
+
     if (!source.content) return res.status(400).json({ error: "No content available for AI." });
+
+    // Wikipedia-Inhalt an das RAG-System senden
+    if (topic.courseId) {
+      console.log(`[Debug] Sending enriched content to RAG for course ${topic.courseId}`);
+      aiService.ingestToRAG(topic.courseId, topic.name, source.content);
+    } else {
+      console.log("[Debug] Skipping RAG ingestion in enrich: no courseId");
+    }
 
     const quizQuestions = await aiService.generateQuiz(source.content, topic.name);
     const quiz = await upsertTopicQuiz(id, quizQuestions);
