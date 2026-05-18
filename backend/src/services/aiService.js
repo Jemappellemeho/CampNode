@@ -992,6 +992,35 @@ exports.generateQuiz = async (content, topicName = "General Knowledge") => {
     return buildContentAwareQuiz(safeTopicName, safeContent).map((question, index) => normalizeQuestion(question, index));
   }
 };
+/**
+ * Schickt Textinhalte an das RAG-System (Python AI Service), 
+ * damit die KI sie als Wissensquelle nutzen kann.
+ */
+exports.ingestToRAG = async (courseId, title, content) => {
+  const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
+  
+  if (!content) {
+    console.log("[RAG] Ingestion skipped: No content provided.");
+    return;
+  }
+  if (!courseId) {
+    console.log("[RAG] Ingestion skipped: No courseId provided.");
+    return;
+  }
+
+  try {
+    console.log(`[RAG] Sending POST to ${aiServiceUrl}/ingest for course ${courseId}`);
+    const response = await axios.post(`${aiServiceUrl}/ingest`, {
+      course_id: courseId,
+      title: title,
+      content: content
+    });
+    console.log("[RAG] Ingestion successful:", response.data);
+  } catch (error) {
+    console.error("[RAG] Ingestion failed:", error.response?.data || error.message);
+  }
+};
+
 
 // Reserved hook for future prerequisite recommendation logic.
 exports.suggestPrerequisites = async () => [];

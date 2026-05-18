@@ -31,6 +31,46 @@ function JoinCodeBadge({ code }: { code: string }) {
   );
 }
 
+function GuideModal({
+  role,
+  onClose
+}: {
+  role: "PROFESSOR" | "STUDENT";
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
+      
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 text-center">
+        
+        <h2 className="text-2xl font-bold mb-4 dark:text-white">
+          Welcome to CampNode 🚀
+        </h2>
+
+        {role === "PROFESSOR" ? (
+          <div className="text-left space-y-3 text-sm dark:text-gray-200">
+            <p><strong>1.</strong> Click <b>"Create Course"</b> to get started.</p>
+            <p><strong>2.</strong> Click <b>"Manage Course"</b> to organize and edit your course.</p>
+          </div>
+        ) : (
+          <div className="text-left space-y-3 text-sm dark:text-gray-200">
+            <p><strong>1.</strong> Enter the course code to join a course.</p>
+            <p><strong>2.</strong> Click <b>"Open Course"</b> to start learning.</p>
+          </div>
+        )}
+
+        <button
+          onClick={onClose}
+          className="mt-6 w-full bg-blue-600 text-white py-2 rounded-xl font-bold hover:bg-blue-700 transition"
+        >
+          Start
+        </button>
+
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   
@@ -49,7 +89,8 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [leavingCourseId, setLeavingCourseId] = useState<string | null>(null);
-
+  const [showGuide, setShowGuide] = useState(false);
+  
   // 2. BULLETPROOF NAME LOGIC
   // If user.name is missing (common for students), use email prefix. 
   // If email is missing, use "Student" or "Professor" based on role.
@@ -64,6 +105,19 @@ export default function Dashboard() {
       fetchCourses();
     }
   }, [user, navigate]);
+
+  useEffect(() => {
+    const seen = sessionStorage.getItem("guideShown");
+  
+    if (!seen && user) {
+      setShowGuide(true);
+    }
+  }, [user]);
+  
+  const closeGuide = () => {
+    sessionStorage.setItem("guideShown", "true");
+    setShowGuide(false);
+  };
 
   const fetchCourses = async () => {
     const token = localStorage.getItem('token');
@@ -127,13 +181,20 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate('/courses/public')}
+              onClick={() => {
+                closeGuide();
+                navigate('/courses/public');
+              }}
               className="rounded-xl border border-blue-100 bg-white px-5 py-2 text-sm font-bold text-blue-600 transition-all hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800 dark:text-blue-300 dark:hover:bg-gray-700"
             >
               <span className="inline-flex items-center gap-2"><Globe size={18} /> Public Courses</span>
             </button>
             {user.role === 'PROFESSOR' && (
-              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+              <button
+              onClick={() => {
+                closeGuide();
+                setIsModalOpen(true);
+              }} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
                 <Plus size={20} /> Create Course
               </button>
             )}
@@ -174,14 +235,18 @@ export default function Dashboard() {
                 : "You haven't joined any courses yet. Use a join code to get started."}
             </p>
             {user.role === 'PROFESSOR' && (
-              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
+              <button
+              onClick={() => {
+                closeGuide();
+                setIsModalOpen(true);
+              }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all">
                   <Plus size={18} /> Create Course
               </button>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map(course => (
+            {courses.map((course) => (
               <div key={course.id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-4 group hover:shadow-md transition-all">
                 <div className="flex justify-between items-start">
                   <div className="pr-3">
@@ -217,14 +282,15 @@ export default function Dashboard() {
                 )}
 
                 <div className="mt-auto flex gap-3">
-                  <button
-                    onClick={() =>
-                      user.role === 'PROFESSOR'
-                        ? navigate(`/prof/course/${course.id}`)
-                        : navigate(`/playground/${course.id}`)
-                    }
+                <button
+                  onClick={() => {
+                    closeGuide();
+                    user.role === 'PROFESSOR'
+                      ? navigate(`/prof/course/${course.id}`)
+                      : navigate(`/playground/${course.id}`);
+                    }}
                     className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
-                  >
+                >
                     {user.role === 'PROFESSOR' ? 'Manage Course' : 'Open Course'} <ChevronRight size={16}/>
                   </button>
                   {user.role === 'STUDENT' && course.isPublic && (
@@ -242,12 +308,21 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+<CreateCourseModal 
 
-        <CreateCourseModal 
-          isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)} 
-          onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
-        />
+isOpen={isModalOpen} 
+
+onClose={() => setIsModalOpen(false)} 
+
+onCreated={() => { setIsModalOpen(false); fetchCourses(); }} 
+
+/>
+{showGuide && (
+  <GuideModal
+    role={user.role}
+    onClose={closeGuide}
+  />
+)}
       </div>
     </>
   );

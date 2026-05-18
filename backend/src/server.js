@@ -7,6 +7,9 @@ const topicRoutes = require("./routes/topicRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const progressRoutes = require("./routes/progressRoutes");
 const wikiRoutes = require("./routes/wikiRoutes");
+const aiRoutes = require("./routes/aiRoutes");
+const feedbackRoutes = require("./routes/feedbackRoutes");
+const statisticsRoutes = require("./routes/statisticsRoutes");
 
 
 const app = express();
@@ -36,6 +39,16 @@ app.use("/api/progress", progressRoutes);
 // Hier verbinden wir die Wiki-Routen
 app.use("/api/wiki", wikiRoutes);
     
+//ai routen anbindung 
+app.use("/api/ai", aiRoutes);
+
+//feedback
+app.use("/api/feedback", feedbackRoutes);
+
+//statistics
+app.use("/api/statistics", statisticsRoutes);
+
+
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`API on http://localhost:${port}`));

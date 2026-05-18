@@ -23,3 +23,7 @@ client/dist/
 # Lokale Test-Skripte ignorieren
 test-*.js
 
+#Ragsystemmd
+summarize.md
+Ragsystem.md
+RAG_Dokumentation.md    

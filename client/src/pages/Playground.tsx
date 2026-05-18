@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
 import NodeDetailPanel from '../components/NodeDetailPanel';
+import AiChatCompanion from '../components/AiChatCompanion';
 import { MonitorPlay, BookOpen, Headphones, ChevronLeft } from 'lucide-react';
 
 const API = 'http://localhost:3000/api';
@@ -431,9 +432,30 @@ export default function Playground() {
     setQuestionDraft(topicNotes[id] || '');
   };
 
-  const saveQuestionNote = () => {
-    if (!questionEditorTarget) return;
+  const saveQuestionNote = async () => {
+    if (!questionEditorTarget || !courseId) return;
     const nextValue = questionDraft.trim();
+
+    if (nextValue) {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.post(
+          `${API}/feedback`,
+          {
+            courseId,
+            topicId: questionEditorTarget.id,
+            content: nextValue,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch (error) {
+        console.error('Failed to save feedback:', error);
+        alert('Feedback could not be saved.');
+        return;
+      }
+    }
 
     setTopicNotes((prev) => {
       const next = { ...prev };
@@ -731,6 +753,13 @@ export default function Playground() {
           </div>
         </div>
       )}
+
+      {/* Floating RAG Study Companion Chatbot */}
+      <AiChatCompanion
+        courseId={courseId || ""}
+        courseTitle={courseTitle}
+        topics={pathData}
+      />
     </div>
   );
 }

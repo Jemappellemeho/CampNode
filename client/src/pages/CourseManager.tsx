@@ -58,8 +58,12 @@ function WikidataSearchField({
 export default function CourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"overview" | "students" | "nodes">("overview");
+  const [tab, setTab] = useState<"overview" | "students" | "nodes" | "statistics" | "feedback">("overview");
   const [course, setCourse] = useState<any>(null);
+  const [feedback, setFeedback] = useState<any[]>([]);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [statistics, setStatistics] = useState<any>(null);
+  const [statisticsError, setStatisticsError] = useState('');
   const [loading, setLoading] = useState(true);
   
   // Logic States
@@ -110,6 +114,44 @@ export default function CourseManager() {
   }, [courseId, token]);
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
+
+  const fetchFeedback = useCallback(async () => {
+    if (!courseId) return;
+    setFeedbackError('');
+    try {
+      const res = await axios.get(`${API}/feedback/course/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setFeedback(res.data || []);
+    } catch (error: any) {
+      console.error('Failed to load feedback', error);
+      setFeedbackError(error.response?.data?.error || 'Could not load feedback.');
+      setFeedback([]);
+    }
+  }, [courseId, token]);
+
+  useEffect(() => {
+    if (tab === 'feedback') fetchFeedback();
+  }, [tab, fetchFeedback]);
+
+  const fetchStatistics = useCallback(async () => {
+    if (!courseId) return;
+    setStatisticsError('');
+    try {
+      const res = await axios.get(`${API}/statistics/course/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setStatistics(res.data);
+    } catch (error: any) {
+      console.error('Failed to load statistics', error);
+      setStatisticsError(error.response?.data?.error || 'Could not load statistics.');
+      setStatistics(null);
+    }
+  }, [courseId, token]);
+
+  useEffect(() => {
+    if (tab === 'statistics') fetchStatistics();
+  }, [tab, fetchStatistics]);
 
   const searchWiki = async (
     query: string,
@@ -700,6 +742,60 @@ export default function CourseManager() {
       ])
     : [];
 
+  const questionTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      multiple_choice: 'Multiple choice',
+      true_false: 'True / False',
+      multiple_select: 'Multiple select',
+      reorder: 'Reorder',
+      open_answer: 'Open answer',
+      unknown: 'Unknown',
+    };
+    return labels[type] || type.replace(/_/g, ' ');
+  };
+
+  const renderStatsSummary = (stats: any) => (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Attempts</p>
+        <p className="mt-1 text-2xl font-black text-gray-900 dark:text-white">{stats?.attempts || 0}</p>
+      </div>
+      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Students</p>
+        <p className="mt-1 text-2xl font-black text-gray-900 dark:text-white">{stats?.students || 0}</p>
+      </div>
+      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Avg Score</p>
+        <p className="mt-1 text-2xl font-black text-blue-600">{stats?.averageScore || 0}</p>
+      </div>
+      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Avg Percent</p>
+        <p className="mt-1 text-2xl font-black text-blue-600">{stats?.averagePercent || 0}%</p>
+      </div>
+    </div>
+  );
+
+  const renderQuestionTypes = (stats: any) => {
+    const entries = Object.entries(stats?.questionTypes || {});
+
+    if (entries.length === 0) {
+      return <p className="text-xs font-bold text-gray-400">No question-type data yet</p>;
+    }
+
+    return (
+      <div className="flex flex-wrap gap-2">
+        {entries.map(([type, value]: any) => {
+          const percent = value.total > 0 ? Math.round((value.correct / value.total) * 100) : 0;
+          return (
+            <span key={type} className="rounded-xl border bg-gray-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+              {questionTypeLabel(type)}: {percent}% ({value.correct}/{value.total})
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -722,7 +818,7 @@ export default function CourseManager() {
         </div>
 
         <div className="bg-gray-100/80 dark:bg-gray-900/50 p-1 rounded-xl flex gap-1 mb-8 border dark:border-gray-800 w-full overflow-x-auto sm:w-fit">
-          {["overview", "students", "nodes"].map((t) => (
+          {["overview", "students", "nodes", "statistics", "feedback"].map((t) => (
             <button key={t} onClick={() => setTab(t as any)} className={`shrink-0 px-6 sm:px-8 py-2 text-xs font-bold rounded-lg transition-all ${tab === t ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30" : "text-gray-400"}`}>{t.toUpperCase()}</button>
           ))}
         </div>
@@ -820,6 +916,114 @@ export default function CourseManager() {
                     </div>
                   </div>
                 )})
+              )}
+            </div>
+          )}
+
+          {tab === "statistics" && (
+            <div className="space-y-5 animate-in fade-in">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-black dark:text-white uppercase tracking-widest">Quiz Statistics</h2>
+                <button onClick={fetchStatistics} className="rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                  Refresh
+                </button>
+              </div>
+
+              {statisticsError ? (
+                <div className="p-6 rounded-3xl border border-red-200 bg-red-50 text-sm font-bold text-red-600">
+                  {statisticsError}
+                </div>
+              ) : (
+                <>
+                  {renderStatsSummary(statistics?.overallStats)}
+
+                  {(!statistics?.topics || statistics.topics.length === 0) ? (
+                    <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">
+                      No quiz statistics yet
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {statistics.topics.map((topic: any, index: number) => (
+                        <div key={topic.id} className="rounded-3xl border bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                          <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Main node {index + 1}</p>
+                              <h3 className="text-lg font-black text-gray-900 dark:text-white">{topic.name}</h3>
+                            </div>
+                            <span className="rounded-xl bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-blue-600">
+                              {topic.combinedStats?.attempts || 0} attempts
+                            </span>
+                          </div>
+
+                          <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/40">
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Combined topic stats</p>
+                            {renderStatsSummary(topic.combinedStats)}
+                            <div className="mt-3">{renderQuestionTypes(topic.combinedStats)}</div>
+                          </div>
+
+                          {(topic.ownStats?.attempts || 0) > 0 && (
+                            <div className="mt-4 rounded-2xl border p-4 dark:border-gray-700">
+                              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Main node quiz</p>
+                              {renderStatsSummary(topic.ownStats)}
+                              <div className="mt-3">{renderQuestionTypes(topic.ownStats)}</div>
+                            </div>
+                          )}
+
+                          {topic.subtopics?.length > 0 && (
+                            <div className="mt-4 space-y-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Subtopics</p>
+                              {topic.subtopics.map((subtopic: any) => (
+                                <div key={subtopic.id} className="rounded-2xl border p-4 dark:border-gray-700">
+                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                    <p className="font-bold text-gray-900 dark:text-white">{subtopic.name}</p>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      {subtopic.stats?.attempts || 0} attempts
+                                    </span>
+                                  </div>
+                                  {renderStatsSummary(subtopic.stats)}
+                                  <div className="mt-3">{renderQuestionTypes(subtopic.stats)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {tab === "feedback" && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-black dark:text-white uppercase tracking-widest">Student Feedback</h2>
+                <button onClick={fetchFeedback} className="rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                  Refresh
+                </button>
+              </div>
+              {feedbackError ? (
+                <div className="p-6 rounded-3xl border border-red-200 bg-red-50 text-sm font-bold text-red-600">
+                  {feedbackError}
+                </div>
+              ) : feedback.length === 0 ? (
+                <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">
+                  No feedback yet
+                </div>
+              ) : (
+                feedback.map((item) => (
+                  <div key={item.id} className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5">
+                    <div className="flex justify-between gap-4 mb-2">
+                      <div>
+                        <p className="text-xs font-black uppercase text-blue-600">{item.topic?.name || 'Unknown node'}</p>
+                        <p className="text-xs text-gray-500">{item.user?.email || 'Student'}</p>
+                      </div>
+                      <p className="text-[10px] text-gray-400">{new Date(item.createdAt).toLocaleString()}</p>
+                    </div>
+                    <p className="text-sm text-gray-800 dark:text-gray-200">{item.content}</p>
+                  </div>
+                ))
               )}
             </div>
           )}
