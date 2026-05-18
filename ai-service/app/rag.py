@@ -59,7 +59,29 @@ def answer_question(course_id: str, question: str):
     # 1. Wir suchen die besten Textabschnitte in Supabase
     chunks = search_chunks(course_id, question, limit=3)
     
-    # Wenn wir nichts finden, sagen wir das sofort (Halluzinations-Schutz!)
+    # Wenn wir keine Chunks in den RAG-Tabellen finden, prüfen wir, ob wir das Material aus den vorhandenen Kursthemen importieren können (Self-Healing)
+    if not chunks:
+        try:
+            print(f"[RAG-Self-Healing] Checking for existing topic contents in database for course_id: {course_id}")
+            # Lade alle Themen mit Textinhalten für diesen Kurs
+            topics_response = supabase.table("Topic").select("name, content").eq("courseId", course_id).not_.is_("content", "null").execute()
+            topics_data = topics_response.data
+            
+            if topics_data:
+                print(f"[RAG-Self-Healing] Found {len(topics_data)} topics with content. Ingesting on-the-fly into RAG tables...")
+                from .ingest import ingest_course_material
+                for topic in topics_data:
+                    if topic.get("content") and topic.get("content").strip():
+                        print(f"[RAG-Self-Healing] Ingesting topic: {topic['name']}")
+                        ingest_course_material(course_id, topic["name"], topic["content"])
+                
+                # Nach dem erfolgreichen Import suchen wir die Chunks erneut!
+                chunks = search_chunks(course_id, question, limit=3)
+                print(f"[RAG-Self-Healing] Rerunning search. Chunks found: {len(chunks) if chunks else 0}")
+        except Exception as e:
+            print(f"[RAG-Self-Healing] Error during on-the-fly ingestion: {e}")
+
+    # Wenn wir immer noch nichts finden, sagen wir das sofort (Halluzinations-Schutz!)
     if not chunks:
         return {
             "answer": "Im verfügbaren Kursmaterial gibt es dazu nicht genug Informationen.",

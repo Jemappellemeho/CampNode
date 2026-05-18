@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
 import NodeDetailPanel from '../components/NodeDetailPanel';
+import AiChatCompanion from '../components/AiChatCompanion';
 import { MonitorPlay, BookOpen, Headphones, ChevronLeft } from 'lucide-react';
 
 const API = 'http://localhost:3000/api';
@@ -752,6 +753,13 @@ export default function Playground() {
           </div>
         </div>
       )}
+
+      {/* Floating RAG Study Companion Chatbot */}
+      <AiChatCompanion
+        courseId={courseId || ""}
+        courseTitle={courseTitle}
+        topics={pathData}
+      />
     </div>
   );
 }
