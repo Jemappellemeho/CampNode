@@ -6,6 +6,7 @@ import {
   BookOpen, X, Users, Globe, Copy, Check,
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search
 } from 'lucide-react';
+import { api } from '../utils/api';
 
 const API = 'http://localhost:3000/api';
 const API_ORIGIN = 'http://localhost:3000';
@@ -102,16 +103,12 @@ export default function CourseManager() {
   const [quizEditorSaving, setQuizEditorSaving] = useState(false);
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
   
-  const token = localStorage.getItem('token');
-
   const fetchCourse = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/courses/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/courses/${courseId}`);
       setCourse(res.data);
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [courseId, token]);
+  }, [courseId]);
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
 
@@ -119,16 +116,14 @@ export default function CourseManager() {
     if (!courseId) return;
     setFeedbackError('');
     try {
-      const res = await axios.get(`${API}/feedback/course/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/feedback/course/${courseId}`);
       setFeedback(res.data || []);
     } catch (error: any) {
       console.error('Failed to load feedback', error);
       setFeedbackError(error.response?.data?.error || 'Could not load feedback.');
       setFeedback([]);
     }
-  }, [courseId, token]);
+  }, [courseId]);
 
   useEffect(() => {
     if (tab === 'feedback') fetchFeedback();
@@ -138,16 +133,14 @@ export default function CourseManager() {
     if (!courseId) return;
     setStatisticsError('');
     try {
-      const res = await axios.get(`${API}/statistics/course/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/statistics/course/${courseId}`);
       setStatistics(res.data);
     } catch (error: any) {
       console.error('Failed to load statistics', error);
       setStatisticsError(error.response?.data?.error || 'Could not load statistics.');
       setStatistics(null);
     }
-  }, [courseId, token]);
+  }, [courseId]);
 
   useEffect(() => {
     if (tab === 'statistics') fetchStatistics();
@@ -165,7 +158,7 @@ export default function CourseManager() {
     }
 
     try {
-      const res = await axios.get(`${API}/wiki/search?q=${encodeURIComponent(query.trim())}`);
+      const res = await api.get(`/wiki/search?q=${encodeURIComponent(query.trim())}`);
       setResults(res.data || []);
     } catch (error) {
       console.error('Wikidata search failed', error);
@@ -194,9 +187,7 @@ export default function CourseManager() {
   const toggleVisibility = async () => {
     const nextStatus = !course.isPublic;
     try {
-      await axios.put(`${API}/courses/${courseId}`, { isPublic: nextStatus }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.put(`/courses/${courseId}`, { isPublic: nextStatus });
       setCourse({ ...course, isPublic: nextStatus });
     } catch (e) { console.error(e); }
   };
@@ -214,9 +205,7 @@ export default function CourseManager() {
       if (newSubForm.podcast.trim()) formData.append('podcastUrl', newSubForm.podcast.trim());
       if (newSubForm.file) formData.append('pdf', newSubForm.file);
 
-      await axios.post(`${API}/courses/${courseId}/topics`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-      });
+      await api.post(`/courses/${courseId}/topics`, formData);
       setNewSubForm({ name: '', sourceUrl: '', wikidataId: '', video: '', article: '', podcast: '', file: null });
       setAddingSubTo(null);
       fetchCourse();
@@ -232,16 +221,13 @@ export default function CourseManager() {
       if (newTopicForm.wikidataId.trim()) formData.append('wikidataId', newTopicForm.wikidataId.trim());
       if (newTopicForm.file) formData.append('pdf', newTopicForm.file);
 
-      await axios.post(`${API}/courses/${courseId}/topics`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-      });
+      await api.post(`/courses/${courseId}/topics`, formData);
       setNewTopicForm({ name: '', sourceUrl: '', wikidataId: '', file: null });
       setIsAddingTopic(false);
       fetchCourse();
     } catch (e) { console.error(e); }
   };
 
-  // One editor handles plain links, source re-scraping, and PDF replacement.
   const saveLinks = async (subId: string) => {
     try {
       const formData = new FormData();
@@ -251,9 +237,7 @@ export default function CourseManager() {
       if (linkData.sourceUrl.trim()) formData.append('sourceUrl', linkData.sourceUrl.trim());
       if (linkData.file) formData.append('pdf', linkData.file);
 
-      await axios.put(`${API}/courses/${courseId}/topics/${subId}`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-      });
+      await api.put(`/courses/${courseId}/topics/${subId}`, formData);
       setEditingSubId(null); fetchCourse();
     } catch (e) { console.error(e); }
   };
@@ -271,11 +255,7 @@ export default function CourseManager() {
   // Clearing articleUrl removes the current local PDF association for that node.
   const clearAttachedPdf = async (topicId: string) => {
     try {
-      await axios.put(`${API}/courses/${courseId}/topics/${topicId}`, {
-        articleUrl: ''
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.put(`/courses/${courseId}/topics/${topicId}`, { articleUrl: '' });
       if (editingSubId === topicId) {
         setLinkData((prev) => ({ ...prev, article: '', file: null, sourceUrl: '' }));
       }
@@ -295,13 +275,13 @@ export default function CourseManager() {
     topics.splice(tgtIdx, 0, moved);
     setCourse({ ...course, topics });
     for (let i = 0; i < topics.length; i++) {
-      await axios.put(`${API}/courses/${courseId}/topics/${topics[i].id}`, { order: i }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/courses/${courseId}/topics/${topics[i].id}`, { order: i });
     }
   };
 
   const handleSubtopicDrop = async (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => {
     if (!course || srcId === targetId || parentTopicId !== targetParentId) return;
-    
+
     const parentTopic = course.topics.find((t: any) => t.id === parentTopicId);
     if (!parentTopic || !parentTopic.subtopics) return;
 
@@ -320,7 +300,7 @@ export default function CourseManager() {
     setCourse({ ...course, topics: updatedTopics });
     
     for (let i = 0; i < subtopics.length; i++) {
-      await axios.put(`${API}/courses/${courseId}/topics/${subtopics[i].id}`, { order: i }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/courses/${courseId}/topics/${subtopics[i].id}`, { order: i });
     }
   };
 
@@ -335,7 +315,7 @@ export default function CourseManager() {
       return;
     }
     try {
-      await axios.put(`${API}/courses/${courseId}/topics/${id}`, { name: editingNameValue }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/courses/${courseId}/topics/${id}`, { name: editingNameValue });
       setEditingNameId(null);
       fetchCourse();
     } catch(e) { console.error(e); }
@@ -344,7 +324,7 @@ export default function CourseManager() {
   const deleteTopic = async (id: string) => {
     if (!window.confirm("Delete this topic/subtopic permanently?")) return;
     try {
-      await axios.delete(`${API}/courses/${courseId}/topics/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/courses/${courseId}/topics/${id}`);
       if (editingSubId === id) setEditingSubId(null);
       fetchCourse();
     } catch(e) { console.error(e); }
@@ -375,11 +355,7 @@ export default function CourseManager() {
   const generateQuizDraft = async (topic: any) => {
     try {
       setQuizEditorBusy(true);
-      const res = await axios.post(
-        `${API}/topics/${topic.id}/enrich`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await api.post(`/topics/${topic.id}/enrich`, {});
 
       const updatedTopic = res.data?.topic || topic;
       const quiz = Array.isArray(updatedTopic?.quizzes) && updatedTopic.quizzes.length > 0 ? updatedTopic.quizzes[0] : null;
@@ -418,17 +394,9 @@ export default function CourseManager() {
         .filter((question) => question.question.length > 0);
 
       if (quizEditorQuiz?.id) {
-        await axios.put(
-          `${API}/topics/quizzes/${quizEditorQuiz.id}`,
-          { questions },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        await api.put(`/topics/quizzes/${quizEditorQuiz.id}`, { questions });
       } else {
-        await axios.post(
-          `${API}/quizzes`,
-          { topicId: quizEditorTopic.id, questions },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        await api.post(`/quizzes`, { topicId: quizEditorTopic.id, questions });
       }
 
       setQuizEditorOpen(false);
@@ -814,7 +782,7 @@ export default function CourseManager() {
             </div>
             <p className="text-gray-500 text-sm font-medium">{course.description || "Course Management"}</p>
           </div>
-          <button onClick={async () => { if(window.confirm("Delete?")) { await axios.delete(`${API}/courses/${courseId}`, {headers: {Authorization: `Bearer ${token}`}}); navigate('/dashboard'); } }} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-500 border border-red-100 rounded-xl hover:bg-red-50 transition-all"><Trash2 size={14} /> Delete Course</button>
+          <button onClick={async () => { if(window.confirm("Delete?")) { await api.delete(`/courses/${courseId}`); navigate('/dashboard'); } }} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-500 border border-red-100 rounded-xl hover:bg-red-50 transition-all"><Trash2 size={14} /> Delete Course</button>
         </div>
 
         <div className="bg-gray-100/80 dark:bg-gray-900/50 p-1 rounded-xl flex gap-1 mb-8 border dark:border-gray-800 w-full overflow-x-auto sm:w-fit">

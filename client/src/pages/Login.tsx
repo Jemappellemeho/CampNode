@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import logoFull from '../assets/logo_full.png';
 import { useTheme } from '../ThemeContext';
+import { api, setToken } from '../utils/api';
 
 function Login() {
   const { theme, toggleTheme } = useTheme();
@@ -12,9 +12,11 @@ function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:3000/api/auth/login', formData);
+      const response = await api.post('/auth/login', formData);
       const data = response.data;
-      localStorage.setItem('token', data.token);
+      // Token in Memory speichern (nicht localStorage!) — sicherer gegen XSS
+      setToken(data.token);
+      // User-Daten (email, role, id) in localStorage ist OK — kein sensitiver Wert
       localStorage.setItem('user', JSON.stringify(data.user));
       navigate('/dashboard');
     } catch (err: any) {

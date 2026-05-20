@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import CreateCourseModal from './CreateCourseModal';
+import { api } from '../utils/api';
 import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Globe, LogOut, Lock } from "lucide-react";
 
 // JoinCodeBadge remains identical to your original
@@ -120,27 +120,21 @@ export default function Dashboard() {
   };
 
   const fetchCourses = async () => {
-    const token = localStorage.getItem('token');
+    // Kein token mehr nötig — api-Instanz injiziert den Authorization-Header automatisch
     try {
-      const res = await axios.get('http://localhost:3000/api/courses/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get('/courses/me');
       setCourses(res.data);
-    } catch (err: any) { 
+    } catch (err: any) {
       if (err.response?.status >= 400) {
-        localStorage.clear();
+        localStorage.removeItem('user');
         navigate('/login');
       }
     }
   };
 
   const handleJoinCourse = async () => {
-    const token = localStorage.getItem('token');
     try {
-      await axios.post('http://localhost:3000/api/courses/join', 
-        { joinCode }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/courses/join', { joinCode });
       setJoinCode('');
       fetchCourses();
       alert("Successfully enrolled!");
@@ -148,14 +142,9 @@ export default function Dashboard() {
   };
 
   const handleLeavePublicCourse = async (courseId: string) => {
-    const token = localStorage.getItem('token');
     setLeavingCourseId(courseId);
     try {
-      await axios.post(
-        `http://localhost:3000/api/courses/${courseId}/leave-public`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post(`/courses/${courseId}/leave-public`, {});
       fetchCourses();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Could not leave this public course.');

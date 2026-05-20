@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../utils/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
@@ -129,10 +129,7 @@ export default function Playground() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`${API}/topics/${topicId}/content?lang=en`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/topics/${topicId}/content?lang=en`);
 
       if (res.data?.content) {
         setActivePopupContent({ title, content: res.data.content });
@@ -171,12 +168,11 @@ export default function Playground() {
   useEffect(() => {
     const fetchCourseData = async () => {
       try {
-        const token = localStorage.getItem('token');
         const savedUser = localStorage.getItem('user');
         const parsedUser = savedUser ? JSON.parse(savedUser) : null;
         const [courseRes, progressRes] = await Promise.all([
-          axios.get(`http://localhost:3000/api/courses/${courseId}`, { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get(`http://localhost:3000/api/progress`, { headers: { Authorization: `Bearer ${token}` } })
+          api.get(`/courses/${courseId}`),
+          api.get('/progress')
         ]);
 
         const dbCourse = courseRes.data;
@@ -266,8 +262,7 @@ export default function Playground() {
       const isKnownTopic = pathData.some((node) => node.id === topicId || node.subnodes.some((sub) => sub.id === topicId));
       if (!isKnownTopic) return;
 
-      const token = localStorage.getItem('token');
-      await axios.post(`http://localhost:3000/api/progress`, { topicId, completed: true }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post('/progress', { topicId, completed: true });
       setCompletedIds(prev => (prev.includes(topicId) ? prev : [...prev, topicId]));
     } catch (err) { console.error("Progress failed"); }
   };
@@ -438,18 +433,11 @@ export default function Playground() {
 
     if (nextValue) {
       try {
-        const token = localStorage.getItem('token');
-        await axios.post(
-          `${API}/feedback`,
-          {
-            courseId,
-            topicId: questionEditorTarget.id,
-            content: nextValue,
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+          await api.post('/feedback', {
+          courseId,
+          topicId: questionEditorTarget.id,
+          content: nextValue,
+        });
       } catch (error) {
         console.error('Failed to save feedback:', error);
         alert('Feedback could not be saved.');

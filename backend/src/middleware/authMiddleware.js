@@ -14,7 +14,7 @@ const verifyToken = (req, res, next) => {
 
   try {
     // 4. Den Token mit unserem geheimen Passwort aus der .env entschlüsseln
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "supersecret");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET); // Kein Fallback! JWT_SECRET muss in .env gesetzt sein.
     
     // 5. Die entschlüsselten User-Daten (id, email, role) an die Anfrage dranhängen
     req.user = decoded;

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import { BookOpen, Users, Globe } from "lucide-react";
-
-const API = "http://localhost:3000/api";
+import { api } from "../utils/api";
 
 interface PublicCourse {
   id: string;
@@ -47,16 +45,13 @@ export default function PublicCourses() {
   }, [user, navigate]);
 
   const fetchPublicCourses = async () => {
-    const token = localStorage.getItem("token");
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/courses/public`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get('/courses/public');
       setCourses(res.data || []);
     } catch (error: any) {
       if (error.response?.status >= 400) {
-        localStorage.clear();
+        localStorage.removeItem('user');
         navigate("/login");
       }
     } finally {
@@ -65,14 +60,9 @@ export default function PublicCourses() {
   };
 
   const handleJoinPublicCourse = async (courseId: string) => {
-    const token = localStorage.getItem("token");
     setJoiningId(courseId);
     try {
-      await axios.post(
-        `${API}/courses/${courseId}/join-public`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post(`/courses/${courseId}/join-public`, {});
       await fetchPublicCourses();
       navigate("/dashboard");
     } catch (error: any) {

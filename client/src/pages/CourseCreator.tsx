@@ -6,7 +6,7 @@
 // =============================================================
 
 import React, { useState } from "react";
-import axios from "axios";
+import { api } from "../utils/api";
 
 // TopicInput represents a topic selected from Wikidata search results.
 // wikidataId (Q-number) is required — the backend uses it to fetch the Wikipedia article.
@@ -119,25 +119,11 @@ const addTopic = async (item: any) => {
     try {
       setLoading(true);
 
-      // Token aus dem LocalStorage holen (wurde beim Login gespeichert)
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert("Bitte logge dich zuerst ein.");
-        return;
-      }
-
-      // Gemeinsamer Header für die Authentifizierung
-      const authHeaders = { Authorization: `Bearer ${token}` };
-
-      // 1. Kurs erstellen (Metadaten)
-      const courseRes = await axios.post(
-        "http://localhost:3000/api/courses",
-        {
-          title: courseTitle,
-          description: ""
-        },
-        { headers: authHeaders } // Token mitschicken!
-      );
+      // 1. Kurs erstellen (api-Instanz injiziert Token automatisch)
+      const courseRes = await api.post("/courses", {
+        title: courseTitle,
+        description: ""
+      });
 
       const courseId = courseRes.data.id;
 
@@ -146,22 +132,12 @@ const addTopic = async (item: any) => {
         const formData = new FormData();
         formData.append("name", topic.title);
         formData.append("courseId", courseId);
-        
+
         if (topic.wikidataId) formData.append("wikidataId", topic.wikidataId);
         if (topic.sourceUrl) formData.append("sourceUrl", topic.sourceUrl);
         if (topic.file) formData.append("pdf", topic.file);
 
-        // POST-Request mit Token UND Multipart-Header
-        await axios.post(
-          "http://localhost:3000/api/topics",
-          formData,
-          { 
-            headers: { 
-              ...authHeaders, 
-              "Content-Type": "multipart/form-data" 
-            } 
-          }
-        );
+        await api.post("/topics", formData);
       }
       
       alert("Kurs erfolgreich mit allen Quellen erstellt!");
