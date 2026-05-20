@@ -126,6 +126,16 @@ exports.refresh = (req, res) => {
     // Neuen Access Token ausstellen
     const newAccessToken = generateAccessToken(decoded.userId, decoded.role);
 
+    // Refresh Token Rotation: Auch neuen Refresh Token ausstellen und Cookie ersetzen.
+    // Jeder Refresh Token ist damit nur einmal verwendbar → gestohlene Tokens werden schnell ungültig.
+    const newRefreshToken = generateRefreshToken(decoded.userId, decoded.role);
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
     res.json({ token: newAccessToken });
   } catch (error) {
     // Token ungültig oder abgelaufen → User muss sich neu einloggen
