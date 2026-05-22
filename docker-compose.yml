@@ -14,8 +14,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # KEIN ports: — Datenbank ist nur innerhalb von Docker erreichbar!
+    # Früher war "5432:5432" hier — das hat die DB offen ins Internet gestellt.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -28,8 +28,8 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # KEIN ports: — Caddy leitet /api/* intern an backend:3000 weiter.
+    # Von außen ist Port 3000 nicht erreichbar — nur Caddy darf zum Backend.
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -42,8 +42,14 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
 
-      # CORS
+      # Session (für SSO State/Nonce-Speicherung)
+      SESSION_SECRET: ${SESSION_SECRET}
+
+      # CORS — muss auf die echte Domain gesetzt werden
       CORS_ORIGIN: ${CORS_ORIGIN}
+
+      # Frontend-URL (für SSO-Callback-Redirects)
+      FRONTEND_URL: ${FRONTEND_URL}
 
       # AI-Service (zeigt auf den ai-service-Container)
       AI_SERVICE_URL: http://ai-service:8001
@@ -60,9 +66,14 @@ services:
       OAUTH2_ISSUER_URL: ${OAUTH2_ISSUER_URL}
       OAUTH2_CALLBACK_URL: ${OAUTH2_CALLBACK_URL}
 
+      # Redis (Token Blacklist)
+      REDIS_URL: redis://redis:6379
+
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     # Prisma-Migration beim Start automatisch ausführen
     command: sh -c "npx prisma migrate deploy && node src/server.js"
 
@@ -72,8 +83,7 @@ services:
   ai-service:
     build: ./ai-service
     restart: unless-stopped
-    ports:
-      - "8001:8001"
+    # KEIN ports: — Caddy leitet /ai/* intern an ai-service:8001 weiter.
     environment:
       # Mistral (Uni self-hosted) — OpenAI-kompatibler Endpoint
       AI_API_KEY: ${AI_API_KEY}
@@ -85,5 +95,43 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
 
+  # ─────────────────────────────────────────
+  # Redis — Token Blacklist & Caching
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # KEIN ports: — nur intern erreichbar
+    volumes:
+      - redis_data:/data
+
+  # ─────────────────────────────────────────
+  # Caddy — Reverse Proxy + automatisches HTTPS
+  # ─────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      # Nur Caddy ist von außen erreichbar — alles andere bleibt intern
+      - "80:80"    # HTTP (wird automatisch auf HTTPS weitergeleitet)
+      - "443:443"  # HTTPS
+    environment:
+      # Domain für das Let's-Encrypt-Zertifikat (z.B. campnode.de)
+      DOMAIN: ${DOMAIN}
+    volumes:
+      # Caddy-Konfigurationsdatei
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Gebautes Frontend (erst `cd client && npm run build` ausführen!)
+      - ./client/dist:/srv/frontend:ro
+      # Caddy speichert hier das Let's-Encrypt-Zertifikat — darf nicht verloren gehen!
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - ai-service
+
 volumes:
   postgres_data:
+  redis_data:
+  caddy_data:    # Let's-Encrypt-Zertifikat wird hier gespeichert
+  caddy_config:

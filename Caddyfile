@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────
+# Caddyfile — Reverse Proxy für CampNode
+#
+# Caddy übernimmt automatisch:
+#   - HTTPS-Zertifikat von Let's Encrypt (kostenlos, auto-erneuert)
+#   - HTTP → HTTPS Weiterleitung
+#   - Routing: /api/* → Backend, /ai/* → AI-Service, alles andere → Frontend
+#
+# WICHTIG: {$DOMAIN} muss als Umgebungsvariable gesetzt sein (in .env: DOMAIN=campnode.de)
+# ─────────────────────────────────────────────────────────────
+
+{$DOMAIN} {
+
+    # ── /api/* → Backend (Node.js auf Port 3000) ──────────────
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+
+    # ── /ai/* → AI-Service (FastAPI auf Port 8001) ────────────
+    handle /ai/* {
+        reverse_proxy ai-service:8001
+    }
+
+    # ── Alles andere → Frontend (gebaute Vite-App) ────────────
+    handle {
+        root * /srv/frontend
+        # try_files: erst echte Datei suchen, dann index.html (für React Router)
+        try_files {path} /index.html
+        file_server
+    }
+}

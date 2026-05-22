@@ -5,7 +5,9 @@ import axios from 'axios';
 // Nachteil: Bei Seiten-Refresh ist er weg → wird durch initAuth() wiederhergestellt.
 let accessToken: string | null = null;
 
-const BASE = 'http://localhost:3000/api';
+// In Produktion (hinter Caddy) sind alle Anfragen relativ → /api/...
+// In Entwicklung zeigt VITE_API_URL auf localhost:3000 (client/.env)
+const BASE = import.meta.env.VITE_API_URL || '/api';
 
 // Die zentrale Axios-Instanz. Statt axios.get() nutzt du api.get() überall.
 export const api = axios.create({

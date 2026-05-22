@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import logoFull from '../assets/logo_full.png';
 import { useTheme } from '../ThemeContext';
 import { api, setToken } from '../utils/api';
@@ -71,12 +71,20 @@ function Login() {
           </button>
         </form>
 
-        <p className="text-center mt-4 text-gray-500 dark:text-gray-400">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-blue-500 hover:text-blue-600 font-semibold">
-            Sign up
-          </Link>
-        </p>
+        {/* Trennlinie zwischen lokalem Login und SSO */}
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-600" />
+          <span className="text-sm text-gray-400 dark:text-gray-500">oder</span>
+          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-600" />
+        </div>
+
+        {/* SSO-Button: normaler Link — kein API-Call, Browser wird weitergeleitet */}
+        <a
+          href={`${import.meta.env.VITE_API_URL || '/api'}/auth/sso/login`}
+          className="flex items-center justify-center gap-2 w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-semibold transition-colors"
+        >
+          Mit Uni-Account anmelden
+        </a>
       </div>
     </div>
   );
