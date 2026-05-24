@@ -197,10 +197,10 @@ export default function Playground() {
             hasArticle: Boolean(sub.articleUrl || sub.wikidataId || sub.content),
             hasQuiz: Array.isArray(sub.quizzes) && sub.quizzes.length > 0,
             resources: [
-              ...(sub.videoUrl ? [{ type: 'video', title: 'Video', url: sub.videoUrl }] : []),
-              ...((sub.articleUrl || sub.wikidataId || sub.content) ? [{ type: 'article', title: 'Article', url: sub.articleUrl }] : []),
-              ...(sub.podcastUrl ? [{ type: 'podcast', title: 'Podcast', url: sub.podcastUrl }] : []),
-              ...((Array.isArray(sub.quizzes) && sub.quizzes.length > 0) ? [{ type: 'quiz', title: 'Quiz', url: '#' }] : [])
+              ...(sub.videoUrl ? [{ type: 'video', title: sub.name, url: sub.videoUrl }] : []),
+              ...((sub.articleUrl || sub.wikidataId || sub.content) ? [{ type: 'article', title: sub.name, url: sub.articleUrl }] : []),
+              ...(sub.podcastUrl ? [{ type: 'podcast', title: sub.name, url: sub.podcastUrl }] : []),
+              ...((Array.isArray(sub.quizzes) && sub.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#' }] : [])
             ]
           }));
 
@@ -212,10 +212,10 @@ export default function Playground() {
             hasArticle: Boolean(topic.articleUrl || topic.wikidataId || topic.content),
             hasQuiz: Array.isArray(topic.quizzes) && topic.quizzes.length > 0,
             resources: [
-              ...(topic.videoUrl ? [{ type: 'video', title: 'Video', url: topic.videoUrl }] : []),
-              ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: 'Article', url: topic.articleUrl }] : []),
-              ...(topic.podcastUrl ? [{ type: 'podcast', title: 'Podcast', url: topic.podcastUrl }] : []),
-              ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Quiz', url: '#' }] : [])
+              ...(topic.videoUrl ? [{ type: 'video', title: topic.name, url: topic.videoUrl }] : []),
+              ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: topic.name, url: topic.articleUrl }] : []),
+              ...(topic.podcastUrl ? [{ type: 'podcast', title: topic.name, url: topic.podcastUrl }] : []),
+              ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#' }] : [])
             ],
             status: index === 0 ? 'current' : 'locked',
             progress: { completed: backendCompleted.includes(topic.id) ? 1 : 0, total: 1 },
@@ -525,13 +525,17 @@ export default function Playground() {
             </div>
           </div>
         </div>
-        <button onClick={() => setSyllabusOpen(true)} className="font-bold text-xs sm:text-sm px-6 py-2 rounded-xl text-white bg-[#2563EB]">SYLLABUS</button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => navigate(`/retro/${courseId}`)} className="font-mono font-bold text-xs sm:text-sm px-4 sm:px-6 py-2 rounded-xl border hover:opacity-80 transition-opacity uppercase shadow-sm" style={{ backgroundColor: "var(--cn-page)", color: "var(--cn-text)", borderColor: "var(--cn-border)" }}>
+            [RETRO MODE]
+          </button>
+          <button onClick={() => setSyllabusOpen(true)} className="font-bold text-xs sm:text-sm px-6 py-2 rounded-xl text-white bg-[#2563EB]">SYLLABUS</button>
+        </div>
       </div>
 
       <main className="pb-16 sm:pb-24 flex flex-col items-center px-3 sm:px-4 pt-16 sm:pt-20">
-        <div className="mb-6 text-center">
-            <h1 className="text-xl sm:text-3xl font-bold mb-1" style={{ color: "var(--cn-text)" }}>Welcome, {user?.name || "Student"}</h1>
-            <p style={{ color: "var(--cn-muted)" }} className="text-sm">{courseTitle}</p>
+        <div className="mb-10 mt-4 text-center px-4 max-w-4xl">
+            <h1 className="text-3xl sm:text-5xl font-black tracking-tight drop-shadow-sm" style={{ color: "var(--cn-text)" }}>{courseTitle}</h1>
         </div>
 
         {pathData.map((node, index) => (
@@ -713,7 +717,7 @@ export default function Playground() {
           nodeColor={selectedSubnode.color}
           resources={selectedSubnode.resources.map((resource) => ({
             ...resource,
-            duration: resource.type === 'quiz' ? 'Knowledge check' : 'Open learning resource',
+            duration: resource.type === 'video' ? 'Video Resource' : resource.type === 'article' ? 'Reading Material' : resource.type === 'podcast' ? 'Audio Resource' : 'Required to pass',
           }))}
           completed={selectedSubnode.completed}
           quizCompleted={selectedSubnode.quizCompleted}

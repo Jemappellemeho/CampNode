@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
-
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 interface Resource {
   type: 'video' | 'article' | 'podcast' | 'quiz';
   title: string;
@@ -51,6 +52,54 @@ function NodeDetailPanel({
     }
   };
 
+  const ResourceItem = ({ resource }: { resource: Resource }) => {
+    const [metadata, setMetadata] = useState<{ title?: string; website?: string } | null>(null);
+
+    useEffect(() => {
+      let isMounted = true;
+      if (resource.url && resource.url !== '#' && !resource.url.includes('/uploads/')) {
+        axios.get(`http://localhost:3000/api/metadata?url=${encodeURIComponent(resource.url)}`)
+          .then(res => {
+            if (isMounted && res.data) setMetadata(res.data);
+          })
+          .catch(() => {});
+      } else if (resource.url && resource.url.includes('/uploads/')) {
+        const filename = resource.url.split('/').pop()?.split('?')[0] || '';
+        const cleanName = decodeURIComponent(filename).replace(/^\d+-/, '').replace(/_/g, ' ');
+        if (isMounted) setMetadata({ title: cleanName, website: 'Local File' });
+      }
+      return () => { isMounted = false; };
+    }, [resource.url]);
+
+    const displayTitle = metadata?.title || resource.title;
+    let displayDuration = resource.duration;
+    if (metadata?.website) {
+      displayDuration = `${metadata.website} • ${resource.duration}`;
+    }
+
+    return (
+      <button
+        className={`w-full p-4 rounded-xl ${getBgColor(resource.type)} transition-all text-left flex items-center gap-4 group`}
+        onClick={() => onOpenResource(resource)}
+      >
+        <span className="text-3xl">{getIcon(resource.type)}</span>
+        <div className="flex-1 overflow-hidden">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white truncate">
+            {displayTitle}
+          </h3>
+          {displayDuration && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
+              {displayDuration}
+            </p>
+          )}
+        </div>
+        <span className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 flex-shrink-0">
+          →
+        </span>
+      </button>
+    );
+  };
+
   return (
     <>
       {/* Backdrop */}
@@ -82,26 +131,7 @@ function NodeDetailPanel({
         {/* Resources */}
         <div className="p-6 space-y-3">
           {resources.map((resource, idx) => (
-            <button
-              key={idx}
-              className={`w-full p-4 rounded-xl ${getBgColor(resource.type)} transition-all text-left flex items-center gap-4 group`}
-              onClick={() => onOpenResource(resource)}
-            >
-              <span className="text-3xl">{getIcon(resource.type)}</span>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white">
-                  {resource.title}
-                </h3>
-                {resource.duration && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {resource.duration}
-                  </p>
-                )}
-              </div>
-              <span className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300">
-                →
-              </span>
-            </button>
+            <ResourceItem key={idx} resource={resource} />
           ))}
         </div>
 

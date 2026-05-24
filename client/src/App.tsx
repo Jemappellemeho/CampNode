@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import CourseManager from "./pages/CourseManager";
 import Playground from "./pages/Playground";
+import Retro from "./pages/Retro";
 import Quiz from "./pages/Quiz"; 
 import PublicCourses from "./pages/PublicCourses";
 
@@ -34,6 +35,7 @@ function App() {
             */}
             <Route path="/playground/:courseId" element={<Playground />} />
             <Route path="/playground" element={<Playground />} />
+            <Route path="/retro/:courseId" element={<Retro />} />
             
             {/* Administrative Management */}
             <Route path="/prof/course/:courseId" element={<CourseManager />} />

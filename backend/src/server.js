@@ -10,7 +10,7 @@ const wikiRoutes = require("./routes/wikiRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const feedbackRoutes = require("./routes/feedbackRoutes");
 const statisticsRoutes = require("./routes/statisticsRoutes");
-
+const metadataRoutes = require("./routes/metadataRoutes");
 
 const app = express();
 
@@ -48,6 +48,8 @@ app.use("/api/feedback", feedbackRoutes);
 //statistics
 app.use("/api/statistics", statisticsRoutes);
 
+//metadata
+app.use("/api/metadata", metadataRoutes);
 
 
 const port = process.env.PORT || 3000;

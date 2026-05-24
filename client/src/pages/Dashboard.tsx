@@ -282,17 +282,48 @@ export default function Dashboard() {
                 )}
 
                 <div className="mt-auto flex gap-3">
-                <button
-                  onClick={() => {
-                    closeGuide();
-                    user.role === 'PROFESSOR'
-                      ? navigate(`/prof/course/${course.id}`)
-                      : navigate(`/playground/${course.id}`);
-                    }}
-                    className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
-                >
-                    {user.role === 'PROFESSOR' ? 'Manage Course' : 'Open Course'} <ChevronRight size={16}/>
-                  </button>
+                  {user.role === 'PROFESSOR' ? (
+                    <button
+                      onClick={() => {
+                        closeGuide();
+                        navigate(`/prof/course/${course.id}`);
+                      }}
+                      className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-gray-700 dark:text-blue-400 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
+                    >
+                      Manage Course <ChevronRight size={16}/>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          closeGuide();
+                          navigate(`/playground/${course.id}`);
+                        }}
+                        className={`w-full py-2 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all ${
+                          course.isPublic
+                            ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50"
+                            : "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                        }`}
+                        title="Classic Playground"
+                      >
+                        Classic <ChevronRight size={16}/>
+                      </button>
+                      <button
+                        onClick={() => {
+                          closeGuide();
+                          navigate(`/retro/${course.id}`);
+                        }}
+                        className={`w-full py-2 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all ${
+                          course.isPublic
+                            ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50"
+                            : "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                        }`}
+                        title="Retro Mode Playground"
+                      >
+                        Retro Mode <ChevronRight size={16}/>
+                      </button>
+                    </>
+                  )}
                   {user.role === 'STUDENT' && course.isPublic && (
                     <button
                       onClick={() => handleLeavePublicCourse(course.id)}
