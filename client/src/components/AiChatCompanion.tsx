@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, X, Send, BookOpen, Bot, User, Loader2 } from "lucide-react";
-import axios from "axios";
+import { api } from "../utils/api";
 
 // ─── Type Declarations ────────────────────────────────────────────────────────
 interface Message {
@@ -96,17 +96,10 @@ export default function AiChatCompanion({ courseId, courseTitle, topics }: AiCha
     setIsLoading(true);
 
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.post(
-        "http://localhost:3000/api/ai/ask",
-        {
-          course_id: courseId,
-          question: trimmed,
-        },
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        }
-      );
+      const res = await api.post("/ai/ask", {
+        course_id: courseId,
+        question: trimmed,
+      });
 
       // Handle successful RAG response
       const aiResponse = res.data;

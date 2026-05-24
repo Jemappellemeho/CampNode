@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import axios from 'axios';
 import { X, Search, BookOpen, Plus, FileText, Globe, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-
-const API = 'http://localhost:3000/api';
+import { api } from '../utils/api';
 
 interface TopicDraft {
   clientId: string;
@@ -42,8 +40,6 @@ export default function CreateCourseModal({
 
   if (!isOpen) return null;
 
-  const token = localStorage.getItem('token');
-
   const searchWiki = async (query: string) => {
     setSearch(query);
     if (query.trim().length < 3) {
@@ -52,7 +48,7 @@ export default function CreateCourseModal({
     }
 
     try {
-      const res = await axios.get(`${API}/wiki/search?q=${query}`);
+      const res = await api.get(`/wiki/search?q=${query}`);
       setResults(res.data || []);
     } catch (error) {
       console.error('Wikidata search failed', error);
@@ -101,11 +97,6 @@ export default function CreateCourseModal({
   };
 
   const saveCourse = async () => {
-    if (!token) {
-      alert('Please log in again.');
-      return;
-    }
-
     if (!course.title.trim()) {
       alert('Enter a course title.');
       return;
@@ -118,15 +109,11 @@ export default function CreateCourseModal({
 
     setLoading(true);
     try {
-      const courseRes = await axios.post(
-        `${API}/courses`,
-        {
-          title: course.title.trim(),
-          description: course.description.trim(),
-          isPublic: course.isPublic,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const courseRes = await api.post('/courses', {
+        title: course.title.trim(),
+        description: course.description.trim(),
+        isPublic: course.isPublic,
+      });
 
       const newCourseId = courseRes.data.course?.id || courseRes.data.id;
 
@@ -134,18 +121,13 @@ export default function CreateCourseModal({
         const topic = topics[index];
 
         if (topic.mode === 'wikidata') {
-          // Wikidata topics use English content by default in this modal flow.
-          await axios.post(
-            `${API}/courses/${newCourseId}/topics`,
-              {
-                name: topic.label,
-                description: topic.description || '',
-                wikidataId: topic.wikidataId,
-                order: index,
-                language: wikidataLanguage,
-              },
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
+          await api.post(`/courses/${newCourseId}/topics`, {
+            name: topic.label,
+            description: topic.description || '',
+            wikidataId: topic.wikidataId,
+            order: index,
+            language: wikidataLanguage,
+          });
           continue;
         }
 
@@ -156,12 +138,8 @@ export default function CreateCourseModal({
         if (topic.sourceUrl) formData.append('sourceUrl', topic.sourceUrl);
         if (topic.file) formData.append('pdf', topic.file);
 
-        await axios.post(`${API}/courses/${newCourseId}/topics`, formData, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data',
-          },
-        });
+        // Content-Type header nicht manuell setzen — axios erkennt FormData automatisch
+        await api.post(`/courses/${newCourseId}/topics`, formData);
       }
 
       onCreated?.();

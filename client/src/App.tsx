@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { ThemeProvider } from "./ThemeContext";
 import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
@@ -9,10 +10,25 @@ import Profile from "./pages/Profile";
 import CourseManager from "./pages/CourseManager";
 import Playground from "./pages/Playground";
 import Retro from "./pages/Retro";
-import Quiz from "./pages/Quiz"; 
+import Quiz from "./pages/Quiz";
 import PublicCourses from "./pages/PublicCourses";
+import { initAuth } from "./utils/api";
 
 function App() {
+  // authReady: Warten bis initAuth() fertig ist, bevor die App gerendert wird.
+  // Verhindert kurzes Aufflackern der Login-Seite beim Refresh obwohl der User eingeloggt ist.
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    // Beim App-Start: Token aus dem httpOnly Cookie wiederherstellen
+    initAuth().finally(() => setAuthReady(true));
+  }, []);
+
+  if (!authReady) {
+    // Kurzes Laden während der Token wiederhergestellt wird
+    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading...</div>;
+  }
+
   return (
     <ThemeProvider>
       <BrowserRouter>

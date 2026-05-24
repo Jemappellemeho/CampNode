@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import axios from "axios";
+import axios from "axios"; // Nur noch für axios.isAxiosError() gebraucht
 import { ArrowLeft, Trophy, GripVertical, CheckCircle2, XCircle } from "lucide-react";
+import { api } from "../utils/api";
 
 export default function Quiz() {
   const navigate = useNavigate();
@@ -78,10 +79,7 @@ export default function Quiz() {
   useEffect(() => {
     const load = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`http://localhost:3000/api/topics/quizzes/topic/${topicId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get(`/topics/quizzes/topic/${topicId}`);
         setLoadError('');
         
         if (res.data && Array.isArray(res.data.questions) && res.data.questions.length > 0) {
@@ -173,20 +171,13 @@ export default function Quiz() {
     if (!quiz?.id || !topicId) return;
 
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      await axios.post(
-        'http://localhost:3000/api/statistics/quiz-result',
-        {
-          quizId: quiz.id,
-          topicId,
-          score: finalScore,
-          totalQuestions,
-          questionStats: finalAnswerResults,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/statistics/quiz-result', {
+        quizId: quiz.id,
+        topicId,
+        score: finalScore,
+        totalQuestions,
+        questionStats: finalAnswerResults,
+      });
     } catch (error) {
       console.error('Could not save quiz statistics:', error);
     }
@@ -228,12 +219,7 @@ export default function Quiz() {
           }
 
           if (nextResourceIds.includes(topicId)) {
-            const token = localStorage.getItem('token');
-            if (token) {
-              axios.post(`http://localhost:3000/api/progress`, { topicId, completed: true }, {
-                headers: { Authorization: `Bearer ${token}` }
-              }).catch(() => {});
-            }
+            api.post('/progress', { topicId, completed: true }).catch(() => {});
           }
         } catch {
           // Ignore local progress persistence errors and still finish the quiz.

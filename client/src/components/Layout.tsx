@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { useTheme } from "../ThemeContext";
+import { api, clearToken } from "../utils/api";
 import logoFull from "../assets/logo_full.png";
 import logoSmall from "../assets/logo_small.png";
 import { User, BookOpen, LogOut, ChevronDown, Globe } from "lucide-react";
@@ -53,10 +54,19 @@ export default function Layout({ children }: { children?: any }) {
     setIsOpen(false);
   }, [location.pathname]);
 
-  const handleLogOut = () => {
-    localStorage.removeItem("token");
+  const handleLogOut = async () => {
+    // 1. Token aus Memory löschen
+    clearToken();
+    // 2. User-Daten aus localStorage löschen
     localStorage.removeItem("user");
-    setUser(null); // Clear state immediately
+    // 3. Backend informieren → löscht den httpOnly Refresh Token Cookie
+    //    Ohne diesen Schritt könnte der User über den Cookie eine neue Session starten
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Logout-Fehler ignorieren — wir loggen lokal trotzdem aus
+    }
+    setUser(null);
     navigate("/login");
   };
 
