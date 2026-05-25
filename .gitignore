@@ -4,9 +4,9 @@ client/node_modules/
 backend/node_modules/
 
 # Environment & Secrets
-.env
-backend/.env
-client/.env
+**/.env*
+!**/.env.example
+
 
 # Build Caches & Tooling (The error fix)
 client/.vite/
