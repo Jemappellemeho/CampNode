@@ -59,8 +59,8 @@ const CourseCreator: React.FC = () => {
     }
 
     try {
-      const res = await axios.get(
-        `http://localhost:3000/api/wiki/search?q=${q}`
+      const res = await api.get(
+        `/wiki/search?q=${q}`
       );
       setResults(res.data);
     } catch (err) {
@@ -89,7 +89,7 @@ const addTopic = async (item: any) => {
   // Wenn das Thema eine Wikidata-ID hat (aus der Suche), suchen wir passende Unterthemen
   if (item.id) {
     try {
-      const res = await axios.get(`http://localhost:3000/api/wiki/suggestions/${item.id}`);
+      const res = await api.get(`/wiki/suggestions/${item.id}`);
       setSuggestions(res.data);
     } catch (err) {
       console.log("Fehler bei Vorschlägen:", err);

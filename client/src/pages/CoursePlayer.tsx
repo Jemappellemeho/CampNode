@@ -10,8 +10,6 @@ import {
 } from 'lucide-react';
 import TopicAbstractModal from '../components/TopicAbstractModal';
 
-const API = 'http://localhost:3000/api';
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SubTopic {
   id: string;

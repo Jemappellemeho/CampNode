@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { api } from '../utils/api';
 
-const API = 'http://localhost:3000/api';
 const API_ORIGIN = 'http://localhost:3000';
 const BLUE = '#1E6FFF';
 

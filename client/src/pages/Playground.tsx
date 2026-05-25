@@ -7,7 +7,6 @@ import NodeDetailPanel from '../components/NodeDetailPanel';
 import AiChatCompanion from '../components/AiChatCompanion';
 import { MonitorPlay, BookOpen, Headphones, ChevronLeft } from 'lucide-react';
 
-const API = 'http://localhost:3000/api';
 const API_ORIGIN = 'http://localhost:3000';
 
 type Status = 'completed' | 'current' | 'locked';

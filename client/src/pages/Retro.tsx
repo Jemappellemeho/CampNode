@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../utils/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
 import NodeDetailPanel from '../components/NodeDetailPanel';
 import AiChatCompanion from '../components/AiChatCompanion';
-import { MonitorPlay, BookOpen, Headphones, ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 
-const API = 'http://localhost:3000/api';
+// API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
 const API_ORIGIN = 'http://localhost:3000';
 
 type Status = 'completed' | 'current' | 'locked';
@@ -135,10 +135,7 @@ export default function Retro() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`${API}/topics/${topicId}/content?lang=en`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/topics/${topicId}/content?lang=en`);
 
       if (res.data?.content) {
         setActivePopupContent({ title, content: res.data.content });
@@ -180,12 +177,11 @@ export default function Retro() {
   // for the 'title' of the resource, rather than extracting a generic website URL.
   const fetchCourseData = async () => {
       try {
-        const token = localStorage.getItem('token');
         const savedUser = localStorage.getItem('user');
         const parsedUser = savedUser ? JSON.parse(savedUser) : null;
         const [courseRes, progressRes] = await Promise.all([
-          axios.get(`http://localhost:3000/api/courses/${courseId}`, { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get(`http://localhost:3000/api/progress`, { headers: { Authorization: `Bearer ${token}` } })
+          api.get(`/courses/${courseId}`),
+          api.get(`/progress`)
         ]);
 
         const dbCourse = courseRes.data;
@@ -274,8 +270,7 @@ export default function Retro() {
       const isKnownTopic = pathData.some((node) => node.id === topicId || node.subnodes.some((sub) => sub.id === topicId));
       if (!isKnownTopic) return;
 
-      const token = localStorage.getItem('token');
-      await axios.post(`http://localhost:3000/api/progress`, { topicId, completed: true }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post(`/progress`, { topicId, completed: true });
       setCompletedIds(prev => (prev.includes(topicId) ? prev : [...prev, topicId]));
     } catch (err) { console.error("Progress failed"); }
   };
@@ -423,11 +418,9 @@ export default function Retro() {
     const nextValue = questionDraft.trim();
     if (nextValue) {
       try {
-        const token = localStorage.getItem('token');
-        await axios.post(
-          `${API}/feedback`,
-          { courseId, topicId: questionEditorTarget.id, content: nextValue },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          `/feedback`,
+          { courseId, topicId: questionEditorTarget.id, content: nextValue }
         );
       } catch (error) {
         console.error('Failed to save feedback:', error);
@@ -590,13 +583,18 @@ export default function Retro() {
   });
 
   // Generate Core SVG Paths (Straight lines with juice effect)
-  const corePaths = [];
+  interface CorePath {
+    d: string;
+    color: string;
+    isGlowing: boolean;
+    key: string;
+  }
+  const corePaths: CorePath[] = [];
   for (let i = 0; i < coreNodes.length - 1; i++) {
     const p1 = coreCoordsMap[coreNodes[i].id];
     const p2 = coreCoordsMap[coreNodes[i+1].id];
     const d = `M ${p1.px} ${p1.py} L ${p2.px} ${p2.py}`;
     
-    const n1 = coreNodes[i];
     const n2 = coreNodes[i+1];
     const isNode2Complete = n2.isMain ? isNodeComplete(n2.nodeRef) : isCoreComplete(n2.id);
     
@@ -611,7 +609,13 @@ export default function Retro() {
   }
 
   // Generate AI SVG Paths (Sequential circuit-board path)
-  const aiPaths = [];
+  interface AiPath {
+    d: string;
+    color: string;
+    isGlowing: boolean;
+    key: string;
+  }
+  const aiPaths: AiPath[] = [];
   Object.values(aiNodesByParent).forEach((nodesForParent) => {
     nodesForParent.forEach((node, localIdx) => {
       const coords = aiCoordsMap[node.id];
