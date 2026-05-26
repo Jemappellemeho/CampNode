@@ -7,6 +7,8 @@ import {
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search
 } from 'lucide-react';
 import { api } from '../utils/api';
+import GuideOverlay from '../components/GuideOverlay';
+import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 
 const API_ORIGIN = 'http://localhost:3000';
 const BLUE = '#1E6FFF';
@@ -60,6 +62,15 @@ export default function CourseManager() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"overview" | "students" | "nodes" | "statistics" | "feedback">("overview");
   const [course, setCourse] = useState<any>(null);
+  const [user] = useState<any>(() => {
+    const saved = localStorage.getItem('user');
+    if (!saved) return null;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return null;
+    }
+  });
   const [feedback, setFeedback] = useState<any[]>([]);
   const [feedbackError, setFeedbackError] = useState('');
   const [statistics, setStatistics] = useState<any>(null);
@@ -101,6 +112,7 @@ export default function CourseManager() {
   const [quizEditorBusy, setQuizEditorBusy] = useState(false);
   const [quizEditorSaving, setQuizEditorSaving] = useState(false);
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   
   const fetchCourse = useCallback(async () => {
     try {
@@ -110,6 +122,17 @@ export default function CourseManager() {
   }, [courseId]);
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
+
+  useEffect(() => {
+    if (course && user && !hasSeenGuide(user, 'professor-course')) {
+      setShowGuide(true);
+    }
+  }, [course, user]);
+
+  const closeGuide = () => {
+    markGuideSeen(user, 'professor-course');
+    setShowGuide(false);
+  };
 
   const fetchFeedback = useCallback(async () => {
     if (!courseId) return;
@@ -1315,6 +1338,37 @@ export default function CourseManager() {
               </div>
             </div>
           </div>
+        )}
+
+        {showGuide && (
+          <GuideOverlay
+            onClose={closeGuide}
+            arrows={[
+              { d: 'M24 23 C31 28 37 33 43 39' },
+              { d: 'M50 26 C50 30 50 33 50 36' },
+              { d: 'M76 66 C68 58 60 51 52 45' },
+            ]}
+            steps={[
+              {
+                number: 1,
+                title: 'Course Overview',
+                className: 'left-4 top-28 lg:left-12 lg:top-32',
+                body: <p>Copy the join code and review the visibility your students will see.</p>,
+              },
+              {
+                number: 2,
+                title: 'Course Sections',
+                className: 'left-1/2 top-32 -translate-x-1/2',
+                body: <p>Use these tabs for students, curriculum nodes, quiz statistics, and feedback.</p>,
+              },
+              {
+                number: 3,
+                title: 'Build Nodes',
+                className: 'right-4 bottom-20 lg:right-16',
+                body: <p>Open Nodes to add topics, resources, quizzes, and the course structure.</p>,
+              },
+            ]}
+          />
         )}
       </div>
     </>

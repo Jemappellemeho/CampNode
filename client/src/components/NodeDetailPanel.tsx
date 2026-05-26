@@ -6,6 +6,7 @@ interface Resource {
   title: string;
   url?: string;
   duration?: string;
+  estimatedTime?: string;
 }
 
 interface NodeDetailPanelProps {
@@ -76,6 +77,7 @@ function NodeDetailPanel({
     if (metadata?.website) {
       displayDuration = `${metadata.website} • ${resource.duration}`;
     }
+    const estimatedTime = resource.estimatedTime;
 
     return (
       <button
@@ -93,8 +95,13 @@ function NodeDetailPanel({
             </p>
           )}
         </div>
-        <span className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 flex-shrink-0">
-          →
+        <span className="flex flex-shrink-0 flex-col items-center gap-1 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300">
+          <span className="text-2xl leading-none">→</span>
+          {estimatedTime && (
+            <span className="min-w-[3.5rem] rounded-full bg-white/65 px-2 py-0.5 text-center text-xs font-bold leading-5 text-gray-600 shadow-sm dark:bg-gray-900/35 dark:text-gray-300">
+              {estimatedTime}
+            </span>
+          )}
         </span>
       </button>
     );
@@ -148,7 +155,17 @@ function NodeDetailPanel({
               disabled={!quizResource}
               className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition-all"
             >
-              Take Quiz to Skip →
+              <span className="flex items-center justify-center gap-3">
+                <span>Take Quiz to Skip</span>
+                <span className="flex flex-col items-center gap-0.5">
+                  <span className="text-xl leading-none">→</span>
+                  {quizResource?.estimatedTime && (
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold leading-5">
+                      {quizResource.estimatedTime}
+                    </span>
+                  )}
+                </span>
+              </span>
             </button>
 
             <div className="mt-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">

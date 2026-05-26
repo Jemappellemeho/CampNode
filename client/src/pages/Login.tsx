@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import logoFull from '../assets/logo_full.png';
 import { useTheme } from '../ThemeContext';
 import { api, setToken } from '../utils/api';
+import { resetGuideSession } from '../utils/guideSession';
 
 function Login() {
   const { theme, toggleTheme } = useTheme();
@@ -18,6 +19,7 @@ function Login() {
       setToken(data.token);
       // User-Daten (email, role, id) in localStorage ist OK — kein sensitiver Wert
       localStorage.setItem('user', JSON.stringify(data.user));
+      resetGuideSession();
       navigate('/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);

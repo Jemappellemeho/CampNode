@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import CreateCourseModal from './CreateCourseModal';
 import { api } from '../utils/api';
 import { BookOpen, Users, Plus, Copy, Check, ChevronRight, Globe, LogOut, Lock } from "lucide-react";
+import GuideOverlay from '../components/GuideOverlay';
+import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 
 // JoinCodeBadge remains identical to your original
 function JoinCodeBadge({ code }: { code: string }) {
@@ -28,46 +30,6 @@ function JoinCodeBadge({ code }: { code: string }) {
         </>
       )}
     </button>
-  );
-}
-
-function GuideModal({
-  role,
-  onClose
-}: {
-  role: "PROFESSOR" | "STUDENT";
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-      
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 text-center">
-        
-        <h2 className="text-2xl font-bold mb-4 dark:text-white">
-          Welcome to CampNode 🚀
-        </h2>
-
-        {role === "PROFESSOR" ? (
-          <div className="text-left space-y-3 text-sm dark:text-gray-200">
-            <p><strong>1.</strong> Click <b>"Create Course"</b> to get started.</p>
-            <p><strong>2.</strong> Click <b>"Manage Course"</b> to organize and edit your course.</p>
-          </div>
-        ) : (
-          <div className="text-left space-y-3 text-sm dark:text-gray-200">
-            <p><strong>1.</strong> Enter the course code to join a course.</p>
-            <p><strong>2.</strong> Click <b>"Open Course"</b> to start learning.</p>
-          </div>
-        )}
-
-        <button
-          onClick={onClose}
-          className="mt-6 w-full bg-blue-600 text-white py-2 rounded-xl font-bold hover:bg-blue-700 transition"
-        >
-          Start
-        </button>
-
-      </div>
-    </div>
   );
 }
 
@@ -107,15 +69,13 @@ export default function Dashboard() {
   }, [user, navigate]);
 
   useEffect(() => {
-    const seen = sessionStorage.getItem("guideShown");
-  
-    if (!seen && user) {
+    if (user && !hasSeenGuide(user, 'dashboard')) {
       setShowGuide(true);
     }
   }, [user]);
   
   const closeGuide = () => {
-    sessionStorage.setItem("guideShown", "true");
+    markGuideSeen(user, 'dashboard');
     setShowGuide(false);
   };
 
@@ -338,9 +298,66 @@ onCreated={() => { setIsModalOpen(false); fetchCourses(); }}
 
 />
 {showGuide && (
-  <GuideModal
-    role={user.role}
+  <GuideOverlay
     onClose={closeGuide}
+    arrows={user.role === 'PROFESSOR'
+      ? [
+          { d: 'M72 18 C77 18 80 15 84 14' },
+          { d: 'M55 31 C60 31 62 21 67 17' },
+        ]
+      : [
+          { d: 'M34 30 C42 27 54 26 62 24' },
+          { d: 'M68 18 C72 17 75 16 78 14' },
+          { d: 'M36 67 C33 61 30 57 27 51' },
+        ]}
+    steps={user.role === 'PROFESSOR'
+      ? [
+          {
+            number: 1,
+            title: 'Create a Course',
+            className: 'right-4 top-32 lg:right-8 lg:top-40',
+            body: (
+              <>
+                <p>Start by creating your own course.</p>
+                <p>1. Enter a course name</p>
+                <p>2. Choose Public or Private</p>
+                <p>3. Add your course resources</p>
+              </>
+            ),
+          },
+          {
+            number: 2,
+            title: 'Public Courses',
+            className: 'left-1/2 top-36 -translate-x-1/2',
+            body: <p>Explore public courses created by other teachers.</p>,
+          },
+          {
+            number: 3,
+            title: 'Manage Course',
+            className: 'left-4 bottom-16 lg:left-16',
+            body: <p>Open a course card to manage students, nodes, quizzes, resources, and feedback.</p>,
+          },
+        ]
+      : [
+          {
+            number: 1,
+            title: 'Join a Course',
+            className: 'left-4 top-44 lg:left-16',
+            body: <p>Enter an invitation code from your teacher, then press Join.</p>,
+          },
+          {
+            number: 2,
+            title: 'Public Courses',
+            className: 'right-4 top-32 lg:right-24',
+            body: <p>Browse open courses that you can join without an invitation code.</p>,
+          },
+          {
+            number: 3,
+            title: 'Start Learning',
+            className: 'left-1/2 bottom-16 -translate-x-1/2',
+            body: <p>Use Classic or Retro Mode on a course card to open the learning map.</p>,
+          },
+        ]}
   />
 )}
       </div>

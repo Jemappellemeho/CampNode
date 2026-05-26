@@ -6,6 +6,9 @@ import TopicAbstractModal from '../components/TopicAbstractModal';
 import NodeDetailPanel from '../components/NodeDetailPanel';
 import AiChatCompanion from '../components/AiChatCompanion';
 import { ChevronLeft } from 'lucide-react';
+import GuideOverlay from '../components/GuideOverlay';
+import { estimateLearningTime, formatLearningTime, getResourceTypeLabel } from '../utils/learningTime';
+import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
 const API_ORIGIN = 'http://localhost:3000';
@@ -23,6 +26,9 @@ interface Subnode {
     type: 'video' | 'article' | 'podcast' | 'quiz';
     title: string;
     url?: string;
+    duration?: string;
+    estimatedTime?: string;
+    estimatedMinutes?: number | null;
   }>;
 }
 
@@ -37,6 +43,9 @@ interface MainTopic {
     type: 'video' | 'article' | 'podcast' | 'quiz';
     title: string;
     url?: string;
+    duration?: string;
+    estimatedTime?: string;
+    estimatedMinutes?: number | null;
   }>;
   status: Status;
   subnodes: Subnode[];
@@ -78,6 +87,7 @@ export default function Retro() {
   const [topicNotes, setTopicNotes] = useState<Record<string, string>>({});
   const [questionEditorTarget, setQuestionEditorTarget] = useState<QuestionEditorTarget | null>(null);
   const [questionDraft, setQuestionDraft] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
 
   // Screen sizing for grid cols (using clientWidth to avoid scrollbar overflow!)
   const [windowWidth, setWindowWidth] = useState(document.documentElement.clientWidth || window.innerWidth);
@@ -156,6 +166,17 @@ export default function Retro() {
   }, [navigate]);
 
   useEffect(() => {
+    if (user && pathData.length > 0 && !hasSeenGuide(user, 'student-course')) {
+      setShowGuide(true);
+    }
+  }, [user, pathData.length]);
+
+  const closeGuide = () => {
+    markGuideSeen(user, 'student-course');
+    setShowGuide(false);
+  };
+
+  useEffect(() => {
     if (!courseId) return;
     const storedUser = localStorage.getItem('user');
     let parsedUser: any = null;
@@ -201,10 +222,10 @@ export default function Retro() {
             hasArticle: Boolean(sub.articleUrl || sub.wikidataId || sub.content),
             hasQuiz: Array.isArray(sub.quizzes) && sub.quizzes.length > 0,
             resources: [
-              ...(sub.videoUrl ? [{ type: 'video', title: sub.name, url: sub.videoUrl }] : []),
-              ...((sub.articleUrl || sub.wikidataId || sub.content) ? [{ type: 'article', title: sub.name, url: sub.articleUrl }] : []),
-              ...(sub.podcastUrl ? [{ type: 'podcast', title: sub.name, url: sub.podcastUrl }] : []),
-              ...((Array.isArray(sub.quizzes) && sub.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#' }] : [])
+              ...(sub.videoUrl ? [{ type: 'video', title: sub.name, url: sub.videoUrl, estimatedMinutes: sub.videoMinutes }] : []),
+              ...((sub.articleUrl || sub.wikidataId || sub.content) ? [{ type: 'article', title: sub.name, url: sub.articleUrl, estimatedMinutes: sub.articleMinutes }] : []),
+              ...(sub.podcastUrl ? [{ type: 'podcast', title: sub.name, url: sub.podcastUrl, estimatedMinutes: sub.podcastMinutes }] : []),
+              ...((Array.isArray(sub.quizzes) && sub.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#', estimatedMinutes: sub.quizMinutes }] : [])
             ]
           }));
 
@@ -216,10 +237,10 @@ export default function Retro() {
             hasArticle: Boolean(topic.articleUrl || topic.wikidataId || topic.content),
             hasQuiz: Array.isArray(topic.quizzes) && topic.quizzes.length > 0,
             resources: [
-              ...(topic.videoUrl ? [{ type: 'video', title: topic.name, url: topic.videoUrl }] : []),
-              ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: topic.name, url: topic.articleUrl }] : []),
-              ...(topic.podcastUrl ? [{ type: 'podcast', title: topic.name, url: topic.podcastUrl }] : []),
-              ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#' }] : [])
+              ...(topic.videoUrl ? [{ type: 'video', title: topic.name, url: topic.videoUrl, estimatedMinutes: topic.videoMinutes }] : []),
+              ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: topic.name, url: topic.articleUrl, estimatedMinutes: topic.articleMinutes }] : []),
+              ...(topic.podcastUrl ? [{ type: 'podcast', title: topic.name, url: topic.podcastUrl, estimatedMinutes: topic.podcastMinutes }] : []),
+              ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#', estimatedMinutes: topic.quizMinutes }] : [])
             ],
             status: index === 0 ? 'current' : 'locked',
             progress: { completed: backendCompleted.includes(topic.id) ? 1 : 0, total: 1 },
@@ -920,9 +941,10 @@ export default function Retro() {
           onClose={() => setSelectedSubnode(null)}
           nodeName={selectedSubnode.name}
           nodeColor={selectedSubnode.color}
-          resources={selectedSubnode.resources.map((resource) => ({
+          resources={selectedSubnode.resources.map((resource, index) => ({
             ...resource,
-            duration: resource.type === 'video' ? 'Video Resource' : resource.type === 'article' ? 'Reading Material' : resource.type === 'podcast' ? 'Audio Resource' : 'Required to pass',
+            duration: getResourceTypeLabel(resource.type),
+            estimatedTime: formatLearningTime(resource.estimatedMinutes) || estimateLearningTime(selectedSubnode.id, resource.type, resource.title, index),
           }))}
           completed={selectedSubnode.completed}
           quizCompleted={selectedSubnode.quizCompleted}
@@ -947,6 +969,37 @@ export default function Retro() {
             </div>
           </div>
         </div>
+      )}
+
+      {showGuide && (
+        <GuideOverlay
+          onClose={closeGuide}
+          arrows={[
+            { d: 'M21 20 C27 27 34 34 42 41' },
+            { d: 'M79 18 C75 16 72 15 68 14' },
+            { d: 'M73 82 C77 78 80 74 83 70' },
+          ]}
+          steps={[
+            {
+              number: 1,
+              title: 'Retro Map',
+              className: 'left-4 top-32 lg:left-12',
+              body: <p>Click glowing nodes to open topics, subtopics, resources, and quizzes.</p>,
+            },
+            {
+              number: 2,
+              title: 'Syllabus',
+              className: 'right-4 top-28 lg:right-16',
+              body: <p>Open the syllabus to scan the full course and your progress.</p>,
+            },
+            {
+              number: 3,
+              title: 'Study Assistant',
+              className: 'right-4 bottom-28 lg:right-20',
+              body: <p>Use the assistant for course questions while you study.</p>,
+            },
+          ]}
+        />
       )}
 
       <AiChatCompanion courseId={courseId || ""} courseTitle={courseTitle} topics={pathData} />
