@@ -1,9 +1,40 @@
 const express = require("express");
 const router = express.Router();
+const { verifyToken } = require("../middleware/authMiddleware");
 
-router.get("/", async (req, res) => {
+// Nur http/https erlaubt — verhindert SSRF auf interne Docker-Services (redis://, file://, etc.)
+const ALLOWED_PROTOCOLS = ["http:", "https:"];
+
+router.get("/", verifyToken, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "URL is required" });
+
+  // URL-Validierung: nur echte externe HTTP(S)-URLs erlauben
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_PROTOCOLS.includes(parsed.protocol)) {
+      return res.status(400).json({ error: "Only http and https URLs are allowed" });
+    }
+    // Interne IP-Ranges und Docker-Service-Namen blockieren
+    const hostname = parsed.hostname;
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.") ||
+      hostname === "postgres" ||
+      hostname === "redis" ||
+      hostname === "backend" ||
+      hostname === "ai-service" ||
+      hostname === "caddy" ||
+      hostname === "169.254.169.254" // AWS/GCP Metadata-Service
+    ) {
+      return res.status(400).json({ error: "URL not allowed" });
+    }
+  } catch {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
 
   try {
     const response = await fetch(url, {

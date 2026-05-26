@@ -301,7 +301,7 @@ exports.getCourseById = async (req, res) => {
   }
 };
 
-// Update course title, description, and visibility (only for professors)
+// Update course title, description, and visibility (only for the course owner)
 exports.updateCourse = async (req, res) => {
   try {
     const { id } = req.params;
@@ -309,6 +309,15 @@ exports.updateCourse = async (req, res) => {
 
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can edit courses" });
+    }
+
+    // Ownership prüfen: Nur der eigene Kurs darf bearbeitet werden
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+    if (course.instructorId !== req.user.userId) {
+      return res.status(403).json({ error: "This is not your course" });
     }
 
     const updatedCourse = await prisma.course.update({
@@ -411,6 +420,15 @@ exports.addTopic = async (req, res) => {
     
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Only professors can add topics" });
+    }
+
+    // Ownership prüfen: Topic darf nur zum eigenen Kurs hinzugefügt werden
+    const courseCheck = await prisma.course.findUnique({ where: { id: req.params.id } });
+    if (!courseCheck) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+    if (courseCheck.instructorId !== req.user.userId) {
+      return res.status(403).json({ error: "This is not your course" });
     }
 
     let content = null;

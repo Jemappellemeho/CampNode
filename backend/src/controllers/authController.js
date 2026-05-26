@@ -46,11 +46,13 @@ exports.register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // 3. Save the new user to the database
+    // SICHERHEIT: role aus dem Request-Body wird IGNORIERT — jeder wäre sonst Professor!
+    // Neue Accounts bekommen immer STUDENT. Rollen-Änderung nur durch Admin direkt in DB.
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
-        role: role || "STUDENT",
+        role: "STUDENT", // Niemals role aus req.body übernehmen!
       },
     });
 
@@ -75,6 +77,12 @@ exports.login = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    // SSO-Guard: Wenn ein User NUR per Uni-Login existiert, hat er kein Passwort.
+    // bcrypt.compare(x, null) würde crashen → stattdessen saubere 401-Meldung.
+    if (!user.password) {
+      return res.status(401).json({ error: "Please use your university login (SSO)" });
     }
 
     // 2. Compare passwords
@@ -102,7 +110,7 @@ exports.login = async (req, res) => {
     res.json({
       message: "Login successful",
       token: accessToken, // Heißt weiterhin "token" damit das Frontend keine große Änderung braucht
-      user: { id: user.id, email: user.email, role: user.role, name: user.name }
+      user: { id: user.id, email: user.email, role: user.role, name: user.displayName || user.email }
     });
   } catch (error) {
     console.error("Login error:", error.message);
