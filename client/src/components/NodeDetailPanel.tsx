@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { Clock, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 interface Resource {
@@ -98,7 +98,8 @@ function NodeDetailPanel({
         <span className="flex flex-shrink-0 flex-col items-center gap-1 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300">
           <span className="text-2xl leading-none">→</span>
           {estimatedTime && (
-            <span className="min-w-[3.5rem] rounded-full bg-white/65 px-2 py-0.5 text-center text-xs font-bold leading-5 text-gray-600 shadow-sm dark:bg-gray-900/35 dark:text-gray-300">
+            <span className="min-w-[3.5rem] rounded-full bg-white/65 px-2 py-0.5 text-center text-xs font-bold leading-5 text-gray-600 shadow-sm dark:bg-gray-900/35 dark:text-gray-300 inline-flex items-center justify-center gap-1">
+              <Clock size={12} />
               {estimatedTime}
             </span>
           )}
@@ -160,7 +161,8 @@ function NodeDetailPanel({
                 <span className="flex flex-col items-center gap-0.5">
                   <span className="text-xl leading-none">→</span>
                   {quizResource?.estimatedTime && (
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold leading-5">
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold leading-5 inline-flex items-center justify-center gap-1">
+                      <Clock size={12} />
                       {quizResource.estimatedTime}
                     </span>
                   )}
