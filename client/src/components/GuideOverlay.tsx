@@ -16,10 +16,29 @@ interface GuideOverlayProps {
 export default function GuideOverlay({ steps, onClose }: GuideOverlayProps) {
   return (
     <div className="fixed inset-0 z-[9999] pointer-events-none">
+      <div className="pointer-events-auto flex h-full flex-col gap-3 overflow-y-auto px-4 py-5 pb-24 sm:hidden">
+        {steps.map((step) => (
+          <div
+            key={`mobile-${step.number}-${step.title}`}
+            className="w-full rounded-2xl border border-blue-500 bg-white/95 p-4 text-gray-950 shadow-[0_0_24px_rgba(30,111,255,0.28)] backdrop-blur dark:bg-gray-900/95 dark:text-white"
+          >
+            <div className="mb-2 flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-base font-black text-white">
+                {step.number}
+              </span>
+              <h3 className="text-base font-black text-blue-700 dark:text-blue-300">{step.title}</h3>
+            </div>
+            <div className="space-y-1 text-sm font-medium leading-6 text-gray-800 dark:text-gray-200">
+              {step.body}
+            </div>
+          </div>
+        ))}
+      </div>
+
       {steps.map((step) => (
         <div
-          key={`${step.number}-${step.title}`}
-          className={`pointer-events-auto absolute w-[calc(100vw-2rem)] sm:w-[22rem] rounded-2xl border border-blue-500 bg-white/95 p-5 text-gray-950 shadow-[0_0_24px_rgba(30,111,255,0.28)] backdrop-blur dark:bg-gray-900/95 dark:text-white ${step.className}`}
+          key={`desktop-${step.number}-${step.title}`}
+          className={`pointer-events-auto absolute hidden w-[22rem] rounded-2xl border border-blue-500 bg-white/95 p-5 text-gray-950 shadow-[0_0_24px_rgba(30,111,255,0.28)] backdrop-blur dark:bg-gray-900/95 dark:text-white sm:block ${step.className}`}
         >
           <div className="mb-3 flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xl font-black text-white">
