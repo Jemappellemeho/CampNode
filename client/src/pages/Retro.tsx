@@ -7,7 +7,7 @@ import NodeDetailPanel from '../components/NodeDetailPanel';
 import AiChatCompanion from '../components/AiChatCompanion';
 import { ChevronLeft } from 'lucide-react';
 import GuideOverlay from '../components/GuideOverlay';
-import { estimateLearningTime, formatLearningTime, getResourceTypeLabel } from '../utils/learningTime';
+import { estimateLearningTime, formatLearningTime, getResourceTypeLabel, parseLearningMinutes, recordLearningActivity } from '../utils/learningTime';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
@@ -360,6 +360,12 @@ export default function Retro() {
     await syncTopicCompletion(topicId, nextIds, quizCompletedIds);
   };
 
+  const markLearningActivity = (subnode: Subnode, resource: LearningResource) => {
+    const resourceIndex = subnode.resources.indexOf(resource);
+    const fallbackTime = estimateLearningTime(subnode.id, resource.type, resource.title, resourceIndex);
+    recordLearningActivity(user?.id, parseLearningMinutes(resource.estimatedMinutes) || parseLearningMinutes(resource.estimatedTime) || parseLearningMinutes(fallbackTime));
+  };
+
   const openSubnodeResource = async (subnode: Subnode, resource: LearningResource, options?: { markAsSkip?: boolean }) => {
     if (resource.type === 'quiz') {
       navigate(`/quiz/${subnode.id}`, {
@@ -369,12 +375,14 @@ export default function Retro() {
     }
     if (resource.type === 'article') {
       await openArticleModal(subnode.id, subnode.title, resource.url);
+      markLearningActivity(subnode, resource);
       await markResourceOpened(subnode.id);
       return;
     }
     const resolvedUrl = resolveResourceUrl(resource.url);
     if (resolvedUrl) {
       window.open(resolvedUrl, '_blank', 'noopener,noreferrer');
+      markLearningActivity(subnode, resource);
       await markResourceOpened(subnode.id);
     }
   };
