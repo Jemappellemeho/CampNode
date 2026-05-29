@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import CreateCourseModal from './CreateCourseModal';
 import { api } from '../utils/api';
 import {
-  BarChart3,
   BookOpen,
   Check,
   ChevronRight,
@@ -11,12 +10,10 @@ import {
   Flame,
   Globe,
   GraduationCap,
-  LayoutList,
   Lock,
   LogOut,
   Plus,
   Search,
-  Sparkles,
   Trophy,
   Users,
   Zap,
@@ -181,18 +178,10 @@ export default function Dashboard() {
 
   const totalStudents = courses.reduce((sum, course) => sum + (course._count?.students ?? 0), 0);
   const totalTopics = courses.reduce((sum, course) => sum + (course._count?.topics ?? 0), 0);
-  const publicCourses = courses.filter((course) => course.isPublic).length;
-  const primaryCourse = courses[0];
   const completedTopics = Object.values(courseProgress).reduce((sum, progress) => sum + progress.completed, 0);
   const activePercent = totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0;
 
   if (!user) return null;
-
-  const openPrimaryCourse = () => {
-    if (!primaryCourse) return;
-    closeGuide();
-    navigate(isProfessor ? `/prof/course/${primaryCourse.id}` : `/playground/${primaryCourse.id}`);
-  };
 
   const renderCourseStatus = (course: any) => (
     course.isPublic ? (
@@ -254,85 +243,6 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="mb-5 rounded-[2rem] bg-[#101936] p-5 text-white shadow-xl shadow-slate-900/10 sm:p-7 lg:p-8">
-        <div className="grid gap-6 lg:grid-cols-[1.4fr_0.8fr] lg:items-center">
-          <div>
-            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.32em] text-yellow-300">
-              {isProfessor ? 'Teaching Command Center' : 'Continue Learning'}
-            </p>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/70">
-                {courses.length} {courses.length === 1 ? 'course' : 'courses'}
-              </span>
-              <span className="rounded-full border border-yellow-300/30 bg-yellow-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-yellow-200">
-                {isProfessor ? `${totalTopics} nodes` : 'In progress'}
-              </span>
-            </div>
-            <h2 className="max-w-2xl text-3xl font-black leading-tight sm:text-4xl">
-              {primaryCourse
-                ? primaryCourse.title
-                : isProfessor
-                  ? 'Build your next course'
-                  : 'Join your first course'}
-            </h2>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-white/70">
-              {primaryCourse?.description ||
-                (isProfessor
-                  ? 'Create courses, organize nodes, manage students, and keep resources in one place.'
-                  : 'Use a join code from your teacher or browse public courses to start learning.')}
-            </p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              {primaryCourse ? (
-                <button
-                  onClick={openPrimaryCourse}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-yellow-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-yellow-400/20 transition hover:bg-yellow-300"
-                >
-                  {isProfessor ? 'Manage Course' : 'Resume Course'} <ChevronRight size={18} />
-                </button>
-              ) : isProfessor ? (
-                <button
-                  onClick={() => {
-                    closeGuide();
-                    setIsModalOpen(true);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-yellow-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-yellow-400/20 transition hover:bg-yellow-300"
-                >
-                  Create Course <ChevronRight size={18} />
-                </button>
-              ) : null}
-              <button
-                onClick={() => {
-                  closeGuide();
-                  navigate('/courses/public');
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/15"
-              >
-                <LayoutList size={17} /> Browse Public
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur">
-            <p className="mb-4 text-[10px] font-black uppercase tracking-[0.28em] text-white/50">
-              {isProfessor ? 'Snapshot' : 'Up next'}
-            </p>
-            <div className="mb-5 flex items-center justify-center">
-              <div className="flex h-36 w-36 items-center justify-center rounded-full border-[12px] border-white/10 border-t-blue-400 border-r-green-400">
-                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-yellow-400 text-sm font-black uppercase tracking-widest text-slate-950">
-                  {isProfessor ? 'Teach' : 'Learn'}
-                </div>
-              </div>
-            </div>
-            <p className="text-lg font-black">
-              {isProfessor ? `${totalStudents} enrolled students` : primaryCourse ? 'Open your learning map' : 'No active course yet'}
-            </p>
-            <p className="mt-1 text-sm text-white/60">
-              {isProfessor ? `${publicCourses} public courses` : primaryCourse ? 'Classic and Retro modes are ready.' : 'Join a course to unlock progress.'}
-            </p>
-          </div>
-        </div>
-      </section>
-
       {user.role === 'STUDENT' && (
         <section className="mb-5 rounded-[1.75rem] border border-blue-100 bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-600/15 sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -387,7 +297,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[1.45fr_0.9fr]">
+      <section>
         <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -543,39 +453,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-
-        <aside className="rounded-[1.75rem] bg-gradient-to-br from-[#172044] via-[#1f2457] to-[#5b193a] p-5 text-white shadow-xl shadow-slate-900/10 sm:p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600">
-              <Sparkles size={22} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-200">AI Companion</p>
-              <h3 className="text-lg font-black">Suggested for you</h3>
-            </div>
-          </div>
-          <p className="text-lg font-black leading-7">
-            {isProfessor
-              ? 'Keep your course structure fresh with clear nodes and resources.'
-              : primaryCourse
-                ? `Ready to continue ${primaryCourse.title}?`
-                : 'Join a course and your study suggestions will appear here.'}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {(isProfessor ? ['Review nodes', 'Check feedback', 'Update resources'] : ['Open syllabus', 'Review quiz', 'Ask a question']).map((label) => (
-              <span key={label} className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-bold text-white/75">
-                {label}
-              </span>
-            ))}
-          </div>
-          <div className="mt-10 rounded-2xl border border-white/10 bg-white/10 p-3">
-            <div className="flex items-center gap-3 text-sm text-white/50">
-              <Sparkles size={16} />
-              <span className="flex-1">Open a course to use the study assistant...</span>
-              <BarChart3 size={16} className="text-yellow-300" />
-            </div>
-          </div>
-        </aside>
       </section>
 
       <CreateCourseModal
