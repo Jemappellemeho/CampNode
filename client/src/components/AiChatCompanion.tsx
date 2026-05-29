@@ -22,9 +22,11 @@ interface AiChatCompanionProps {
   courseId: string;
   courseTitle: string;
   topics: MainTopic[];
+  variant?: "floating" | "embedded";
+  className?: string;
 }
 
-export default function AiChatCompanion({ courseId, courseTitle, topics }: AiChatCompanionProps) {
+export default function AiChatCompanion({ courseId, courseTitle, topics, variant = "floating", className = "" }: AiChatCompanionProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -128,6 +130,94 @@ export default function AiChatCompanion({ courseId, courseTitle, topics }: AiCha
       e.preventDefault();
       handleSend(input);
     }
+  };
+
+  if (variant === "embedded") {
+    return (
+      <section className={`rounded-[1.75rem] bg-gradient-to-br from-[#172044] via-[#1f2457] to-[#5b193a] p-5 text-white shadow-xl shadow-slate-900/10 sm:p-6 ${className}`}>
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600">
+            <Sparkles size={22} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-200">CampNode AI</p>
+            <h3 className="truncate text-lg font-black">Ask about {courseTitle || "your course"}</h3>
+          </div>
+        </div>
+
+        <div className="mb-5 max-h-80 space-y-4 overflow-y-auto pr-1">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex gap-3 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  msg.sender === "user"
+                    ? "bg-blue-600 text-white"
+                    : "border border-white/10 bg-white/10 text-white"
+                }`}
+              >
+                <p className="whitespace-pre-wrap">{msg.text}</p>
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {msg.sources.map((src, index) => (
+                      <span key={index} className="inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">
+                        <BookOpen size={10} />
+                        {src}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-white/10 px-4">
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.3s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.15s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300" />
+              </div>
+            </div>
+          )}
+          <div ref={scrollRef} />
+        </div>
+
+        {messages.length === 1 && !isLoading && (
+          <div className="mb-5 flex flex-wrap gap-2">
+            {suggestedQuestions.map((question) => (
+              <button
+                key={question}
+                onClick={() => handleSend(question)}
+                className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-bold text-white/75 transition hover:bg-white/15"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/10 p-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything..."
+            rows={1}
+            className="min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-white/45"
+          />
+          <button
+            disabled={!input.trim() || isLoading || !courseId}
+            onClick={() => handleSend(input)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-yellow-400 text-slate-950 transition hover:bg-yellow-300 disabled:opacity-50"
+            title="Send query"
+          >
+            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          </button>
+        </div>
+      </section>
+    );
   };
 
   return (

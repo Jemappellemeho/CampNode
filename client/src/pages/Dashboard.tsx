@@ -18,6 +18,7 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
+import AiChatCompanion from '../components/AiChatCompanion';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 import { getLearningActivityStats } from '../utils/learningTime';
@@ -69,6 +70,7 @@ export default function Dashboard() {
   const [showGuide, setShowGuide] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [learningActivity, setLearningActivity] = useState({ streak: 0, todayMinutes: 0 });
+  const [aiCourseId, setAiCourseId] = useState('');
 
   const displayName =
     user?.name ||
@@ -138,6 +140,12 @@ export default function Dashboard() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (!aiCourseId && courses.length > 0) {
+      setAiCourseId(courses[0].id);
+    }
+  }, [aiCourseId, courses]);
+
   const closeGuide = () => {
     markGuideSeen(user, 'dashboard');
     setShowGuide(false);
@@ -180,6 +188,7 @@ export default function Dashboard() {
   const totalTopics = courses.reduce((sum, course) => sum + (course._count?.topics ?? 0), 0);
   const completedTopics = Object.values(courseProgress).reduce((sum, progress) => sum + progress.completed, 0);
   const activePercent = totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0;
+  const aiCourse = courses.find((course) => course.id === aiCourseId) || courses[0];
 
   if (!user) return null;
 
@@ -454,6 +463,36 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+
+      {aiCourse && (
+        <section className="mt-5">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-500">CampNode AI</p>
+              <h2 className="mt-1 text-xl font-black text-gray-950 dark:text-white">Ask about a course</h2>
+            </div>
+            {courses.length > 1 && (
+              <select
+                value={aiCourse.id}
+                onChange={(event) => setAiCourseId(event.target.value)}
+                className="h-11 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-black text-gray-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-blue-950"
+              >
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <AiChatCompanion
+            courseId={aiCourse.id}
+            courseTitle={aiCourse.title}
+            topics={[]}
+            variant="embedded"
+          />
+        </section>
+      )}
 
       <CreateCourseModal
         isOpen={isModalOpen}
