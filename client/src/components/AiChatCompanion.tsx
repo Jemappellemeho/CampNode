@@ -134,14 +134,14 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
 
   if (variant === "embedded") {
     return (
-      <section className={`rounded-[1.75rem] bg-gradient-to-br from-[#172044] via-[#1f2457] to-[#5b193a] p-5 text-white shadow-xl shadow-slate-900/10 sm:p-6 ${className}`}>
+      <section className={`rounded-[1.75rem] border border-gray-200 bg-white p-5 text-gray-950 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white sm:p-6 ${className}`}>
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <Sparkles size={22} />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-200">CampNode AI</p>
-            <h3 className="truncate text-lg font-black">Ask about {courseTitle || "your course"}</h3>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-600 dark:text-blue-300">CampNode AI</p>
+            <h3 className="truncate text-lg font-black text-gray-950 dark:text-white">Ask about {courseTitle || "your course"}</h3>
           </div>
         </div>
 
@@ -155,14 +155,14 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
                 className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.sender === "user"
                     ? "bg-blue-600 text-white"
-                    : "border border-white/10 bg-white/10 text-white"
+                    : "border border-gray-200 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.text}</p>
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {msg.sources.map((src, index) => (
-                      <span key={index} className="inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">
+                      <span key={index} className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
                         <BookOpen size={10} />
                         {src}
                       </span>
@@ -174,10 +174,10 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-white/10 px-4">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.3s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.15s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-300" />
+              <div className="flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 px-4 dark:border-gray-700 dark:bg-gray-900">
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.3s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.15s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500" />
               </div>
             </div>
           )}
@@ -190,7 +190,7 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
               <button
                 key={question}
                 onClick={() => handleSend(question)}
-                className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-bold text-white/75 transition hover:bg-white/15"
+                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 {question}
               </button>
@@ -198,19 +198,19 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
           </div>
         )}
 
-        <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/10 p-2">
+        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             rows={1}
-            className="min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-white/45"
+            className="min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <button
             disabled={!input.trim() || isLoading || !courseId}
             onClick={() => handleSend(input)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-yellow-400 text-slate-950 transition hover:bg-yellow-300 disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-50"
             title="Send query"
           >
             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

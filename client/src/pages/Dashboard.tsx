@@ -194,12 +194,12 @@ export default function Dashboard() {
 
   const renderCourseStatus = (course: any) => (
     course.isPublic ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-green-600 dark:bg-green-900/30 dark:text-green-300">
-        <Globe size={12} /> Public
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-green-600 dark:bg-green-900/30 dark:text-green-300">
+        <Globe size={13} /> Public
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-        <Lock size={12} /> Private
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+        <Lock size={13} /> Private
       </span>
     )
   );
@@ -277,7 +277,7 @@ export default function Dashboard() {
         </section>
       )}
 
-      <section className="mb-5 grid gap-4 md:grid-cols-3">
+      <section className={`mb-5 grid gap-4 ${isProfessor ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
         <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <div className="mb-4 flex items-center justify-between">
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">{isProfessor ? 'Courses' : 'Streak'}</p>
@@ -294,16 +294,18 @@ export default function Dashboard() {
           <p className="text-4xl font-black text-gray-950 dark:text-white">{isProfessor ? totalStudents : learningActivity.todayMinutes}</p>
           <p className="mt-1 text-sm font-medium text-gray-500">{isProfessor ? 'total enrollments' : 'resource minutes today'}</p>
         </div>
-        <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">{isProfessor ? 'Nodes' : 'Progress'}</p>
-            {isProfessor ? <BookOpen size={18} className="text-green-500" /> : <Trophy size={18} className="text-green-500" />}
+        {!isProfessor && (
+          <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">Progress</p>
+              <Trophy size={18} className="text-green-500" />
+            </div>
+            <p className="text-4xl font-black text-gray-950 dark:text-white">{activePercent}%</p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+              <div className="h-full rounded-full bg-green-500" style={{ width: `${activePercent}%` }} />
+            </div>
           </div>
-          <p className="text-4xl font-black text-gray-950 dark:text-white">{isProfessor ? totalTopics : `${activePercent}%`}</p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-            <div className="h-full rounded-full bg-green-500" style={{ width: `${isProfessor ? Math.min(100, totalTopics * 8) : activePercent}%` }} />
-          </div>
-        </div>
+        )}
       </section>
 
       <section>
@@ -366,7 +368,7 @@ export default function Dashboard() {
                           <GraduationCap size={22} className={course.isPublic ? 'text-green-600' : 'text-blue-600'} />
                         </div>
                         <div className="min-w-0">
-                          <h3 className="line-clamp-2 text-base font-black leading-tight text-gray-950 dark:text-white">{course.title}</h3>
+                          <h3 className="line-clamp-2 text-lg font-black leading-tight text-gray-950 dark:text-white">{course.title}</h3>
                           <div className="mt-2">{renderCourseStatus(course)}</div>
                         </div>
                       </div>
