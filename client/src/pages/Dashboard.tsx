@@ -23,7 +23,7 @@ import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 import { getLearningActivityStats } from '../utils/learningTime';
 
-function JoinCodeBadge({ code }: { code: string }) {
+function JoinCodeBadge({ code, isPublic }: { code: string; isPublic: boolean }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
@@ -34,21 +34,28 @@ function JoinCodeBadge({ code }: { code: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="inline-flex min-w-[104px] items-center justify-center gap-1.5 rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-black tracking-wide text-gray-800 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-100"
+      className={`inline-flex min-w-[104px] items-center justify-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black tracking-wide text-white transition-colors shadow-sm ${copied || isPublic ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
     >
       {copied ? (
-        <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-300">
+        <span className="inline-flex items-center gap-1">
           <Check size={14} /> Copied
         </span>
       ) : (
         <>
           <span>{code}</span>
-          <Copy size={14} className="text-gray-400" />
+          <Copy size={14} className="opacity-80" />
         </>
       )}
     </button>
   );
 }
+
+const CN = {
+  blue: "#1E6FFF",
+  red: "#E63027",
+  green: "#3A9E3F",
+  yellow: "#F5C518",
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -208,8 +215,8 @@ export default function Dashboard() {
     <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8">
       <section className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">
-            {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} - CampNode
+          <p className="mb-2 text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-gray-400">
+            {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </p>
           <h1 className="text-3xl font-black leading-tight text-gray-950 dark:text-white sm:text-5xl">
             Welcome back, {displayName}.
@@ -234,7 +241,7 @@ export default function Dashboard() {
               closeGuide();
               navigate('/courses/public');
             }}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white px-5 text-sm font-black text-blue-600 shadow-sm transition hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800 dark:text-blue-300 dark:hover:bg-gray-700"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-black text-green-600 shadow-sm transition hover:bg-gray-50"
           >
             <Globe size={18} /> Public Courses
           </button>
@@ -256,8 +263,8 @@ export default function Dashboard() {
         <section className="mb-5 rounded-[1.75rem] border border-blue-100 bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-600/15 sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center">
             <div className="flex-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/60">Join a New Course</p>
-              <h3 className="mt-1 text-xl font-black">Enter an invitation code from your teacher.</h3>
+              <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/60">Join a New Course</p>
+              <h3 className="mt-1 text-xl font-medium">Enter an invitation code from your teacher.</h3>
             </div>
             <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
               <input
@@ -278,31 +285,40 @@ export default function Dashboard() {
       )}
 
       <section className={`mb-5 grid gap-4 ${isProfessor ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
-        <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div 
+          className="rounded-[1.75rem] p-5 shadow-sm"
+          style={{ backgroundColor: CN.green, color: 'white' }}
+        >
           <div className="mb-4 flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">{isProfessor ? 'Courses' : 'Streak'}</p>
-            <Flame size={18} className="text-orange-500" />
+            <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">{isProfessor ? 'Courses' : 'Streak'}</p>
+            {isProfessor ? <Flame size={18} className="text-white" /> : <Flame size={18} className="text-white" />}
           </div>
-          <p className="text-4xl font-black text-gray-950 dark:text-white">{isProfessor ? courses.length : learningActivity.streak}</p>
-          <p className="mt-1 text-sm font-medium text-gray-500">{isProfessor ? 'created or managed' : learningActivity.streak === 1 ? 'day streak' : 'days streak'}</p>
+          <p className="text-4xl font-black text-white">{isProfessor ? courses.length : learningActivity.streak}</p>
+          <p className="mt-1 text-sm font-medium text-white/90">{isProfessor ? 'created or managed' : learningActivity.streak === 1 ? 'day streak' : 'days streak'}</p>
         </div>
-        <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div 
+          className="rounded-[1.75rem] p-5 shadow-sm"
+          style={{ backgroundColor: isProfessor ? CN.yellow : CN.green, color: 'white' }}
+        >
           <div className="mb-4 flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">{isProfessor ? 'Students' : 'Focus'}</p>
-            {isProfessor ? <Users size={18} className="text-blue-500" /> : <Zap size={18} className="text-yellow-500" />}
+            <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">{isProfessor ? 'Students' : 'Focus'}</p>
+            {isProfessor ? <Users size={18} className="text-white" /> : <Zap size={18} className="text-white" />}
           </div>
-          <p className="text-4xl font-black text-gray-950 dark:text-white">{isProfessor ? totalStudents : learningActivity.todayMinutes}</p>
-          <p className="mt-1 text-sm font-medium text-gray-500">{isProfessor ? 'total enrollments' : 'resource minutes today'}</p>
+          <p className="text-4xl font-black text-white">{isProfessor ? totalStudents : learningActivity.todayMinutes}</p>
+          <p className="mt-1 text-sm font-medium text-white/90">{isProfessor ? 'total enrollments' : 'resource minutes today'}</p>
         </div>
         {!isProfessor && (
-          <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div 
+            className="rounded-[1.75rem] p-5 shadow-sm"
+            style={{ backgroundColor: CN.yellow, color: 'white' }}
+          >
             <div className="mb-4 flex items-center justify-between">
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gray-400">Progress</p>
-              <Trophy size={18} className="text-green-500" />
+              <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">Progress</p>
+              <Trophy size={18} className="text-white" />
             </div>
-            <p className="text-4xl font-black text-gray-950 dark:text-white">{activePercent}%</p>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-              <div className="h-full rounded-full bg-green-500" style={{ width: `${activePercent}%` }} />
+            <p className="text-4xl font-black text-white">{activePercent}%</p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/30">
+              <div className="h-full rounded-full bg-white" style={{ width: `${activePercent}%` }} />
             </div>
           </div>
         )}
@@ -312,7 +328,7 @@ export default function Dashboard() {
         <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-500">My Courses</p>
+              <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-blue-500">My Courses</p>
               <h2 className="mt-1 text-xl font-black text-gray-950 dark:text-white">
                 {filteredCourses.length} shown - {courses.length} total
               </h2>
@@ -364,8 +380,8 @@ export default function Dashboard() {
                   >
                     <div className="mb-4 flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <div className={`h-12 w-12 shrink-0 rounded-2xl ${course.isPublic ? 'bg-green-100' : 'bg-blue-100'} flex items-center justify-center`}>
-                          <GraduationCap size={22} className={course.isPublic ? 'text-green-600' : 'text-blue-600'} />
+                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${course.isPublic ? 'bg-green-600' : 'bg-blue-600'}`}>
+                          <GraduationCap size={22} className="text-white" />
                         </div>
                         <div className="min-w-0">
                           <h3 className="line-clamp-2 text-lg font-black leading-tight text-gray-950 dark:text-white">{course.title}</h3>
@@ -391,7 +407,7 @@ export default function Dashboard() {
                           </span>
                         </div>
                         <div className="flex justify-start">
-                          <JoinCodeBadge code={course.joinCode} />
+                          <JoinCodeBadge code={course.joinCode} isPublic={course.isPublic} />
                         </div>
                       </div>
                     ) : (
@@ -413,7 +429,11 @@ export default function Dashboard() {
                             closeGuide();
                             navigate(`/prof/course/${course.id}`);
                           }}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-50 px-4 py-3 text-sm font-black text-blue-600 transition hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                          className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black transition dark:text-white dark:shadow-md ${
+                            course.isPublic
+                              ? 'bg-green-50 text-green-600 hover:bg-green-100 dark:bg-green-600 dark:hover:bg-green-700'
+                              : 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-600 dark:hover:bg-blue-700'
+                          }`}
                         >
                           Manage Course <ChevronRight size={16} />
                         </button>
@@ -455,30 +475,26 @@ export default function Dashboard() {
 
       {aiCourse && (
         <section className="mt-5">
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-500">CampNode AI</p>
-              <h2 className="mt-1 text-xl font-black text-gray-950 dark:text-white">Ask about a course</h2>
-            </div>
-            {courses.length > 1 && (
-              <select
-                value={aiCourse.id}
-                onChange={(event) => setAiCourseId(event.target.value)}
-                className="h-11 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-black text-gray-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-blue-950"
-              >
-                {courses.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.title}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
           <AiChatCompanion
             courseId={aiCourse.id}
             courseTitle={aiCourse.title}
             topics={[]}
             variant="embedded"
+            headerAction={
+              courses.length > 1 ? (
+                <select
+                  value={aiCourse.id}
+                  onChange={(event) => setAiCourseId(event.target.value)}
+                  className="h-11 w-full max-w-[240px] cursor-pointer appearance-none rounded-2xl border border-white/30 bg-white/10 px-4 text-sm font-black text-white outline-none transition hover:bg-white/20 focus:border-white focus:bg-white/20 focus:ring-2 focus:ring-white/20"
+                >
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id} className="text-gray-900 bg-white">
+                      {course.title}
+                    </option>
+                  ))}
+                </select>
+              ) : undefined
+            }
           />
         </section>
       )}

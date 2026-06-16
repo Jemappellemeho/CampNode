@@ -24,9 +24,10 @@ interface AiChatCompanionProps {
   topics: MainTopic[];
   variant?: "floating" | "embedded";
   className?: string;
+  headerAction?: React.ReactNode;
 }
 
-export default function AiChatCompanion({ courseId, courseTitle, topics, variant = "floating", className = "" }: AiChatCompanionProps) {
+export default function AiChatCompanion({ courseId, courseTitle, topics, variant = "floating", className = "", headerAction }: AiChatCompanionProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -134,15 +135,18 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
 
   if (variant === "embedded") {
     return (
-      <section className={`rounded-[1.75rem] border border-gray-200 bg-white p-5 text-gray-950 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white sm:p-6 ${className}`}>
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
-            <Sparkles size={22} />
+      <section className={`rounded-[1.75rem] p-5 shadow-sm sm:p-6 ${className}`} style={{ backgroundColor: '#E63027', color: 'white' }}>
+        <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-white border border-white/30">
+              <Sparkles size={22} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">CampNode AI</p>
+              <h3 className="truncate text-lg font-black text-white">Ask about {courseTitle || "your course"}</h3>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-600 dark:text-blue-300">CampNode AI</p>
-            <h3 className="truncate text-lg font-black text-gray-950 dark:text-white">Ask about {courseTitle || "your course"}</h3>
-          </div>
+          {headerAction && <div className="shrink-0">{headerAction}</div>}
         </div>
 
         <div className="mb-5 max-h-80 space-y-4 overflow-y-auto pr-1">
@@ -154,15 +158,15 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
               <div
                 className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.sender === "user"
-                    ? "bg-blue-600 text-white"
-                    : "border border-gray-200 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "bg-gray-50 text-gray-900 shadow-sm"
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.text}</p>
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {msg.sources.map((src, index) => (
-                      <span key={index} className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                      <span key={index} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-bold text-gray-600">
                         <BookOpen size={10} />
                         {src}
                       </span>
@@ -174,10 +178,10 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 px-4 dark:border-gray-700 dark:bg-gray-900">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.3s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.15s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-blue-500" />
+              <div className="flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-2xl border border-white/20 bg-white/10 px-4">
+                <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:-0.3s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:-0.15s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-white" />
               </div>
             </div>
           )}
@@ -190,7 +194,7 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
               <button
                 key={question}
                 onClick={() => handleSend(question)}
-                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-gray-900 shadow-sm transition hover:bg-gray-100 hover:text-[#E63027]"
               >
                 {question}
               </button>
@@ -198,19 +202,19 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
           </div>
         )}
 
-        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-end gap-2 rounded-2xl bg-white p-2 shadow-inner">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             rows={1}
-            className="min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
+            className="min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400"
           />
           <button
             disabled={!input.trim() || isLoading || !courseId}
             onClick={() => handleSend(input)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E63027] text-white transition hover:bg-red-700 disabled:opacity-50"
             title="Send query"
           >
             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -226,13 +230,13 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
       <div className="fixed bottom-6 right-6 z-[99] flex flex-col items-end">
         <motion.button
           onClick={() => setIsOpen(!isOpen)}
-          className="relative group h-14 w-14 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgb(30,111,255,0.4)] transition-all bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white overflow-hidden"
+          className="relative group h-14 w-14 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(230,48,39,0.4)] transition-all bg-gradient-to-r from-[#E63027] via-red-500 to-[#E63027] text-white overflow-hidden"
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.95 }}
           aria-label="AI Study Companion"
         >
           {/* Pulsing halo ring */}
-          <span className="absolute -inset-1 rounded-full bg-blue-500/20 animate-ping opacity-75 group-hover:opacity-100 duration-1000" />
+          <span className="absolute -inset-1 rounded-full bg-[#E63027]/30 animate-ping opacity-75 group-hover:opacity-100 duration-1000" />
           
           <AnimatePresence mode="wait">
             {isOpen ? (
@@ -289,7 +293,7 @@ export default function AiChatCompanion({ courseId, courseTitle, topics, variant
                     <Bot size={22} className="animate-bounce" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 text-[15px]">
+                    <h3 className="font-bold text-[#E63027] flex items-center gap-1.5 text-[15px]">
                       CampNode AI
                       <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Ready to assist" />
                     </h3>
