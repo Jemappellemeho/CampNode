@@ -298,7 +298,7 @@ export default function Dashboard() {
         </div>
         <div 
           className="rounded-[1.75rem] p-5 shadow-sm"
-          style={{ backgroundColor: isProfessor ? CN.yellow : CN.green, color: 'white' }}
+          style={{ backgroundColor: isProfessor ? CN.yellow : CN.red, color: 'white' }}
         >
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">{isProfessor ? 'Students' : 'Focus'}</p>
