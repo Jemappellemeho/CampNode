@@ -13,6 +13,8 @@ import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
 const API_ORIGIN = 'http://localhost:3000';
 
+const SYLLABUS_WIDTH = 380;
+
 type Status = 'completed' | 'current' | 'locked';
 
 interface Subnode {
@@ -78,6 +80,7 @@ export default function Retro() {
   const [pathData, setPathData] = useState<MainTopic[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isSyllabusOpen, setSyllabusOpen] = useState(false);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
   const [activePopupContent, setActivePopupContent] = useState<{title: string, content: string} | null>(null);
@@ -89,13 +92,19 @@ export default function Retro() {
   const [questionDraft, setQuestionDraft] = useState('');
   const [showGuide, setShowGuide] = useState(false);
 
-  // Screen sizing for grid cols (using clientWidth to avoid scrollbar overflow!)
-  const [windowWidth, setWindowWidth] = useState(document.documentElement.clientWidth || window.innerWidth);
+  // Screen sizing — subtract syllabus width when open so map shrinks and nodes rearrange
+  const getRawWidth = () => document.documentElement.clientWidth || window.innerWidth;
+
+  const [rawWidth, setRawWidth] = useState(getRawWidth());
+
   useEffect(() => {
-    const handleResize = () => setWindowWidth(document.documentElement.clientWidth || window.innerWidth);
+    const handleResize = () => setRawWidth(getRawWidth());
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Always computed — never stale. When syllabus is open, map gets the remaining space.
+  const windowWidth = isSyllabusOpen ? Math.max(320, rawWidth - SYLLABUS_WIDTH) : rawWidth;
 
   const getResourceStorageKey = (userId?: string) => `campnode:resource-opened:${userId || 'anon'}`;
   const getQuizStorageKey = (userId?: string) => `campnode:quiz-completed:${userId || 'anon'}`;
@@ -800,6 +809,7 @@ export default function Retro() {
                 const coords = coreCoordsMap[node.id];
                 const isComplete = node.isMain ? isNodeComplete(node.nodeRef) : isCoreComplete(node.id);
                 const isActive = node.isMain && activeId === node.id;
+                const isHighlighted = highlightedNodeId === node.id;
                 
                 return (
                     <div
@@ -817,7 +827,10 @@ export default function Retro() {
                                 onClick={() => {
                                     if (node.isMain) {
                                         setActiveId(activeId === node.id ? null : node.id);
+                                        setHighlightedNodeId(null);
                                     } else {
+                                        setHighlightedNodeId(node.id);
+                                        setSyllabusOpen(true);
                                         setSelectedSubnode({
                                             id: node.id,
                                             name: node.title,
@@ -833,6 +846,7 @@ export default function Retro() {
                                         ? (isComplete || isActive ? 'retro-node-main' : 'retro-node-main-dim') 
                                         : (isComplete ? 'retro-node-sub' : 'retro-node-sub-dim')}
                                     ${isActive ? 'scale-125 !bg-[#3A9E3F] !text-white' : ''}
+                                    ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
                                 `}
                             >
                                 <span className="font-bold text-base sm:text-lg">{node.displayNumber}</span>
@@ -871,6 +885,7 @@ export default function Retro() {
                 const coords = aiCoordsMap[node.id];
                 if (!coords) return null;
                 const isComplete = isCoreComplete(node.id);
+                const isHighlighted = highlightedNodeId === node.id;
                 
                 return (
                     <div
@@ -886,6 +901,8 @@ export default function Retro() {
                         <div className="relative group w-full h-full">
                             <button
                                 onClick={() => {
+                                    setHighlightedNodeId(node.id);
+                                    setSyllabusOpen(true);
                                     setSelectedSubnode({
                                         id: node.id,
                                         name: node.title,
@@ -897,6 +914,7 @@ export default function Retro() {
                                 }}
                                 className={`w-full h-full flex items-center justify-center rounded retro-node transition-transform duration-200 hover:scale-110
                                     ${isComplete ? 'retro-node-ai' : 'retro-node-ai-dim'}
+                                    ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
                                 `}
                             >
                                 <span className="font-bold text-xs sm:text-sm">{node.displayNumber}</span>
@@ -933,10 +951,15 @@ export default function Retro() {
 
       <SyllabusDrawer
         isOpen={isSyllabusOpen}
-        onClose={() => setSyllabusOpen(false)}
+        onClose={() => {
+          setSyllabusOpen(false);
+          setHighlightedNodeId(null);
+        }}
         pathData={pathData}
         activeId={activeId}
+        highlightedNodeId={highlightedNodeId}
         onSelectTopic={(id) => setActiveId(id)}
+        onOpenNodeDetail={(node) => setSelectedSubnode(node)}
         completedIds={completedIds}
         resourceOpenedIds={resourceOpenedIds}
         quizCompletedIds={quizCompletedIds}
