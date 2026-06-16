@@ -406,7 +406,7 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    <div className={`mt-auto gap-2 ${isProfessor ? 'flex' : course.isPublic ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem]' : 'grid grid-cols-2'}`}>
+                    <div className={`mt-auto gap-2 ${isProfessor ? 'flex' : course.isPublic ? 'grid grid-cols-[minmax(0,1fr)_2.75rem]' : 'flex'}`}>
                       {isProfessor ? (
                         <button
                           onClick={() => {
@@ -422,19 +422,6 @@ export default function Dashboard() {
                           <button
                             onClick={() => {
                               closeGuide();
-                              navigate(`/playground/${course.id}`);
-                            }}
-                            className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition ${
-                              course.isPublic
-                                ? 'bg-green-50 text-green-600 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300'
-                                : 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300'
-                            }`}
-                          >
-                            Classic <ChevronRight size={16} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              closeGuide();
                               navigate(`/retro/${course.id}`);
                             }}
                             className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition ${
@@ -443,7 +430,7 @@ export default function Dashboard() {
                                 : 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300'
                             }`}
                           >
-                            Retro <ChevronRight size={16} />
+                            Continue <ChevronRight size={16} />
                           </button>
                         </>
                       )}

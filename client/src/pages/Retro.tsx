@@ -13,8 +13,6 @@ import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
 const API_ORIGIN = 'http://localhost:3000';
 
-const SYLLABUS_WIDTH = 380;
-
 type Status = 'completed' | 'current' | 'locked';
 
 interface Subnode {
@@ -103,8 +101,7 @@ export default function Retro() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Always computed — never stale. When syllabus is open, map gets the remaining space.
-  const windowWidth = isSyllabusOpen ? Math.max(320, rawWidth - SYLLABUS_WIDTH) : rawWidth;
+
 
   const getResourceStorageKey = (userId?: string) => `campnode:resource-opened:${userId || 'anon'}`;
   const getQuizStorageKey = (userId?: string) => `campnode:quiz-completed:${userId || 'anon'}`;
@@ -327,6 +324,13 @@ export default function Retro() {
   const isQuizFinished = (topicId: string) => quizCompletedIds.includes(topicId) || completedIds.includes(topicId);
 
   const isCoreComplete = (topicId: string) => {
+    // Check if it's already explicitly complete
+    if (completedIds.includes(topicId)) return true;
+    
+    // NEW LOGIC: If the parent main topic is complete, auto-complete its subnodes
+    const parentNode = pathData.find(node => node.subnodes.some(sub => sub.id === topicId));
+    if (parentNode && completedIds.includes(parentNode.id)) return true;
+
     const requiresQuiz = hasQuizForTopic(topicId);
     const requiresResource = hasOpenableResourcesForTopic(topicId);
     if (!requiresQuiz && !requiresResource) return true;
@@ -344,6 +348,9 @@ export default function Retro() {
   };
 
   const isNodeComplete = (node: MainTopic) => {
+    // NEW LOGIC: Fast-return true if the backend already marked it complete
+    if (completedIds.includes(node.id)) return true;
+
     if (node.subnodes.length > 0) {
       return node.subnodes.every((sub) => sub.type === 'ai' || isCoreComplete(sub.id));
     }
@@ -494,9 +501,17 @@ export default function Retro() {
     : 0;
 
   // --- RETRO 80S GRID GENERATION LOGIC ---
-  const isXs = windowWidth < 400;
-  const isSm = windowWidth < 640;
-  const cols = isXs ? 2 : isSm ? 3 : windowWidth < 1024 ? 4 : 5;
+  const effectiveWindowWidth = isSyllabusOpen && rawWidth >= 640 ? rawWidth - 380 : rawWidth;
+  const isSm = effectiveWindowWidth < 640;
+  
+  const xPadding = isSm ? 20 : 50;
+  
+  const availableWidth = effectiveWindowWidth - (xPadding * 2);
+
+  const idealCellWidth = isSm ? 150 : 200;
+  // Ensure at least 2 columns on mobile so AI nodes have space to branch left/right
+  const calculatedCols = Math.max(isSm ? 2 : 1, Math.floor(availableWidth / idealCellWidth));
+  const cols = Math.min(6, calculatedCols);
   
   const coreNodes: any[] = [];
   const aiNodes: any[] = [];
@@ -549,17 +564,16 @@ export default function Retro() {
 
   // Fixed padding required to prevent AI branches from clipping.
   // Take more space on mobile to prevent cramming.
-  const xPadding = isXs ? 40 : isSm ? 60 : 120;
-  const availableWidth = windowWidth - (xPadding * 2);
 
   // --- RESPONSIVE GRID CALCULATIONS ---
   // We dynamically adjust the size of the boxes based on the screen width.
-  // This ensures that the nodes don't overlap or look cramped on mobile devices.
+  // This ensures that the nodes don't overlap or look cramped.
   const dynamicCellWidth = availableWidth / actualCols;
-  const cellWidth = Math.max(isXs ? 100 : 120, dynamicCellWidth); // Slightly wider min-width on mobile to avoid cramming
+  const cellWidth = Math.max(120, dynamicCellWidth); 
   const cellHeight = cellWidth * 0.8; // 4:5 ratio
 
-  const coreNodeSize = Math.max(isSm ? 50 : 60, Math.min(cellWidth * 0.35, 100));
+  // Fixed node sizes based on device type so they NEVER shrink when the syllabus drawer opens
+  const coreNodeSize = isSm ? 70 : 100;
   const aiNodeSize = coreNodeSize * 0.8;
   const xOffset = xPadding;
 
@@ -634,14 +648,12 @@ export default function Retro() {
     const d = `M ${p1.px} ${p1.py} L ${p2.px} ${p2.py}`;
     
     const n2 = coreNodes[i+1];
-    const isNode2Complete = n2.isMain ? isNodeComplete(n2.nodeRef) : isCoreComplete(n2.id);
     
     // Line color matches the destination node's type
-    const baseColor = n2.isMain ? '#3A9E3F' : '#3B82F6'; // Green for main, Blue for sub
-    const dimColor = n2.isMain ? '#14532D' : '#1E3A8A';
+    const color = n2.isMain ? '#3A9E3F' : '#3B82F6'; // Green for main, Blue for sub
     
-    const color = isNode2Complete ? baseColor : dimColor;
-    const isGlowing = isNode2Complete;
+    // Always glow for aesthetic!
+    const isGlowing = true;
 
     corePaths.push({ d, color, isGlowing, key: `core-line-${i}` });
   }
@@ -658,9 +670,8 @@ export default function Retro() {
     nodesForParent.forEach((node, localIdx) => {
       const coords = aiCoordsMap[node.id];
       if (coords) {
-        const isComplete = isCoreComplete(node.id);
-        const color = isComplete ? '#EF4444' : '#7F1D1D';
-        const isGlowing = isComplete;
+        const color = '#EF4444'; // AI paths are always red
+        const isGlowing = true; // Always glow for aesthetic!
         
         let d = "";
         if (localIdx === 0) {
@@ -691,8 +702,8 @@ export default function Retro() {
         backgroundColor: 'var(--cn-page)', 
         backgroundImage: 'linear-gradient(var(--cn-border) 1px, transparent 1px), linear-gradient(90deg, var(--cn-border) 1px, transparent 1px)', 
         backgroundSize: '40px 40px',
-        width: windowWidth,
-        marginLeft: `calc(50% - ${windowWidth / 2}px)`
+        width: rawWidth >= 768 ? `${rawWidth}px` : '100%',
+        marginLeft: rawWidth >= 768 ? `calc(50% - ${rawWidth / 2}px)` : '0',
       }}
     >
       <style>{`
@@ -716,8 +727,9 @@ export default function Retro() {
           box-shadow: 0 0 10px #3A9E3F, inset 0 0 5px #3A9E3F;
         }
         .retro-node-main-dim {
-          border-color: #14532D;
-          color: #14532D;
+          border-color: #3A9E3F;
+          color: #3A9E3F;
+          box-shadow: 0 0 10px #3A9E3F, inset 0 0 5px #3A9E3F;
         }
         .retro-node-sub {
           border-color: #3B82F6;
@@ -725,8 +737,9 @@ export default function Retro() {
           box-shadow: 0 0 10px #3B82F6, inset 0 0 5px #3B82F6;
         }
         .retro-node-sub-dim {
-          border-color: #1E3A8A;
-          color: #1E3A8A;
+          border-color: #3B82F6;
+          color: #3B82F6;
+          box-shadow: 0 0 10px #3B82F6, inset 0 0 5px #3B82F6;
         }
         .retro-node-ai {
           border-color: #EF4444;
@@ -734,8 +747,9 @@ export default function Retro() {
           box-shadow: 0 0 10px #EF4444, inset 0 0 5px #EF4444;
         }
         .retro-node-ai-dim {
-          border-color: #7F1D1D;
-          color: #7F1D1D;
+          border-color: #EF4444;
+          color: #EF4444;
+          box-shadow: 0 0 10px #EF4444, inset 0 0 5px #EF4444;
         }
         .retro-hud {
           background: var(--cn-card);
@@ -745,27 +759,31 @@ export default function Retro() {
       `}</style>
 
       {/* HEADER HUD */}
-      <div className="fixed top-[56px] sm:top-[64px] left-0 right-0 z-40 px-4 sm:px-8 py-3 retro-hud flex items-center justify-between backdrop-blur-md">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1 text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1.5 hover:bg-black/10 border border-transparent rounded transition-colors" style={{ fontFamily: 'Courier New', color: "var(--cn-text)" }}>
+      <div className="fixed top-[56px] sm:top-[64px] left-0 right-0 z-40 px-2 sm:px-8 py-3 retro-hud flex items-center justify-between backdrop-blur-md">
+        <div className="flex items-center gap-1 sm:gap-4">
+          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1 text-[10px] sm:text-xs font-bold px-1.5 sm:px-3 py-1.5 hover:bg-black/10 border border-transparent rounded transition-colors" style={{ fontFamily: 'Courier New', color: "var(--cn-text)" }}>
             <ChevronLeft size={16} /> <span className="hidden sm:inline">[DASHBOARD]</span>
           </button>
-          <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 border rounded" style={{ borderColor: "var(--cn-border)", background: "var(--cn-bg)" }}>
-            <span className="text-[10px] sm:text-xs font-bold font-mono" style={{ color: "var(--cn-text)" }}><span className="hidden sm:inline">SYS.SYNC: </span>{overallProgress}%</span>
-            <div className="w-12 sm:w-20 h-1.5 overflow-hidden" style={{ background: "#F5C518" }}>
+          <div className="flex items-center gap-1.5 sm:gap-2 px-1.5 sm:px-3 py-1.5 border rounded" style={{ borderColor: "var(--cn-border)", background: "var(--cn-bg)" }}>
+            <span className="text-[9px] sm:text-xs font-bold font-mono" style={{ color: "var(--cn-text)" }}><span className="hidden sm:inline">SYS.SYNC: </span>{overallProgress}%</span>
+            <div className="w-8 sm:w-20 h-1.5 overflow-hidden" style={{ background: "#F5C518" }}>
               <div className="h-full shadow-[0_0_8px_#3A9E3F] transition-all" style={{ width: `${overallProgress}%`, background: "#3A9E3F" }} />
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 font-mono">
-            <button onClick={() => navigate(`/playground/${courseId}`)} className="text-[10px] sm:text-xs font-bold px-3 sm:px-4 py-1.5 sm:py-2 border rounded transition-all" style={{ borderColor: "var(--cn-border)", color: "var(--cn-text)" }}>[CLASSIC]</button>
-            <button onClick={() => setSyllabusOpen(true)} className="text-[10px] sm:text-xs font-bold px-4 sm:px-6 py-1.5 sm:py-2 border text-white shadow-[0_0_10px_#3A9E3F] rounded transition-all" style={{ borderColor: "#3A9E3F", background: "#3A9E3F" }}>[SYLLABUS]</button>
+        <div className="flex items-center gap-1 sm:gap-2 font-mono">
+
+            <button onClick={() => setSyllabusOpen(true)} className="text-[8px] sm:text-xs font-bold px-2 sm:px-6 py-1.5 sm:py-2 border text-white shadow-[0_0_10px_#3A9E3F] rounded transition-all" style={{ borderColor: "#3A9E3F", background: "#3A9E3F" }}>[SYLLABUS]</button>
         </div>
       </div>
 
-      <main className="pb-16 sm:pb-24 flex flex-col items-center pt-24 sm:pt-32 w-full overflow-hidden">
-        <div className="mb-10 text-center pointer-events-none px-4 max-w-4xl mx-auto">
-            <h1 className="text-2xl sm:text-4xl font-bold mb-1 font-mono tracking-widest drop-shadow-[0_0_8px_rgba(58,158,63,0.8)] uppercase" style={{ color: "var(--cn-text)" }}>{courseTitle}</h1>
+      <main 
+        className={`pb-16 sm:pb-24 flex flex-col items-center pt-24 sm:pt-32 w-full overflow-hidden transition-all duration-500 ease-in-out ${
+          isSyllabusOpen ? 'sm:pr-[380px]' : 'pr-0'
+        }`}
+      >
+        <div className="mb-10 text-center pointer-events-none px-4 w-full max-w-4xl mx-auto overflow-hidden">
+            <h1 className="text-xl sm:text-4xl font-bold mb-1 font-mono tracking-widest drop-shadow-[0_0_8px_rgba(58,158,63,0.8)] uppercase break-words whitespace-normal" style={{ color: "var(--cn-text)" }}>{courseTitle}</h1>
         </div>
 
         {/* --- MAIN SVG DIAGRAM --- */}
@@ -776,13 +794,14 @@ export default function Retro() {
             <svg className="absolute inset-0 pointer-events-none z-10" width="100%" height="100%">
                 {/* Core Paths */}
                 {corePaths.map((path) => (
-                    <path
+                    <polyline
                         key={path.key}
-                        d={path.d}
+                        points={path.d.replace(/M |L /g, '')}
                         stroke={path.color}
-                        strokeWidth={path.isGlowing ? "6" : "2"}
+                        strokeWidth={path.isGlowing ? "4" : "2"}
                         fill="none"
                         strokeLinecap="square"
+                        strokeLinejoin="miter"
                         className={path.isGlowing ? "juice-line" : ""}
                         style={path.isGlowing ? { filter: `drop-shadow(0 0 6px ${path.color})` } : {}}
                     />
@@ -808,6 +827,7 @@ export default function Retro() {
             {coreNodes.map((node) => {
                 const coords = coreCoordsMap[node.id];
                 const isComplete = node.isMain ? isNodeComplete(node.nodeRef) : isCoreComplete(node.id);
+                
                 const isActive = node.isMain && activeId === node.id;
                 const isHighlighted = highlightedNodeId === node.id;
                 
@@ -890,7 +910,7 @@ export default function Retro() {
                 return (
                     <div
                         key={node.id}
-                        className="absolute flex items-center justify-center transition-all duration-300 z-30 hover:z-50 animate-in fade-in zoom-in"
+                        className="absolute flex items-center justify-center transition-all duration-300 z-20 hover:z-50"
                         style={{
                             left: coords.px - (aiNodeSize / 2),
                             top: coords.py - (aiNodeSize / 2),
@@ -912,7 +932,7 @@ export default function Retro() {
                                         quizCompleted: isQuizFinished(node.id),
                                     });
                                 }}
-                                className={`w-full h-full flex items-center justify-center rounded retro-node transition-transform duration-200 hover:scale-110
+                                className={`w-full h-full flex items-center justify-center rounded retro-node transition-transform duration-200 hover:scale-110 
                                     ${isComplete ? 'retro-node-ai' : 'retro-node-ai-dim'}
                                     ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
                                 `}
@@ -960,6 +980,24 @@ export default function Retro() {
         highlightedNodeId={highlightedNodeId}
         onSelectTopic={(id) => setActiveId(id)}
         onOpenNodeDetail={(node) => setSelectedSubnode(node)}
+        onOpenResource={async (nodeInfo, resource) => {
+          if (resource.type === 'quiz') {
+            navigate(`/quiz/${nodeInfo.id}`);
+            return;
+          }
+          if (resource.type === 'article') {
+            await openArticleModal(nodeInfo.id, nodeInfo.title, resource.url);
+            markLearningActivity(nodeInfo as any, resource as any);
+            await markResourceOpened(nodeInfo.id);
+            return;
+          }
+          const resolvedUrl = resolveResourceUrl(resource.url);
+          if (resolvedUrl) {
+            window.open(resolvedUrl, '_blank', 'noopener,noreferrer');
+            markLearningActivity(nodeInfo as any, resource as any);
+            await markResourceOpened(nodeInfo.id);
+          }
+        }}
         completedIds={completedIds}
         resourceOpenedIds={resourceOpenedIds}
         quizCompletedIds={quizCompletedIds}

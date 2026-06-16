@@ -78,7 +78,7 @@ export default function PublicCourses() {
       navigate(`/prof/course/${course.id}`);
       return;
     }
-    navigate(`/playground/${course.id}`);
+    navigate(`/retro/${course.id}`);
   };
 
   if (!user) return null;

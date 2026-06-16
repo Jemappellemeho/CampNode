@@ -1,6 +1,7 @@
 import { Clock, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../utils/api';
+
 interface Resource {
   type: 'video' | 'article' | 'podcast' | 'quiz';
   title: string;
@@ -59,7 +60,7 @@ function NodeDetailPanel({
     useEffect(() => {
       let isMounted = true;
       if (resource.url && resource.url !== '#' && !resource.url.includes('/uploads/')) {
-        axios.get(`http://localhost:3000/api/metadata?url=${encodeURIComponent(resource.url)}`)
+        api.get(`/metadata?url=${encodeURIComponent(resource.url)}`)
           .then(res => {
             if (isMounted && res.data) setMetadata(res.data);
           })
@@ -117,7 +118,7 @@ function NodeDetailPanel({
       />
       
       {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-white dark:bg-gray-800 shadow-2xl z-50 transform transition-transform overflow-y-auto">
+      <div className="fixed right-0 top-0 h-full w-full sm:w-96 bg-white dark:bg-gray-800 shadow-2xl z-50 transform transition-transform overflow-y-auto no-scrollbar">
         {/* Header */}
         <div className={`p-6 ${nodeColor === 'green' ? 'bg-green-500' : nodeColor === 'blue' ? 'bg-blue-500' : 'bg-gray-400'}`}>
           <div className="flex items-start justify-between">

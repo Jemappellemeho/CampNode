@@ -1,5 +1,7 @@
 import { X, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { estimateLearningTime, formatLearningTime } from '../utils/learningTime';
+import { api } from '../utils/api';
 
 interface Resource {
   type: 'video' | 'article' | 'podcast' | 'quiz';
@@ -32,9 +34,9 @@ interface SyllabusDrawerProps {
   onClose: () => void;
   pathData: MainTopic[];
   activeId: string | null;
-  highlightedNodeId: string | null;
+  highlightedNodeId?: string | null;
   onSelectTopic: (id: string) => void;
-  onOpenNodeDetail: (node: {
+  onOpenNodeDetail?: (node: {
     id: string;
     name: string;
     color: string;
@@ -42,10 +44,111 @@ interface SyllabusDrawerProps {
     completed: boolean;
     quizCompleted: boolean;
   }) => void;
+  onOpenResource?: (nodeInfo: { id: string; title: string }, resource: Resource) => void;
   completedIds: string[];
   resourceOpenedIds: string[];
   quizCompletedIds: string[];
   overallProgress: number;
+}
+
+// --- resource display helpers ---
+const resourceLabel = (type: string) => {
+  switch (type) {
+    case 'video': return 'Video Resource';
+    case 'article': return 'Reading Material';
+    case 'podcast': return 'Audio Resource';
+    case 'quiz': return 'Knowledge Check';
+    default: return 'Resource';
+  }
+};
+
+const resourceIcon = (type: string) => {
+  switch (type) {
+    case 'video': return '🎬';
+    case 'article': return '📄';
+    case 'podcast': return '🎧';
+    case 'quiz': return '❓';
+    default: return '📚';
+  }
+};
+
+const resourceCardBg = (type: string) => {
+  switch (type) {
+    case 'video': return { background: '#FEE2E2' };
+    case 'article': return { background: '#DBEAFE' };
+    case 'podcast': return { background: '#EDE9FE' };
+    case 'quiz': return { background: '#DCFCE7' };
+    default: return { background: '#F3F4F6' };
+  }
+};
+
+function SyllabusResourceItem({
+  resource,
+  time,
+  isHighlighted,
+  onClick
+}: {
+  resource: Resource;
+  time: string | null | undefined;
+  isHighlighted: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const [metadata, setMetadata] = useState<{title: string, website: string} | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (resource.url && resource.url !== '#' && resource.type !== 'quiz') {
+      const fetchMeta = async () => {
+        try {
+          const res = await api.get(`/metadata?url=${encodeURIComponent(resource.url || '')}`);
+          if (res.status === 200) {
+            const data = res.data;
+            if (isMounted && data.title) {
+              let domain = '';
+              try { domain = new URL(resource.url || '').hostname.replace('www.', ''); } catch { }
+              setMetadata({ title: data.title, website: domain || 'External Resource' });
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch metadata', err);
+        }
+      };
+      fetchMeta();
+    } else if (resource.type === 'quiz') {
+      if (isMounted) setMetadata({ title: 'Course Quiz', website: 'Local Activity' });
+    } else {
+      const cleanName = resource.url?.split('/').pop()?.split('.')[0] || 'Resource';
+      if (isMounted) setMetadata({ title: cleanName, website: 'Local File' });
+    }
+    return () => { isMounted = false; };
+  }, [resource.url, resource.type]);
+
+  const displayTitle = metadata?.title || resource.title;
+  let displayDomain = metadata?.website ? `${metadata.website} • ` : '';
+
+  return (
+    <button
+      className="w-full flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-all hover:opacity-80"
+      style={{
+        ...resourceCardBg(resource.type),
+        outline: isHighlighted ? '2px solid #3A9E3F' : undefined,
+      }}
+      onClick={onClick}
+    >
+      <span className="text-xl shrink-0">{resourceIcon(resource.type)}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-gray-800 break-words whitespace-normal leading-snug">
+          {displayTitle}
+        </p>
+        <p className="text-[10px] text-gray-500 mt-0.5">{displayDomain}{resourceLabel(resource.type)}</p>
+      </div>
+      {time && (
+        <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-gray-500 bg-white/60 rounded-full px-1.5 py-0.5">
+          <Clock size={9} /> {time}
+        </span>
+      )}
+    </button>
+  );
 }
 
 export default function SyllabusDrawer({
@@ -55,7 +158,7 @@ export default function SyllabusDrawer({
   activeId,
   highlightedNodeId,
   onSelectTopic,
-  onOpenNodeDetail,
+  onOpenResource,
   completedIds,
   resourceOpenedIds,
   quizCompletedIds,
@@ -104,42 +207,13 @@ export default function SyllabusDrawer({
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
 
-  // --- resource display helpers ---
-  const resourceLabel = (type: string) => {
-    switch (type) {
-      case 'video': return 'Video Resource';
-      case 'article': return 'Reading Material';
-      case 'podcast': return 'Audio Resource';
-      case 'quiz': return 'Knowledge Check';
-      default: return 'Resource';
-    }
-  };
 
-  const resourceIcon = (type: string) => {
-    switch (type) {
-      case 'video': return '🎬';
-      case 'article': return '📄';
-      case 'podcast': return '🎧';
-      case 'quiz': return '❓';
-      default: return '📚';
-    }
-  };
 
-  const resourceCardBg = (type: string) => {
-    switch (type) {
-      case 'video': return { background: '#FEE2E2' };
-      case 'article': return { background: '#DBEAFE' };
-      case 'podcast': return { background: '#EDE9FE' };
-      case 'quiz': return { background: '#DCFCE7' };
-      default: return { background: '#F3F4F6' };
-    }
-  };
-
-  const formatTime = (resource: Resource) => {
-    if (resource.estimatedMinutes) return `${resource.estimatedMinutes} min`;
+  const formatTime = (resource: Resource, nodeId: string, index: number) => {
+    if (resource.estimatedMinutes) return formatLearningTime(resource.estimatedMinutes);
     if (resource.estimatedTime) return resource.estimatedTime;
     if (resource.duration) return resource.duration;
-    return null;
+    return estimateLearningTime(nodeId, resource.type, resource.title, index);
   };
 
   // Build flat numbering map matching the map nodes
@@ -200,10 +274,9 @@ export default function SyllabusDrawer({
       </div>
 
       {/* Topic list — scrollable */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {pathData.map((topic, topicIdx) => {
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 no-scrollbar">
+        {pathData.map((topic) => {
           const topicNumber = numberMap[topic.id];
-          const topicComplete = isCoreComplete(topic);
           const isActiveTopic = activeId === topic.id;
           const isExpanded = expandedIds.includes(topic.id);
 
@@ -259,45 +332,26 @@ export default function SyllabusDrawer({
                         {topicNumber} · Main Topic
                       </p>
                       {topic.resources.map((res, idx) => {
-                        const time = formatTime(res);
+                        const time = formatTime(res, topic.id, idx);
                         const isHighlighted = highlightedNodeId === topic.id;
                         return (
-                          <button
+                          <SyllabusResourceItem
                             key={idx}
-                            className="w-full flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-all hover:opacity-80"
-                            style={{
-                              ...resourceCardBg(res.type),
-                              outline: isHighlighted ? '2px solid #3A9E3F' : undefined,
+                            resource={res}
+                            time={time}
+                            isHighlighted={isHighlighted}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onOpenResource) onOpenResource({ id: topic.id, title: topic.title }, res);
                             }}
-                            onClick={() => onOpenNodeDetail({
-                              id: topic.id,
-                              name: topic.title,
-                              color: 'green',
-                              resources: topic.resources,
-                              completed: isResourceOpened(topic.id),
-                              quizCompleted: isQuizFinished(topic.id),
-                            })}
-                          >
-                            <span className="text-xl shrink-0">{resourceIcon(res.type)}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-gray-800 break-words whitespace-normal leading-snug">
-                                {res.title}
-                              </p>
-                              <p className="text-[10px] text-gray-500 mt-0.5">{resourceLabel(res.type)}</p>
-                            </div>
-                            {time && (
-                              <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-gray-500 bg-white/60 rounded-full px-1.5 py-0.5">
-                                <Clock size={9} /> {time}
-                              </span>
-                            )}
-                          </button>
+                          />
                         );
                       })}
                     </div>
                   )}
 
                   {/* Subnodes */}
-                  {(topic.subnodes || []).map((sub, subIdx) => {
+                  {(topic.subnodes || []).map((sub) => {
                     const subNumber = numberMap[sub.id];
                     const subComplete = isCoreComplete(sub);
                     const isHighlighted = highlightedNodeId === sub.id;
@@ -334,34 +388,18 @@ export default function SyllabusDrawer({
                         {sub.resources && sub.resources.length > 0 && (
                           <div className="px-2 pb-2 space-y-1">
                             {sub.resources.map((res, idx) => {
-                              const time = formatTime(res);
+                              const time = formatTime(res, sub.id, idx);
                               return (
-                                <button
+                                <SyllabusResourceItem
                                   key={idx}
-                                  className="w-full flex items-center gap-2 p-2 rounded-lg text-left transition-all hover:opacity-80"
-                                  style={resourceCardBg(res.type)}
-                                  onClick={() => onOpenNodeDetail({
-                                    id: sub.id,
-                                    name: sub.title,
-                                    color: sub.type === 'ai' ? 'red' : 'blue',
-                                    resources: sub.resources,
-                                    completed: isResourceOpened(sub.id),
-                                    quizCompleted: isQuizFinished(sub.id),
-                                  })}
-                                >
-                                  <span className="text-base shrink-0">{resourceIcon(res.type)}</span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-[11px] font-semibold text-gray-800 break-words whitespace-normal leading-snug">
-                                      {res.title}
-                                    </p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">{resourceLabel(res.type)}</p>
-                                  </div>
-                                  {time && (
-                                    <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-gray-500 bg-white/60 rounded-full px-1.5 py-0.5">
-                                      <Clock size={9} /> {time}
-                                    </span>
-                                  )}
-                                </button>
+                                  resource={res}
+                                  time={time}
+                                  isHighlighted={false}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onOpenResource) onOpenResource({ id: sub.id, title: sub.title }, res);
+                                  }}
+                                />
                               );
                             })}
                           </div>
