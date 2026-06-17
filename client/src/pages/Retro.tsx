@@ -898,7 +898,6 @@ export default function Retro() {
         .retro-node {
           background: var(--cn-card);
           border: 2px solid;
-          font-family: 'Courier New', Courier, monospace;
           text-transform: uppercase;
         }
         .retro-node-main {
@@ -941,17 +940,17 @@ export default function Retro() {
       {/* HEADER HUD */}
       <div className="fixed top-[56px] sm:top-[64px] left-0 right-0 z-40 px-2 sm:px-8 py-3 retro-hud flex items-center justify-between backdrop-blur-md">
         <div className="flex items-center gap-1 sm:gap-4">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1 text-[10px] sm:text-xs font-bold px-1.5 sm:px-3 py-1.5 hover:bg-black/10 border border-transparent rounded transition-colors" style={{ fontFamily: 'Courier New', color: "var(--cn-text)" }}>
+          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1 text-[10px] sm:text-xs font-bold px-1.5 sm:px-3 py-1.5 hover:bg-black/10 border border-transparent rounded transition-colors" style={{ color: "var(--cn-text)" }}>
             <ChevronLeft size={16} /> <span className="hidden sm:inline">[DASHBOARD]</span>
           </button>
           <div className="flex items-center gap-1.5 sm:gap-2 px-1.5 sm:px-3 py-1.5 border rounded" style={{ borderColor: "var(--cn-border)", background: "var(--cn-bg)" }}>
-            <span className="text-[9px] sm:text-xs font-bold font-mono" style={{ color: "var(--cn-text)" }}><span className="hidden sm:inline">SYS.SYNC: </span>{overallProgress}%</span>
+            <span className="text-[9px] sm:text-xs font-bold" style={{ color: "var(--cn-text)" }}><span className="hidden sm:inline">SYS.SYNC: </span>{overallProgress}%</span>
             <div className="w-8 sm:w-20 h-1.5 overflow-hidden" style={{ background: "#F5C518" }}>
               <div className="h-full shadow-[0_0_8px_#3A9E3F] transition-all" style={{ width: `${overallProgress}%`, background: "#3A9E3F" }} />
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2 font-mono">
+        <div className="flex items-center gap-1 sm:gap-2">
 
             <button onClick={() => setSyllabusOpen(true)} className="text-[8px] sm:text-xs font-bold px-2 sm:px-6 py-1.5 sm:py-2 border text-white shadow-[0_0_10px_#3A9E3F] rounded transition-all" style={{ borderColor: "#3A9E3F", background: "#3A9E3F" }}>[SYLLABUS]</button>
         </div>
@@ -963,7 +962,7 @@ export default function Retro() {
         }`}
       >
         <div className="mb-10 text-center pointer-events-none px-4 w-full max-w-4xl mx-auto overflow-hidden">
-            <h1 className="text-xl sm:text-4xl font-bold mb-1 font-mono tracking-widest drop-shadow-[0_0_8px_rgba(58,158,63,0.8)] uppercase break-words whitespace-normal" style={{ color: "var(--cn-text)" }}>{courseTitle}</h1>
+            <h1 className="text-xl sm:text-4xl font-bold mb-1 tracking-widest drop-shadow-[0_0_8px_rgba(58,158,63,0.8)] uppercase break-words whitespace-normal" style={{ color: "var(--cn-text)" }}>{courseTitle}</h1>
         </div>
 
         {/* --- MAIN SVG DIAGRAM --- */}
@@ -1041,7 +1040,7 @@ export default function Retro() {
                                         });
                                     }
                                 }}
-                                className={`w-full h-full flex items-center justify-center rounded retro-node transition-transform duration-200 hover:scale-110
+                                className={`w-full h-full flex items-center justify-center rounded-[1.75rem] retro-node transition-transform duration-200 hover:scale-110
                                     ${node.isMain 
                                         ? (isComplete || isActive ? 'retro-node-main' : 'retro-node-main-dim') 
                                         : (isComplete ? 'retro-node-sub' : 'retro-node-sub-dim')}
@@ -1054,7 +1053,7 @@ export default function Retro() {
 
                             {/* Hover Tooltip for Title */}
                             <div 
-                                className={`absolute top-full left-1/2 -translate-x-1/2 mt-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 font-mono shadow-md
+                                className={`absolute top-full left-1/2 -translate-x-1/2 mt-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 shadow-md
                                 ${node.isMain ? 'border-[#3A9E3F] text-[#3A9E3F] shadow-[0_0_10px_#3A9E3F]' : 'border-[#3B82F6] text-[#3B82F6] shadow-[0_0_10px_#3B82F6]'}
                                 `}
                                 style={{ background: 'var(--cn-page)' }}
@@ -1112,7 +1111,7 @@ export default function Retro() {
                                         quizCompleted: isQuizFinished(node.id),
                                     });
                                 }}
-                                className={`w-full h-full flex items-center justify-center rounded retro-node transition-transform duration-200 hover:scale-110 
+                                className={`w-full h-full flex items-center justify-center rounded-[1.75rem] retro-node transition-transform duration-200 hover:scale-110 
                                     ${isComplete ? 'retro-node-ai' : 'retro-node-ai-dim'}
                                     ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
                                 `}
@@ -1122,7 +1121,7 @@ export default function Retro() {
 
                             {/* Hover Tooltip for Title */}
                             <div 
-                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border border-[#EF4444] text-[#EF4444] text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 font-mono shadow-[0_0_10px_#EF4444]"
+                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border border-[#EF4444] text-[#EF4444] text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 shadow-[0_0_10px_#EF4444]"
                                 style={{ background: 'var(--cn-page)' }}
                             >
                                 [AI SYNC] {node.title}
@@ -1204,17 +1203,17 @@ export default function Retro() {
       {questionEditorTarget && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-sm border border-[#F5C518] bg-[#1a1a1a] p-4 shadow-[0_0_20px_#F5C518]">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#F5C518]/70 font-mono">SYS.QUERY // INPUT</p>
-            <p className="mt-1 text-sm font-bold text-[#F5C518] font-mono">{questionEditorTarget.title}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#F5C518]/70">SYS.QUERY // INPUT</p>
+            <p className="mt-1 text-sm font-bold text-[#F5C518]">{questionEditorTarget.title}</p>
             <textarea
               value={questionDraft}
               onChange={(e) => setQuestionDraft(e.target.value)}
               placeholder="ENTER COMMAND..."
-              className="mt-3 w-full min-h-28 rounded-sm border border-[#F5C518]/30 bg-black px-3 py-2 text-sm outline-none focus:border-[#F5C518] focus:shadow-[0_0_10px_#F5C518] text-[#F5C518] font-mono resize-none"
+              className="mt-3 w-full min-h-28 rounded-sm border border-[#F5C518]/30 bg-black px-3 py-2 text-sm outline-none focus:border-[#F5C518] focus:shadow-[0_0_10px_#F5C518] text-[#F5C518] resize-none"
             />
             <div className="mt-3 flex justify-end gap-2">
-              <button onClick={() => { setQuestionEditorTarget(null); setQuestionDraft(''); }} className="px-3 py-1.5 text-xs font-bold uppercase text-[#F5C518]/70 hover:text-[#F5C518] font-mono">ABORT</button>
-              <button onClick={saveQuestionNote} className="px-4 py-1.5 bg-[#F5C518] text-black text-xs font-black uppercase hover:bg-white transition-colors font-mono shadow-[0_0_10px_#F5C518]">EXECUTE</button>
+              <button onClick={() => { setQuestionEditorTarget(null); setQuestionDraft(''); }} className="px-3 py-1.5 text-xs font-bold uppercase text-[#F5C518]/70 hover:text-[#F5C518]">ABORT</button>
+              <button onClick={saveQuestionNote} className="px-4 py-1.5 bg-[#F5C518] text-black text-xs font-black uppercase hover:bg-white transition-colors shadow-[0_0_10px_#F5C518]">EXECUTE</button>
             </div>
           </div>
         </div>
