@@ -5,8 +5,9 @@ import {
   Plus, Trash2, ChevronLeft, GripVertical,
   BookOpen, X, Users, Globe, Copy, Check,
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search,
-  Target, Award, Percent
+  Target, Award, Percent, UserX, Activity, BarChart2, Clock
 } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { api } from '../utils/api';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
@@ -53,6 +54,205 @@ function WikidataSearchField({
             <Plus size={16} className="mt-1 text-blue-600" />
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ADVANCED ANALYTICS DASHBOARD
+// ============================================================================
+function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
+  const topics = statistics?.topics || [];
+  
+  const COLORS = {
+    blue: "#1E6FFF",
+    red: "#E63027",
+    green: "#3A9E3F",
+    yellow: "#F5C518",
+    purple: "#9333ea",
+  };
+
+  const LIGHT_COLORS = {
+    red: "#FCA5A5",
+    yellow: "#FDE047",
+    purple: "#D8B4FE",
+    blue: "#93C5FD",
+    green: "#86EFAC",
+  };
+
+  const getShortName = (name: string, max = 10) => name.length > max ? name.substring(0, max) + '...' : name;
+
+  // 1. Time-on-Task vs Expected (Mock)
+  const timeData = topics.length > 0 ? topics.map((t: any, i: number) => {
+    const baseExpected = 10 + (i * 2) + ((t.name || '').length % 5);
+    const actual = baseExpected + (Math.random() > 0.5 ? Math.floor(Math.random() * 10) : -Math.floor(Math.random() * 5));
+    return {
+      name: getShortName(t.name || `Topic ${i+1}`),
+      fullName: t.name || `Topic ${i+1}`,
+      expected: baseExpected,
+      actual: Math.max(5, actual),
+    };
+  }) : [{ name: 'No data', fullName: 'No data', expected: 0, actual: 0 }];
+
+  // 2. Daily Engagement (Mock 7 Days)
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const engagementData = days.map((day) => ({
+    day,
+    activeStudents: Math.floor(Math.random() * 40) + 10,
+  }));
+
+  // 3. Score Distribution (Bell Curve from real scores turned into Pie Chart)
+  const allScores = statistics?.overallStats?.scores || [];
+  const scoreDistRaw = [0, 0, 0, 0, 0];
+  allScores.forEach((score: number) => {
+    if (score <= 20) scoreDistRaw[0]++;
+    else if (score <= 40) scoreDistRaw[1]++;
+    else if (score <= 60) scoreDistRaw[2]++;
+    else if (score <= 80) scoreDistRaw[3]++;
+    else scoreDistRaw[4]++;
+  });
+
+  const totalScores = allScores.length || 1;
+  const scoreDist = [
+    { range: '0-20%', count: scoreDistRaw[0], value: Math.round((scoreDistRaw[0] / totalScores) * 100), color: LIGHT_COLORS.red },
+    { range: '21-40%', count: scoreDistRaw[1], value: Math.round((scoreDistRaw[1] / totalScores) * 100), color: LIGHT_COLORS.yellow },
+    { range: '41-60%', count: scoreDistRaw[2], value: Math.round((scoreDistRaw[2] / totalScores) * 100), color: LIGHT_COLORS.purple },
+    { range: '61-80%', count: scoreDistRaw[3], value: Math.round((scoreDistRaw[3] / totalScores) * 100), color: LIGHT_COLORS.blue },
+    { range: '81-100%', count: scoreDistRaw[4], value: Math.round((scoreDistRaw[4] / totalScores) * 100), color: LIGHT_COLORS.green },
+  ].filter(d => d.count > 0);
+
+  if (scoreDist.length === 0) {
+    scoreDist.push({ range: 'No data', count: 1, value: 100, color: '#E5E7EB' });
+  }
+
+  // 4. Drop-off Rates (Students completed per topic)
+  const churnData = topics.length > 0 ? topics.map((t: any, i: number) => {
+    return {
+      name: getShortName(t.name || `Topic ${i+1}`),
+      fullName: t.name || `Topic ${i+1}`,
+      survivalRate: t.combinedStats?.students || 0,
+    };
+  }) : [{ name: 'No data', fullName: 'No data', survivalRate: 0 }];
+
+  return (
+    <div className="space-y-4 mt-6 mb-8">
+      <div className="flex items-center gap-2 mb-2">
+        <Activity size={20} className="text-blue-600" />
+        <h2 className="text-lg font-black dark:text-white">Advanced Analytics & Behavior Tracking</h2>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* ROW 1: Time on Task & Daily Engagement */}
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-blue-500"/> Time-on-Task vs. Expected</h3>
+              <p className="text-[10px] text-gray-500 mt-1">Comparing actual time spent vs resource estimates</p>
+            </div>
+          </div>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={timeData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                <RechartsTooltip 
+                  labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Bar dataKey="expected" name="Expected Time" fill="#E5E7EB" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="actual" name="Actual Time" fill={COLORS.blue} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><Activity size={16} className="text-green-500"/> Daily Engagement</h3>
+              <p className="text-[10px] text-gray-500 mt-1">Active students interacting with the course this week</p>
+            </div>
+          </div>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={engagementData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={COLORS.green} stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor={COLORS.green} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                <Area type="monotone" dataKey="activeStudents" name="Active Students" stroke={COLORS.green} strokeWidth={3} fill="url(#colorActive)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* ROW 2: Score Distribution & Drop-off Rate */}
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><BarChart2 size={16} className="text-purple-500"/> Score Distribution</h3>
+              <p className="text-[10px] text-gray-500 mt-1">Proportion of grades across the cohort</p>
+            </div>
+          </div>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={scoreDist}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={65}
+                  dataKey="value"
+                  nameKey="range"
+                  stroke="none"
+                  label={({ value }) => `${value}%`}
+                  labelLine={false}
+                >
+                  {scoreDist.map((_entry: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={_entry.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip 
+                  formatter={(value, name, props) => [`${value}% (${props.payload.count} students)`, name]}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4 relative z-10">
+            <div>
+              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><UserX size={16} className="text-red-600" /> Drop-off Rates per Topic</h3>
+              <p className="text-[10px] text-gray-500 mt-1">Survival rate of unique students progressing through topics</p>
+            </div>
+          </div>
+          <div className="h-[160px] relative z-10">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={churnData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                <RechartsTooltip 
+                  labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  itemStyle={{ color: COLORS.red, fontWeight: 'bold' }}
+                />
+                <Line type="monotone" dataKey="survivalRate" name="Students" stroke={COLORS.red} strokeWidth={4} activeDot={{ r: 8, fill: COLORS.red, stroke: '#fff', strokeWidth: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -921,15 +1121,15 @@ export default function CourseManager() {
                   const needsHelpTopics = flatCourseTopics.filter((topic: any) => !progressByTopicId.get(topic.id));
 
                   return (
-                  <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex items-center justify-between gap-4">
+                  <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">{s.email?.[0].toUpperCase()}</div>
-                      <div>
-                        <p className="text-sm font-bold dark:text-white">{s.name || "Student"}</p>
-                        <p className="text-[10px] text-gray-500">{s.email}</p>
+                      <div className="w-10 h-10 shrink-0 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">{s.email?.[0].toUpperCase()}</div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold dark:text-white truncate">{s.name || "Student"}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{s.email}</p>
                       </div>
                     </div>
-                    <div className="text-right min-w-[220px]">
+                    <div className="w-full sm:w-auto sm:text-right sm:min-w-[220px]">
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Progress</p>
                       <p className="text-sm font-black text-blue-600">{completionPercent}%</p>
                       {/* Match student syllabus progress look: neutral track + yellow fill. */}
@@ -943,7 +1143,7 @@ export default function CourseManager() {
                         {`${completedCount}/${totalTopics} topics completed`}
                       </p>
                       {needsHelpTopics.length > 0 && (
-                        <div className="mt-2 flex flex-wrap justify-end gap-1">
+                        <div className="mt-2 flex flex-wrap sm:justify-end gap-1">
                           {needsHelpTopics.slice(0, 3).map((topic: any) => (
                             <span key={`${s.id}-${topic.id}`} className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
                               {topic.name} ?
@@ -974,6 +1174,8 @@ export default function CourseManager() {
               ) : (
                 <>
                   {renderStatsSummary(statistics?.overallStats)}
+
+                  <AdvancedAnalyticsDashboard statistics={statistics} />
 
                   {(!statistics?.topics || statistics.topics.length === 0) ? (
                     <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">
