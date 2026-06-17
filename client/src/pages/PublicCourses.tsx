@@ -85,10 +85,10 @@ export default function PublicCourses() {
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <div className="mb-8 rounded-[28px] border border-blue-100 bg-white/95 p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-8 rounded-[28px] border border-green-100 bg-white/95 p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-blue-600">Course Discovery</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-green-600">Course Discovery</p>
             <h1 className="mt-2 text-3xl font-black text-gray-900 dark:text-white">Public Courses</h1>
             <p className="mt-2 max-w-2xl text-sm text-gray-500">
               Explore public courses created by teachers, see who created them, and join in one click.
@@ -104,12 +104,12 @@ export default function PublicCourses() {
       </div>
 
       {loading ? (
-        <div className="rounded-[28px] border border-dashed border-blue-100 bg-white p-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+        <div className="rounded-[28px] border border-dashed border-green-100 bg-white p-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
           Loading public courses...
         </div>
       ) : courses.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-blue-100 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-800">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-900/30">
+        <div className="rounded-[28px] border border-dashed border-green-100 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-green-50 text-green-600 dark:bg-green-900/30">
             <Globe size={28} />
           </div>
           <h2 className="mt-4 text-xl font-black text-gray-900 dark:text-white">No public courses yet</h2>
@@ -126,14 +126,14 @@ export default function PublicCourses() {
             return (
               <article
                 key={course.id}
-                className="flex h-[395px] flex-col rounded-[24px] border border-blue-100 bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+                className="flex h-[395px] flex-col rounded-[24px] border border-green-100 bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">Public Course</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-600">Public Course</p>
                     <h2 className="mt-2 text-xl font-black text-gray-900 dark:text-white">{course.title}</h2>
                   </div>
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                  <span className="rounded-full bg-green-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-green-600 dark:bg-green-900/30 dark:text-green-300">
                     {course.joined ? "Joined" : "Open"}
                   </span>
                 </div>
@@ -148,11 +148,11 @@ export default function PublicCourses() {
                   <p className="mt-3 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Course Snapshot</p>
                   <div className="mt-2 flex gap-4 text-sm text-gray-500 dark:text-gray-300">
                     <span className="flex items-center gap-1.5">
-                      <Users size={15} className="text-blue-500" />
+                      <Users size={15} className="text-green-500" />
                       {course._count?.students ?? 0}
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <BookOpen size={15} className="text-blue-500" />
+                      <BookOpen size={15} className="text-green-500" />
                       {course._count?.topics ?? 0}
                     </span>
                   </div>
@@ -162,7 +162,7 @@ export default function PublicCourses() {
                   {course.joined ? (
                     <button
                       onClick={() => openCourse(course)}
-                      className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-blue-700"
+                      className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-green-700"
                     >
                       Open Course
                     </button>
@@ -170,21 +170,21 @@ export default function PublicCourses() {
                     <button
                       onClick={() => handleJoinPublicCourse(course.id)}
                       disabled={joiningId === course.id}
-                      className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-emerald-700 disabled:opacity-50"
+                      className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-green-700 disabled:opacity-50"
                     >
                       {joiningId === course.id ? "Joining..." : "Join Course"}
                     </button>
                   ) : isOwner ? (
                     <button
                       onClick={() => openCourse(course)}
-                      className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-blue-700"
+                      className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-green-700"
                     >
                       Manage Course
                     </button>
                   ) : (
                     <button
                       onClick={() => openCourse(course)}
-                      className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-600 transition-all hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-300"
+                      className="w-full rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-600 transition-all hover:bg-green-100 dark:border-green-900/60 dark:bg-green-900/20 dark:text-green-300"
                     >
                       Open Course
                     </button>
