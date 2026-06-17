@@ -19,7 +19,7 @@ export default function Quiz() {
   const [reorderList, setReorderList] = useState<any[]>([]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean }>>([]);
+  const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean; pointsEarned: number }>>([]);
   const markAsSkip = Boolean((location.state as { markAsSkip?: boolean } | null)?.markAsSkip);
 
   // Namespaced keys for localStorage to track opened resources and completed quizzes per user.
@@ -53,6 +53,88 @@ export default function Quiz() {
   const arraysEqual = (left: any[], right: any[]) => (
     left.length === right.length && left.every((item, index) => item === right[index])
   );
+
+  /**
+   * Normalize text for comparison by converting to lowercase and removing special characters.
+   * Example: "Unit!" -> "unit", "Null type." -> "null type"
+   *
+   * @param value - Raw user input or correct answer
+   * @returns Normalized lowercase string with only letters, numbers, and spaces
+   */
+  const normalizeAnswerText = (value: string) => String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  /**
+   * Extract meaningful words from normalized text (skip short words with 2 or fewer characters).
+   * These tokens are used to check word overlap between user answer and correct answer.
+   *
+   * @param value - Normalized text string
+   * @returns Array of words with length > 2 (e.g., "Unit test" -> ["unit", "test"])
+   */
+  const meaningfulTokens = (value: string) => normalizeAnswerText(value)
+    .split(" ")
+    .filter((token) => token.length > 2);
+
+  /**
+   * Score an open-ended text answer against a list of accepted correct answers.
+   * Supports multiple correct answer variants (separated by "/" in acceptedAnswers).
+   *
+   * Scoring Rules:
+   * - Exact match: 1 point
+   * - Contains full correct answer phrase in a sentence: 1 point (e.g., "it is unit" matches "Unit")
+   * - For single-word correct answers like "Unit": user must type "unit" to get credit
+   * - For 2-word answers like "Null type": user must type both words to get partial credit (0.5)
+   * - For 3+ word answers: need at least 2 matching words for partial credit (0.5)
+   * - Short prefixes like "uni" do NOT match "Unit" - prevents false positives
+   *
+   * @param selectedAnswer - User's typed answer
+   * @param acceptedAnswers - Array of accepted correct answers (e.g., ["Unit", "Void"])
+   * @returns Score: 1 (full), 0.5 (partial), or 0 (incorrect)
+   */
+  const scoreOpenAnswer = (selectedAnswer: string, acceptedAnswers: string[]) => {
+    const normalizedSelected = normalizeAnswerText(selectedAnswer);
+    if (!normalizedSelected) return 0;
+
+    const accepted = Array.isArray(acceptedAnswers) ? acceptedAnswers : [];
+    const selectedTokens = new Set(meaningfulTokens(normalizedSelected));
+
+    // Check each accepted answer variant for match
+    for (const candidate of accepted) {
+      const normalizedCandidate = normalizeAnswerText(candidate);
+      if (!normalizedCandidate) continue;
+
+      // Rule 1: Exact match (case-insensitive)
+      // Example: "unit" == "unit" -> 1 point
+      if (normalizedCandidate === normalizedSelected) return 1;
+
+      // Rule 2: Full answer embedded in user's sentence counts as correct
+      // Example: "it is unit" contains "unit" as complete word -> 1 point
+      // But "uni" does NOT match "unit" (prefix only, not whole word)
+      const candidateWords = normalizedCandidate.split(" ").filter(Boolean);
+      const selectedWords = normalizedSelected.split(" ").filter(Boolean);
+      const containsWholeCandidate = candidateWords.length > 0
+        && selectedWords.length >= candidateWords.length
+        && selectedWords.some((_word, startIndex) => (
+          candidateWords.every((candidateWord, offset) => selectedWords[startIndex + offset] === candidateWord)
+        ));
+      if (containsWholeCandidate) return 1;
+
+      // Rule 3: Partial credit for multi-word answers (0.5 points)
+      // For 2-word answers like "Null type": require BOTH words to match
+      // For 3+ word answers: require at least 2 words to match
+      // This prevents "null" from getting partial credit for "Null type"
+      const candidateTokens = meaningfulTokens(normalizedCandidate);
+      const sharedTokens = candidateTokens.filter((t) => selectedTokens.has(t));
+
+      if (candidateTokens.length === 2 && sharedTokens.length >= 2) return 0.5;
+      if (candidateTokens.length >= 3 && sharedTokens.length >= 2) return 0.5;
+    }
+
+    return 0;
+  };
 
   const buildReorderStart = (items: any[]) => {
     if (!Array.isArray(items)) return [];
@@ -118,8 +200,7 @@ export default function Quiz() {
     // SAFE STRING CHECK: Prevents .toLowerCase().trim() from crashing on null
     if (q.type === "open_answer") {
       const validAnswers = Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [];
-      const safeSelected = (selected || "").toString().toLowerCase().trim();
-      return validAnswers.map((a: string) => a.toLowerCase()).includes(safeSelected);
+      return scoreOpenAnswer(String(selected || ""), validAnswers) >= 1;
     }
     
     if (q.type === "multiple_select") {
@@ -166,7 +247,7 @@ export default function Quiz() {
   const saveQuizResult = async (
     finalScore: number,
     totalQuestions: number,
-    finalAnswerResults: Array<{ type: string; correct: boolean }>
+    finalAnswerResults: Array<{ type: string; correct: boolean; pointsEarned: number }>
   ) => {
     if (!quiz?.id || !topicId) return;
 
@@ -183,13 +264,57 @@ export default function Quiz() {
     }
   };
 
+  /**
+   * Calculate points earned for the current question.
+   * This function handles scoring for all question types in the quiz.
+   *
+   * Scoring by question type:
+   * - open_answer: Uses scoreOpenAnswer() for flexible matching with partial credit
+   * - reorder: Uses partial scoring based on correct position count
+   * - multiple_choice, true_false, multiple_select: Binary (1 or 0)
+   *
+   * @returns Points earned: 1 (full), 0.5 (partial), or 0 (incorrect)
+   */
+  const scoreCurrentQuestion = () => {
+    if (!q) return 0;
+
+    // Type: open_answer (user types text answer)
+    // Uses smart matching with multiple accepted answer variants
+    if (q.type === "open_answer") {
+      return scoreOpenAnswer(String(selected || ""), Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : []);
+    }
+
+    // Type: reorder (drag and drop ordering)
+    // Partial credit: at least 50% in correct position = 0.5 points
+    if (q.type === "reorder") {
+      const sourceItems = Array.isArray(q.items) ? q.items : [];
+      const order = Array.isArray(q.correctOrder) ? q.correctOrder : sourceItems.map((_: unknown, idx: number) => idx);
+      const correctItems = order.map((itemIndex: number) => sourceItems[itemIndex]).filter(Boolean);
+
+      // Count how many items are in their correct position
+      let correctPositions = 0;
+      for (let i = 0; i < reorderList.length; i++) {
+        if (reorderList[i] === correctItems[i]) correctPositions++;
+      }
+
+      // Scoring: all correct = 1, at least half = 0.5, less than half = 0
+      if (correctPositions === correctItems.length) return 1;
+      if (correctPositions >= Math.ceil(correctItems.length / 2)) return 0.5;
+      return 0;
+    }
+
+    // Types: multiple_choice, true_false, multiple_select
+    // Binary scoring only (no partial credit)
+    return isCorrect() ? 1 : 0;
+  };
+
   const handleNext = () => {
-    const correct = isCorrect();
-    const nextScore = correct ? score + 1 : score;
-    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct }];
+    const earnedPoints = scoreCurrentQuestion();
+    const nextScore = score + earnedPoints;
+    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct: earnedPoints >= 0.5, pointsEarned: earnedPoints }];
 
     setAnswerResults(nextAnswerResults);
-    if (correct) setScore(nextScore);
+    if (earnedPoints > 0) setScore(nextScore);
     
     const totalQuestions = Array.isArray(quiz?.questions) ? quiz.questions.length : 0;
     
@@ -245,7 +370,7 @@ export default function Quiz() {
       <div className="text-center p-8 rounded-[32px] border shadow-2xl bg-[var(--cn-card)] border-[var(--cn-border)] max-w-sm w-full">
         <Trophy size={48} className="text-[#F5C518] mx-auto mb-4" />
         <h1 className="text-2xl font-black mb-1" style={{color: "var(--cn-text)"}}>Final Results</h1>
-        <p className="text-5xl font-black text-blue-600 mb-6">{score} / {quiz.questions.length}</p>
+        <p className="text-5xl font-black text-blue-600 mb-6">{Number.isInteger(score) ? score : score.toFixed(1)} / {quiz.questions.length}</p>
         <button onClick={() => navigate(-1)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest">Exit</button>
       </div>
     </div>
@@ -255,7 +380,14 @@ export default function Quiz() {
   const optionsToRender = q.type === "true_false"
     ? (currentIdx % 2 === 0 ? ["True", "False"] : ["False", "True"])
     : (Array.isArray(q.options) ? q.options : ["True", "False"]);
-  const answerState = revealed ? (isCorrect() ? "correct" : "incorrect") : "idle";
+  const revealedScore = revealed ? scoreCurrentQuestion() : 0;
+  const answerState = !revealed
+    ? "idle"
+    : revealedScore >= 1
+      ? "correct"
+      : revealedScore > 0
+        ? "partial"
+        : "incorrect";
 
   return (
     <div className="h-screen w-full flex flex-col transition-colors px-4 pt-2 pb-6" style={{ background: "var(--cn-page)" }}>
@@ -314,11 +446,11 @@ export default function Quiz() {
               )}
               
               {revealed && (
-                <div className={`mt-4 p-4 rounded-2xl border-2 animate-in slide-in-from-top-2 shadow-lg ${answerState === 'correct' ? 'bg-emerald-100 border-emerald-400/80 shadow-emerald-500/10 dark:bg-emerald-900/45 dark:border-emerald-500/65 dark:shadow-emerald-950/25' : 'bg-red-100 border-red-400/80 shadow-red-500/10 dark:bg-red-900/40 dark:border-red-500/65 dark:shadow-red-950/25'}`}>
-                  <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
-                    {isCorrect() ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
+                <div className={`mt-4 p-4 rounded-2xl border-2 animate-in slide-in-from-top-2 shadow-lg ${answerState === 'correct' ? 'bg-emerald-100 border-emerald-400/80 shadow-emerald-500/10 dark:bg-emerald-900/45 dark:border-emerald-500/65 dark:shadow-emerald-950/25' : answerState === 'partial' ? 'bg-amber-100 border-amber-400/80 shadow-amber-500/10 dark:bg-amber-900/40 dark:border-amber-500/65 dark:shadow-amber-950/25' : 'bg-red-100 border-red-400/80 shadow-red-500/10 dark:bg-red-900/40 dark:border-red-500/65 dark:shadow-red-950/25'}`}>
+                  <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : answerState === 'partial' ? 'bg-amber-600 text-white border border-amber-500 dark:bg-amber-600/35 dark:text-amber-50 dark:border-amber-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
+                    {answerState === 'correct' ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : answerState === 'partial' ? <><CheckCircle2 size={15} className="text-white dark:text-amber-200"/> PARTIAL</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
                   </div>
-                  {!isCorrect() && (
+                  {answerState !== 'correct' && (
                     <div className="mb-2.5 p-2.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10">
                       <p className="text-[10px] font-black text-red-500/80 dark:text-red-400/80 uppercase tracking-widest mb-1.5">The Correct Answer</p>
                       <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100">{getCorrectAnswerText()}</p>

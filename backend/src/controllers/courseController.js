@@ -434,9 +434,10 @@ exports.addTopic = async (req, res) => {
     let content = null;
     // articleUrl stays as an external source pointer only.
     // Uploaded PDFs are parsed to text and are not persisted as files.
-    let resolvedArticleUrl = articleUrl || sourceUrl || null;
-    if (sourceUrl) {
-      content = await scrapeUrl(sourceUrl);
+    const sourceLink = sourceUrl || articleUrl || null;
+    let resolvedArticleUrl = sourceLink;
+    if (sourceLink) {
+      content = await scrapeUrl(sourceLink);
     } else if (req.file) {
       content = await parsePdf(req.file.buffer);
       resolvedArticleUrl = null;
@@ -497,9 +498,10 @@ exports.updateTopic = async (req, res) => {
 
     let nextContent = currentTopic?.content || undefined;
     let nextArticleUrl = currentTopic?.articleUrl || null;
-    if (sourceUrl) {
-      nextContent = await scrapeUrl(sourceUrl);
-      nextArticleUrl = sourceUrl;
+    const sourceLink = sourceUrl || articleUrl || null;
+    if (sourceLink) {
+      nextContent = await scrapeUrl(sourceLink);
+      nextArticleUrl = sourceLink;
     } else if (req.file) {
       nextContent = await parsePdf(req.file.buffer);
       nextArticleUrl = null;

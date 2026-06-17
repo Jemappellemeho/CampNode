@@ -4,6 +4,8 @@ const { scrapeUrl } = require("../services/scraperService");
 const { parsePdf } = require("../services/pdfService");
 const aiService = require("../services/aiService");
 
+// Markers that indicate a quiz was auto-generated (fallback), not from real content.
+// Used to detect low-quality placeholder content.
 const MOCK_QUESTION_MARKERS = [
   "what is the primary goal of",
   "which layer usually handles",
@@ -14,11 +16,27 @@ const MOCK_QUESTION_MARKERS = [
   "which of these terms appear in the source",
   "order the key ideas from the source",
   "name one key idea from the source",
-  "which concept is most central to"
+  "which concept is most central to",
+  "unit 1 introduction",
+  "unit 2 android",
+  "courses tutorials interview",
+  "interview prep android",
+  "instructional",
+  "distance",
+  "val water filter =",
+  "fun encode msg",
+  "(string) -",
+  "kotlin language documentation",
+  "welcome to our tour of kotlin",
+  "step names another concept",
+  "next changes how",
+  "describes a different part of"
 ];
 
+// Minimum questions required for an acceptable quiz
 const MIN_ACCEPTABLE_QUIZ_QUESTIONS = 8;
 
+// Save quiz to database: update existing or create new if none exists.
 async function upsertTopicQuiz(topicId, questions) {
   const existingQuiz = await prisma.quiz.findFirst({
     where: { topicId },
@@ -40,15 +58,27 @@ async function upsertTopicQuiz(topicId, questions) {
   });
 }
 
+// Check if quiz contains auto-generated placeholder content (not real).
 function isFallbackQuiz(questions) {
   if (!Array.isArray(questions) || questions.length === 0) return true;
 
   return questions.some((question) => {
-    const text = typeof question?.question === "string" ? question.question.toLowerCase() : "";
+    const optionText = Array.isArray(question?.options) ? question.options.join(" ") : "";
+    const answerText = Array.isArray(question?.acceptedAnswers) ? question.acceptedAnswers.join(" ") : "";
+    const text = [
+      question?.question,
+      question?.explanation,
+      optionText,
+      answerText,
+    ]
+      .filter((value) => typeof value === "string")
+      .join(" ")
+      .toLowerCase();
     return MOCK_QUESTION_MARKERS.some((marker) => text.includes(marker));
   });
 }
 
+// Escape HTML special characters to prevent XSS.
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -58,18 +88,23 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+// Convert plain PDF text to HTML with proper formatting.
 function formatPlainPdfTextAsHtml(rawText) {
+  // === STEP 1: Normalize whitespace and line endings ===
   const normalized = String(rawText || "")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\u00A0\t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/--- PAGE BREAK ---/g, "\n\n[[PAGE_BREAK]]\n\n")
-    .replace(/([.!?])\s+(?=\d+\.\s+[A-Z])/g, "$1\n\n")
-    .replace(/:\s+(?=\d+\.\s+[A-Z])/g, ":\n\n")
-    .replace(/\s+•\s+/g, "\n• ")
-    .replace(/\s+o\s+/gi, "\no ")
-    .replace(/\s+-\s+/g, "\n- ");
+    .replace(/\r\n?/g, "\n")          // Windows line endings -> Unix
+    .replace(/[\u00A0\t]+/g, " ")      // Non-breaking spaces, tabs -> space
+    .replace(/\bD\s+r\.\s+/g, "Dr. ") // Fix "D r." to "Dr."
+    .replace(/\s+([,.;:!?])/g, "$1")  // Remove space before punctuation
+    .replace(/\n{3,}/g, "\n\n")       // Multiple blank lines -> double
+    .replace(/\s*---\s*PAGE\s+BREAK\s*---\s*/gi, "\n\n[[PAGE_BREAK]]\n\n") // Mark page breaks
+    .replace(/([.!?])\s+(?=\d+\.\s+[A-Z])/g, "$1\n\n") // Sentence + numbered heading -> newline
+    .replace(/:\s+(?=\d+\.\s+[A-Z])/g, ":\n\n") // Colon + numbered heading -> newline
+    .replace(/\s+•\s+/g, "\n• ")      // Spaces around bullet -> newline + bullet
+    .replace(/\s+o\s+/gi, "\no ")    // Spaces around "o" -> newline + "o "
+    .replace(/\s+-\s+/g, "\n- ");     // Spaces around dash -> newline + dash
 
+  // STEP 2: Split into blocks (separated by double newlines) 
   const blocks = normalized
     .split(/\n{2,}/)
     .map((block) => block.trim())
@@ -77,12 +112,15 @@ function formatPlainPdfTextAsHtml(rawText) {
 
   const html = [];
 
+  // STEP 3: Process each block 
   for (const block of blocks) {
+    // Handle page break markers
     if (block === "[[PAGE_BREAK]]") {
       html.push('<hr style="margin: 1.5rem 0; border: 0; border-top: 1px dashed rgba(125, 125, 125, 0.25);" />');
       continue;
     }
 
+    // Split block into individual lines
     const lines = block
       .split(/\n+/)
       .map((line) => line.trim())
@@ -91,19 +129,23 @@ function formatPlainPdfTextAsHtml(rawText) {
     const paragraphs = [];
     const listItems = [];
 
+    // Helper: flush collected list items as <ul>
     const flushList = () => {
       if (!listItems.length) return;
       html.push(`<ul class="pdf-list">${listItems.map((item) => `<li>${item}</li>`).join("")}</ul>`);
       listItems.length = 0;
     };
 
+    // Helper: flush collected paragraphs as <p>
     const flushParagraphs = () => {
       if (!paragraphs.length) return;
       paragraphs.forEach((paragraph) => html.push(`<p>${paragraph}</p>`));
       paragraphs.length = 0;
     };
 
+    // STEP 4: Process each line and detect its type 
     for (const rawLine of lines) {
+      // Page break within block
       if (rawLine === "[[PAGE_BREAK]]") {
         flushList();
         flushParagraphs();
@@ -111,6 +153,7 @@ function formatPlainPdfTextAsHtml(rawText) {
         continue;
       }
 
+      // Numbered section heading (e.g., "1. Introduction")
       const sectionMatch = rawLine.match(/^(\d+)\.\s+(.+)$/);
       if (sectionMatch) {
         flushList();
@@ -119,6 +162,7 @@ function formatPlainPdfTextAsHtml(rawText) {
         const sectionTitle = sectionMatch[2].replace(/\s*•\s*/g, " ").trim();
         html.push(`<h3 class="pdf-heading">${escapeHtml(`${sectionMatch[1]}. ${sectionTitle}`)}</h3>`);
 
+        // Sub-items after section title (bullets or key:value pairs)
         const tailParts = sectionTitle
           .split(/\s*•\s*/)
           .map((part) => part.trim())
@@ -137,6 +181,7 @@ function formatPlainPdfTextAsHtml(rawText) {
         continue;
       }
 
+      // Bullet or asterisk line (list item)
       const bulletMatch = rawLine.match(/^[•o\-*]\s*(.+)$/i);
       if (bulletMatch) {
         flushParagraphs();
@@ -144,6 +189,7 @@ function formatPlainPdfTextAsHtml(rawText) {
         continue;
       }
 
+      // Label:value pair (e.g., "Author: John Doe")
       const labelMatch = rawLine.match(/^([A-Za-z][A-Za-z\s\/()\-]{1,40}):\s*(.+)$/);
       if (labelMatch) {
         flushList();
@@ -151,10 +197,20 @@ function formatPlainPdfTextAsHtml(rawText) {
         continue;
       }
 
+      // All-caps heading (no punctuation at end)
+      if (/^[A-Z][A-Z0-9\s:()\-\/,&.]{6,90}$/.test(rawLine) && !/[.?!]$/.test(rawLine)) {
+        flushList();
+        flushParagraphs();
+        html.push(`<h3 class="pdf-heading">${escapeHtml(rawLine)}</h3>`);
+        continue;
+      }
+
+      // Regular paragraph text
       if (listItems.length) flushList();
       paragraphs.push(escapeHtml(rawLine));
     }
 
+    // Flush any remaining content
     flushList();
     flushParagraphs();
   }
@@ -162,10 +218,8 @@ function formatPlainPdfTextAsHtml(rawText) {
   return html.join("");
 }
 
-/**
- * GET Quiz for a topic.
- * Logic: If missing or < 10 questions, it regenerates to ensure a full session.
- */
+// GET Quiz for a topic
+// If missing or < 8 questions, regenerates to ensure a full session.
 exports.getQuizByTopic = async (req, res) => {
   try {
     const { topicId } = req.params;
@@ -197,7 +251,9 @@ exports.getQuizByTopic = async (req, res) => {
       const source = await ensureTopicSourceContent(topic);
       const sourceContent = source.content;
       
-      const questions = await aiService.generateQuiz(sourceContent || topic.name, topic.name);
+      const questions = await aiService.generateQuiz(sourceContent || topic.name, topic.name, {
+        courseId: topic.courseId,
+      });
 
       quiz = await upsertTopicQuiz(topicId, questions);
     }
@@ -211,20 +267,19 @@ exports.getQuizByTopic = async (req, res) => {
   }
 };
 
-/**
- * Creates a new topic and processes optional sources (Web-Link or PDF)
- */
+// POST Create a new topic
 exports.createTopic = async (req, res) => {
   try {
-    const { name, description, courseId, wikidataId, sourceUrl, language } = req.body;
+    const { name, description, courseId, wikidataId, sourceUrl, articleUrl, language } = req.body;
     let content = "";
     // articleUrl is used only for external source links.
     // Uploaded PDFs are parsed and stored as cleaned text only.
-    let resolvedArticleUrl = sourceUrl || null;
+    const sourceLink = sourceUrl || articleUrl || null;
+    let resolvedArticleUrl = sourceLink;
 
-    if (sourceUrl) {
-      console.log("Scraping website:", sourceUrl);
-      content = await scrapeUrl(sourceUrl);
+    if (sourceLink) {
+      console.log("Scraping website:", sourceLink);
+      content = await scrapeUrl(sourceLink);
     } 
     else if (req.file) {
       console.log("Parsing PDF:", req.file.originalname);
@@ -260,9 +315,7 @@ exports.createTopic = async (req, res) => {
   }
 };
 
-/**
- * Fetch all topics that belong to a specific course
- */
+// GET topics by course
 exports.getTopicsByCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
@@ -278,13 +331,11 @@ exports.getTopicsByCourse = async (req, res) => {
   }
 };
 
-/**
- * Update a topic, optionally attaching a new PDF file and merging content
- */
+// PUT update a topic, optionally attaching a new PDF file and merging content
 exports.updateTopic = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, prerequisiteIds, sourceUrl } = req.body;
+    const { name, description, prerequisiteIds, sourceUrl, articleUrl } = req.body;
 
     if (req.user.role !== "PROFESSOR") {
       return res.status(403).json({ error: "Access denied" });
@@ -295,9 +346,10 @@ exports.updateTopic = async (req, res) => {
 
     let newContent = "";
     let nextArticleUrl = currentTopic.articleUrl || null;
-    if (sourceUrl) {
-      newContent = await scrapeUrl(sourceUrl);
-      nextArticleUrl = sourceUrl;
+    const sourceLink = sourceUrl || articleUrl || null;
+    if (sourceLink) {
+      newContent = await scrapeUrl(sourceLink);
+      nextArticleUrl = sourceLink;
     } else if (req.file) {
       newContent = await parsePdf(req.file.buffer);
       nextArticleUrl = null;
@@ -337,9 +389,7 @@ exports.updateTopic = async (req, res) => {
   }
 };
 
-/**
- * Delete a specific topic
- */
+// DELETE a specific topic
 exports.deleteTopic = async (req, res) => {
   try {
     const { id } = req.params;
@@ -353,9 +403,7 @@ exports.deleteTopic = async (req, res) => {
   }
 };
 
-/**
- * Fetch Wikipedia article for display in the frontend
- */
+// GET topic content from Wikipedia
 exports.getTopicContent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -439,9 +487,7 @@ exports.getTopicContent = async (req, res) => {
   }
 };
 
-/**
- * Internal helper to fetch plain text from Wikipedia for AI analysis
- */
+// Fetch plain text from Wikipedia
 async function fetchWikiText(wikidataId, preferredLang = "en") {
   try {
     const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`;
@@ -462,6 +508,7 @@ async function fetchWikiText(wikidataId, preferredLang = "en") {
   } catch (err) { return null; }
 }
 
+// Get content for topic: check local content first, then fetch from Wikipedia/web.
 async function ensureTopicSourceContent(topic) {
   if (!topic) return { topic, content: "" };
 
@@ -496,9 +543,8 @@ async function ensureTopicSourceContent(topic) {
   return { topic: updatedTopic, content: nextContent };
 }
 
-/**
- * Trigger AI to generate summary and quiz questions based on topic content
- */
+
+// POST: Trigger AI to generate summary and quiz questions based on topic content
 exports.enrichTopic = async (req, res) => {
   try {
     const { id } = req.params;
@@ -512,7 +558,14 @@ exports.enrichTopic = async (req, res) => {
 
     console.log(`[Debug] Enriching Topic: ${topic.name}. Content found: ${!!source.content}`);
 
-    if (!source.content) return res.status(400).json({ error: "No content available for AI." });
+    if (!source.content) {
+      const hasLinkedSource = Boolean(topic.articleUrl || topic.wikidataId);
+      return res.status(400).json({
+        error: hasLinkedSource
+          ? "Could not extract readable text from the linked source. Try adding the link as a source URL, using another article page, or uploading the PDF/text directly."
+          : "No content available for AI.",
+      });
+    }
 
     // Wikipedia-Inhalt an das RAG-System senden
     if (topic.courseId) {
@@ -522,7 +575,9 @@ exports.enrichTopic = async (req, res) => {
       console.log("[Debug] Skipping RAG ingestion in enrich: no courseId");
     }
 
-    const quizQuestions = await aiService.generateQuiz(source.content, topic.name);
+    const quizQuestions = await aiService.generateQuiz(source.content, topic.name, {
+      courseId: topic.courseId,
+    });
     const quiz = await upsertTopicQuiz(id, quizQuestions);
 
     const updatedTopic = await prisma.topic.findUnique({
@@ -548,9 +603,7 @@ exports.enrichTopic = async (req, res) => {
   }
 };
 
-/**
- * Update quiz questions manually (Professor only)
- */
+// PUT update quiz questions (Professor only)
 exports.updateQuiz = async (req, res) => {
   try {
     const { quizId } = req.params;
@@ -561,9 +614,7 @@ exports.updateQuiz = async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to update quiz." }); }
 };
 
-/**
- * Delete a quiz manually (Professor only)
- */
+// DELETE a quiz (Professor only)
 exports.deleteQuiz = async (req, res) => {
   try {
     const { quizId } = req.params;

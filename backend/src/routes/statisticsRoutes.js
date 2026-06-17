@@ -13,7 +13,7 @@ async function ensureQuizResultTable() {
       "quizId" TEXT NOT NULL,
       "topicId" TEXT NOT NULL,
       "userId" TEXT NOT NULL,
-      "score" INTEGER NOT NULL,
+      "score" NUMERIC(10,2) NOT NULL,
       "totalQuestions" INTEGER NOT NULL,
       "questionStats" JSONB NOT NULL DEFAULT '[]'::jsonb,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -35,6 +35,7 @@ function normalizeQuestionStats(questionStats) {
         .map((item) => ({
           type: item.type,
           correct: Boolean(item.correct),
+          pointsEarned: Number.isFinite(Number(item.pointsEarned)) ? Number(item.pointsEarned) : 0,
         }))
     : [];
 }
