@@ -27,19 +27,34 @@ export default function CreateCourseModal({
   onCreated?: () => void;
 }) {
   const navigate = useNavigate();
+  
+  // Step 1: Basic info (Title, description, public/private)
+  // Step 2: Adding topics and sources
   const [step, setStep] = useState(1);
   const [course, setCourse] = useState({ title: '', description: '', isPublic: true });
+  
+  // 'wikidata' lets them search Wikipedia-style databases. 'manual' lets them upload a PDF or paste a link.
   const [searchMode, setSearchMode] = useState<'wikidata' | 'manual'>('wikidata');
+  
+  // State for the Wikidata search bar
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  
+  // The final list of topics the user has chosen to include in their course
   const [topics, setTopics] = useState<TopicDraft[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // State for manual topic entry
   const [manualTopic, setManualTopic] = useState({ name: '', description: '', sourceUrl: '' });
   const [manualFile, setManualFile] = useState<File | null>(null);
   const wikidataLanguage = 'en';
 
   if (!isOpen) return null;
 
+  // ============================================================================
+  // WIKIDATA SEARCH LOGIC
+  // ============================================================================
+  // Sends a request to our backend to search the Wikidata database for topics
   const searchWiki = async (query: string) => {
     setSearch(query);
     if (query.trim().length < 3) {
@@ -55,8 +70,10 @@ export default function CreateCourseModal({
     }
   };
 
+  // Adds a clicked Wikidata result into the user's list of chosen topics
   const addWikidataTopic = (item: any) => {
     setTopics((prev) => {
+      // Don't add it twice if they already clicked it
       if (prev.some((topic) => topic.wikidataId === item.id)) return prev;
       return [
         ...prev,
@@ -69,10 +86,15 @@ export default function CreateCourseModal({
         },
       ];
     });
+    // Clear the search bar after adding
     setSearch('');
     setResults([]);
   };
 
+  // ============================================================================
+  // MANUAL UPLOAD LOGIC
+  // ============================================================================
+  // Adds a custom topic (with a PDF or URL) into the user's list of chosen topics
   const addManualTopic = () => {
     if (!manualTopic.name.trim()) return;
 
@@ -88,14 +110,20 @@ export default function CreateCourseModal({
       },
     ]);
 
+    // Reset the manual entry form
     setManualTopic({ name: '', description: '', sourceUrl: '' });
     setManualFile(null);
   };
 
+  // Removes a topic from the list if the user clicks the "X"
   const removeTopic = (clientId: string) => {
     setTopics((prev) => prev.filter((topic) => topic.clientId !== clientId));
   };
 
+  // ============================================================================
+  // SAVE / CREATE COURSE
+  // ============================================================================
+  // This sends everything to the backend to actually create the course and its nodes.
   const saveCourse = async () => {
     if (!course.title.trim()) {
       alert('Enter a course title.');
@@ -109,6 +137,7 @@ export default function CreateCourseModal({
 
     setLoading(true);
     try {
+      // 1. Create the empty course shell first
       const courseRes = await api.post('/courses', {
         title: course.title.trim(),
         description: course.description.trim(),
@@ -117,10 +146,12 @@ export default function CreateCourseModal({
 
       const newCourseId = courseRes.data.course?.id || courseRes.data.id;
 
+      // 2. Add each topic to the new course, one by one
       for (let index = 0; index < topics.length; index += 1) {
         const topic = topics[index];
 
         if (topic.mode === 'wikidata') {
+          // If it's a Wikidata topic, just send the ID and the backend will fetch the data
           await api.post(`/courses/${newCourseId}/topics`, {
             name: topic.label,
             description: topic.description || '',
@@ -131,6 +162,7 @@ export default function CreateCourseModal({
           continue;
         }
 
+        // If it's a manual upload, we have to send it as a FormData object so the PDF file goes through
         const formData = new FormData();
         formData.append('name', topic.label);
         formData.append('description', topic.description || '');
@@ -138,10 +170,11 @@ export default function CreateCourseModal({
         if (topic.sourceUrl) formData.append('sourceUrl', topic.sourceUrl);
         if (topic.file) formData.append('pdf', topic.file);
 
-        // Content-Type header nicht manuell setzen — axios erkennt FormData automatisch
+        // Content-Type header is not needed — axios sets it automatically for FormData
         await api.post(`/courses/${newCourseId}/topics`, formData);
       }
 
+      // 3. Close the modal and take the user to their shiny new course dashboard
       onCreated?.();
       navigate(`/prof/course/${newCourseId}`);
     } catch (error: any) {
@@ -152,9 +185,17 @@ export default function CreateCourseModal({
     }
   };
 
+  // ============================================================================
+  // MAIN RENDER (THE SCREEN UI)
+  // ============================================================================
   return (
+    // The dark transparent background behind the modal
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+      
+      {/* The white modal box itself */}
       <div className="w-full max-w-3xl overflow-hidden rounded-[28px] border bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+        
+        {/* Modal Header */}
         <div className="flex items-center justify-between border-b px-6 py-5 dark:border-gray-800">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600">Teacher Mode</p>
@@ -168,15 +209,21 @@ export default function CreateCourseModal({
         </div>
 
         <div className="p-6">
+          {/* -------------------------------------------------------------------------
+              STEP 1: Basic Course Info (Title, Public/Private, Description)
+          ------------------------------------------------------------------------- */}
           {step === 1 ? (
             <div className="space-y-5">
               <div className="grid gap-4 md:grid-cols-2">
+                {/* Course Title Input */}
                 <input
                   value={course.title}
                   onChange={(e) => setCourse((prev) => ({ ...prev, title: e.target.value }))}
                   placeholder="Course title"
                   className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 />
+                
+                {/* Public / Private Toggle Buttons */}
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1 dark:bg-gray-800">
                   <button
                     type="button"
@@ -195,6 +242,7 @@ export default function CreateCourseModal({
                 </div>
               </div>
 
+              {/* Course Description Textarea */}
               <textarea
                 value={course.description}
                 onChange={(e) => setCourse((prev) => ({ ...prev, description: e.target.value }))}
@@ -211,13 +259,21 @@ export default function CreateCourseModal({
                 </button>
               </div>
             </div>
+            
+          // -------------------------------------------------------------------------
+          //    STEP 2: Add Topics (Wikidata Search or Manual Upload)
+          // -------------------------------------------------------------------------
           ) : (
             <div className="space-y-6">
+              
+              {/* Header for Step 2 */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold dark:text-white">Course sources</p>
                   <p className="text-xs text-gray-500">Use Wikidata or upload your own material so Gemini can generate quizzes from real content.</p>
                 </div>
+                
+                {/* Toggle between Wikidata search and Manual Upload */}
                 <div className="flex rounded-2xl bg-gray-100 p-1 dark:bg-gray-800">
                   <button
                     type="button"
@@ -236,6 +292,9 @@ export default function CreateCourseModal({
                 </div>
               </div>
 
+              {/* -------------------------------------------------------------------------
+                  WIKIDATA SEARCH PANEL
+              ------------------------------------------------------------------------- */}
               {searchMode === 'wikidata' ? (
                 <div className="space-y-3">
                   <div className="relative">
@@ -264,6 +323,10 @@ export default function CreateCourseModal({
                     ))}
                   </div>
                 </div>
+                
+              // -------------------------------------------------------------------------
+              //    MANUAL UPLOAD PANEL (Paste URL or Upload PDF)
+              // -------------------------------------------------------------------------
               ) : (
                 <div className="rounded-3xl border p-5 dark:border-gray-700">
                   <div className="grid gap-3 md:grid-cols-2">
@@ -308,6 +371,9 @@ export default function CreateCourseModal({
                 </div>
               )}
 
+              {/* -------------------------------------------------------------------------
+                  SELECTED TOPICS LIST (Shows everything the user has picked so far)
+              ------------------------------------------------------------------------- */}
               <div className="space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">Selected Items</p>
                 <div className="max-h-64 space-y-3 overflow-y-auto">
@@ -338,6 +404,9 @@ export default function CreateCourseModal({
                 </div>
               </div>
 
+              {/* -------------------------------------------------------------------------
+                  FINAL ACTION BUTTONS (Back or Create Course)
+              ------------------------------------------------------------------------- */}
               <div className="flex items-center justify-between gap-3 border-t pt-5 dark:border-gray-800">
                 <button onClick={() => setStep(1)} className="rounded-2xl px-5 py-3 text-sm font-bold text-gray-500 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800">
                   Back

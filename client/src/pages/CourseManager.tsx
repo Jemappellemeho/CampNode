@@ -4,7 +4,8 @@ import axios from 'axios';
 import {
   Plus, Trash2, ChevronLeft, GripVertical,
   BookOpen, X, Users, Globe, Copy, Check,
-  ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search
+  ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search,
+  Target, Award, Percent
 } from 'lucide-react';
 import { api } from '../utils/api';
 import GuideOverlay from '../components/GuideOverlay';
@@ -103,6 +104,7 @@ export default function CourseManager() {
   const [newSubWikiResults, setNewSubWikiResults] = useState<any[]>([]);
   const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>({});
   const [expandedMainTopics, setExpandedMainTopics] = useState<Record<string, boolean>>({});
+  const [expandedStatsTopics, setExpandedStatsTopics] = useState<Record<string, boolean>>({});
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
   const [quizEditorTopic, setQuizEditorTopic] = useState<any>(null);
@@ -744,26 +746,60 @@ export default function CourseManager() {
     return labels[type] || type.replace(/_/g, ' ');
   };
 
-  const renderStatsSummary = (stats: any) => (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Attempts</p>
-        <p className="mt-1 text-2xl font-black text-gray-900 dark:text-white">{stats?.attempts || 0}</p>
+  const renderStatsSummary = (stats: any, isTransparent?: boolean) => {
+    const bgOpacity = isTransparent ? '33' : '';
+    const attemptsColor = '#E63027';
+    const studentsColor = '#F5C518';
+    const scoreColor = '#3A9E3F';
+    const percentColor = '#9333ea';
+
+    const getBg = (color: string) => `${color}${bgOpacity}`;
+    const getTextColor = (color: string) => isTransparent ? color : 'white';
+    const getLabelColor = (color: string) => isTransparent ? color : 'white';
+
+    const getIconColor = (color: string) => isTransparent ? color : 'white';
+
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+        <div className="rounded-2xl sm:rounded-[1.75rem] p-3 sm:p-5 shadow-sm flex items-center gap-2 sm:gap-4 overflow-hidden" style={{ backgroundColor: getBg(attemptsColor) }}>
+          <div className="shrink-0" style={{ color: getIconColor(attemptsColor), opacity: isTransparent ? 0.8 : 0.7 }}>
+            <Target size={isTransparent ? 20 : 40} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest truncate" style={{ color: getLabelColor(attemptsColor), opacity: isTransparent ? 0.7 : 0.8 }}>Attempts</p>
+            <p className="text-lg sm:text-2xl font-black truncate" style={{ color: getTextColor(attemptsColor) }}>{stats?.attempts || 0}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl sm:rounded-[1.75rem] p-3 sm:p-5 shadow-sm flex items-center gap-2 sm:gap-4 overflow-hidden" style={{ backgroundColor: getBg(studentsColor) }}>
+          <div className="shrink-0" style={{ color: getIconColor(studentsColor), opacity: isTransparent ? 0.8 : 0.7 }}>
+            <Users size={isTransparent ? 20 : 40} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest truncate" style={{ color: getLabelColor(studentsColor), opacity: isTransparent ? 0.8 : 0.8 }}>Students</p>
+            <p className="text-lg sm:text-2xl font-black truncate" style={{ color: getTextColor(studentsColor) }}>{stats?.students || 0}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl sm:rounded-[1.75rem] p-3 sm:p-5 shadow-sm flex items-center gap-2 sm:gap-4 overflow-hidden" style={{ backgroundColor: getBg(scoreColor) }}>
+          <div className="shrink-0" style={{ color: getIconColor(scoreColor), opacity: isTransparent ? 0.8 : 0.7 }}>
+            <Award size={isTransparent ? 20 : 40} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest truncate" style={{ color: getLabelColor(scoreColor), opacity: isTransparent ? 0.7 : 0.8 }}>Avg Score</p>
+            <p className="text-lg sm:text-2xl font-black truncate" style={{ color: getTextColor(scoreColor) }}>{stats?.averageScore || 0}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl sm:rounded-[1.75rem] p-3 sm:p-5 shadow-sm flex items-center gap-2 sm:gap-4 overflow-hidden" style={{ backgroundColor: getBg(percentColor) }}>
+          <div className="shrink-0" style={{ color: getIconColor(percentColor), opacity: isTransparent ? 0.8 : 0.7 }}>
+            <Percent size={isTransparent ? 20 : 40} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest truncate" style={{ color: getLabelColor(percentColor), opacity: isTransparent ? 0.7 : 0.8 }}>Avg Percent</p>
+            <p className="text-lg sm:text-2xl font-black truncate" style={{ color: getTextColor(percentColor) }}>{stats?.averagePercent || 0}%</p>
+          </div>
+        </div>
       </div>
-      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Students</p>
-        <p className="mt-1 text-2xl font-black text-gray-900 dark:text-white">{stats?.students || 0}</p>
-      </div>
-      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Avg Score</p>
-        <p className="mt-1 text-2xl font-black text-blue-600">{stats?.averageScore || 0}</p>
-      </div>
-      <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Avg Percent</p>
-        <p className="mt-1 text-2xl font-black text-blue-600">{stats?.averagePercent || 0}%</p>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderQuestionTypes = (stats: any) => {
     const entries = Object.entries(stats?.questionTypes || {});
@@ -817,23 +853,35 @@ export default function CourseManager() {
           {tab === "overview" && (
             <div className="space-y-6 animate-in fade-in">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border dark:border-gray-700 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><Users size={24} /></div>
-                  <div><p className="text-[10px] font-bold text-gray-400 uppercase">Students</p><p className="text-2xl font-black dark:text-white">{course.students?.length || 0}</p></div>
+                <div 
+                  className="p-6 rounded-[1.75rem] shadow-sm flex items-center gap-4"
+                  style={{ backgroundColor: '#F5C518', color: 'white' }}
+                >
+                  <div className="w-12 h-12 flex items-center justify-center"><Users size={24} /></div>
+                  <div><p className="text-[10px] font-black uppercase tracking-widest text-white/80">Students</p><p className="text-2xl font-black text-white">{course.students?.length || 0}</p></div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border dark:border-gray-700 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><BookOpen size={24} /></div>
-                  <div><p className="text-[10px] font-bold text-gray-400 uppercase">Nodes</p><p className="text-2xl font-black dark:text-white">{course.topics?.length || 0}</p></div>
+                <div 
+                  className="p-6 rounded-[1.75rem] shadow-sm flex items-center gap-4"
+                  style={{ backgroundColor: '#E63027', color: 'white' }}
+                >
+                  <div className="w-12 h-12 flex items-center justify-center"><BookOpen size={24} /></div>
+                  <div><p className="text-[10px] font-black uppercase tracking-widest text-white/80">Nodes</p><p className="text-2xl font-black text-white">{course.topics?.length || 0}</p></div>
                 </div>
-                <div className={`p-6 rounded-2xl border shadow-sm flex items-center gap-4 ${course.isPublic ? 'bg-green-50/30 border-green-100' : 'bg-blue-50/30 border-blue-100'}`}>
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${course.isPublic ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>{course.isPublic ? <Globe size={24} /> : <Lock size={24} />}</div>
-                  <div><p className="text-[10px] font-bold text-gray-400 uppercase">Visibility</p><p className={`text-2xl font-black ${course.isPublic ? 'text-green-600' : 'text-blue-600'}`}>{course.isPublic ? 'Public' : 'Private'}</p></div>
+                <div 
+                  className="p-6 rounded-[1.75rem] shadow-sm flex items-center gap-4"
+                  style={{ backgroundColor: course.isPublic ? '#3A9E3F' : '#1E6FFF', color: 'white' }}
+                >
+                  <div className="w-12 h-12 flex items-center justify-center">{course.isPublic ? <Globe size={24} /> : <Lock size={24} />}</div>
+                  <div><p className="text-[10px] font-black uppercase tracking-widest text-white/80">Visibility</p><p className="text-2xl font-black text-white">{course.isPublic ? 'Public' : 'Private'}</p></div>
                 </div>
               </div>
               <div className="bg-white dark:bg-gray-800 p-6 sm:p-8 rounded-3xl border dark:border-gray-700 shadow-sm">
                 <h3 className="text-[10px] font-black text-gray-900 dark:text-white mb-6 uppercase tracking-widest">Access Configuration</h3>
-                <div className="bg-gray-50 dark:bg-gray-900/50 p-4 sm:p-5 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Student Join Code</p><p className="text-xl font-mono font-bold text-blue-600 uppercase tracking-widest">{course.joinCode}</p></div>
+                <div 
+                  className="p-5 rounded-[1.75rem] shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                  style={{ backgroundColor: course.isPublic ? '#3A9E3F26' : '#1E6FFF26', color: course.isPublic ? '#3A9E3F' : '#1E6FFF' }}
+                >
+                  <div><p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Student Join Code</p><p className="text-xl font-mono font-black uppercase tracking-widest">{course.joinCode}</p></div>
                   <button 
                     onClick={() => {
                       navigator.clipboard.writeText(course.joinCode);
@@ -935,26 +983,32 @@ export default function CourseManager() {
                     <div className="space-y-4">
                       {statistics.topics.map((topic: any, index: number) => (
                         <div key={topic.id} className="rounded-3xl border bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-                          <div className="mb-4 flex items-start justify-between gap-4">
+                          <div className="mb-4 flex items-start justify-between gap-4 cursor-pointer hover:opacity-80" onClick={() => setExpandedStatsTopics(prev => ({...prev, [topic.id]: prev[topic.id] === undefined ? false : !prev[topic.id]}))}>
                             <div>
                               <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Main node {index + 1}</p>
-                              <h3 className="text-lg font-black text-gray-900 dark:text-white">{topic.name}</h3>
+                              <h3 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
+                                <ChevronDown size={18} className={`transition-transform duration-200 ${expandedStatsTopics[topic.id] === false ? '-rotate-90' : ''}`} />
+                                {topic.name}
+                              </h3>
                             </div>
                             <span className="rounded-xl bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-blue-600">
                               {topic.combinedStats?.attempts || 0} attempts
                             </span>
                           </div>
 
+                          {expandedStatsTopics[topic.id] !== false && (
+                            <>
+
                           <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/40">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Combined topic stats</p>
-                            {renderStatsSummary(topic.combinedStats)}
+                            {renderStatsSummary(topic.combinedStats, true)}
                             <div className="mt-3">{renderQuestionTypes(topic.combinedStats)}</div>
                           </div>
 
                           {(topic.ownStats?.attempts || 0) > 0 && (
                             <div className="mt-4 rounded-2xl border p-4 dark:border-gray-700">
                               <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Main node quiz</p>
-                              {renderStatsSummary(topic.ownStats)}
+                              {renderStatsSummary(topic.ownStats, true)}
                               <div className="mt-3">{renderQuestionTypes(topic.ownStats)}</div>
                             </div>
                           )}
@@ -970,12 +1024,14 @@ export default function CourseManager() {
                                       {subtopic.stats?.attempts || 0} attempts
                                     </span>
                                   </div>
-                                  {renderStatsSummary(subtopic.stats)}
+                                  {renderStatsSummary(subtopic.stats, true)}
                                   <div className="mt-3">{renderQuestionTypes(subtopic.stats)}</div>
                                 </div>
                               ))}
                             </div>
                           )}
+                          </>
+                        )}
                         </div>
                       ))}
                     </div>

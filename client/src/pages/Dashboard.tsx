@@ -59,6 +59,12 @@ const CN = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+
+  // ============================================================================
+  // USER STATE
+  // ============================================================================
+  // We grab the user from the browser's local storage so they stay logged in 
+  // even if they refresh the page. If there is no user, they are redirected.
   const [user] = useState<any>(() => {
     const saved = localStorage.getItem('user');
     if (!saved) return null;
@@ -69,38 +75,77 @@ export default function Dashboard() {
     }
   });
 
+  // ============================================================================
+  // APPLICATION STATE
+  // ============================================================================
+  // 'courses' holds the list of all courses the user is part of (as a student or professor).
   const [courses, setCourses] = useState<any[]>([]);
+  
+  // 'courseProgress' keeps track of how many topics the student has finished in each course.
   const [courseProgress, setCourseProgress] = useState<Record<string, { completed: number; total: number; percent: number }>>({});
+  
+  // Controls whether the "Create New Course" pop-up is visible on the screen.
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Stores the 8-character invite code a student types into the join box.
   const [joinCode, setJoinCode] = useState('');
+  
+  // Keeps track of which public course the student is currently trying to leave (shows a loading state).
   const [leavingCourseId, setLeavingCourseId] = useState<string | null>(null);
+  
+  // Controls the visibility of the visual "how-to" guide that points to different parts of the screen.
   const [showGuide, setShowGuide] = useState(false);
+  
+  // Holds the text the user types into the search bar to filter their courses.
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Tracks how many consecutive days the student has studied (streak) and how many minutes they spent today.
   const [learningActivity, setLearningActivity] = useState({ streak: 0, todayMinutes: 0 });
+  
+  // Determines which course the AI chat companion at the bottom of the screen should focus on.
   const [aiCourseId, setAiCourseId] = useState('');
 
+  // ============================================================================
+  // DERIVED VALUES
+  // ============================================================================
+  // Figure out what name to show at the top of the dashboard. We prefer their actual name, 
+  // but fall back to the first part of their email, or just their role if all else fails.
   const displayName =
     user?.name ||
     user?.email?.split('@')[0] ||
     (user?.role === 'STUDENT' ? 'Student' : 'Professor');
 
+  // A simple shortcut variable so we don't have to keep writing "user?.role === 'PROFESSOR'" everywhere.
   const isProfessor = user?.role === 'PROFESSOR';
 
+  // ============================================================================
+  // DATA FETCHING
+  // ============================================================================
+  // This is the main function that fetches all the data needed for the dashboard.
+  // It reaches out to the server, grabs the courses, and if the user is a student, 
+  // it also grabs their progress to see how far along they are.
   const fetchCourses = async () => {
     try {
+      // Step 1: Ask the server for the courses belonging to this user
       const res = await api.get('/courses/me');
       const nextCourses = res.data;
       setCourses(nextCourses);
 
+      // Step 2: If they are a student, we also need to know how many topics they've completed
       if (user?.role === 'STUDENT') {
         try {
+          // Ask the server for the progress records
           const progressRes = await api.get('/progress');
+          
+          // Group the completed topics by their course ID.
+          // This gives us an object like: { "courseId1": 5, "courseId2": 12 }
           const completedByCourse = progressRes.data.reduce((acc: Record<string, number>, item: any) => {
             const courseId = item.topic?.courseId;
             if (courseId && item.completed) acc[courseId] = (acc[courseId] || 0) + 1;
             return acc;
           }, {});
 
+          // Now, loop through the courses and calculate the exact percentage completed for each one.
           const nextProgress = nextCourses.reduce((acc: Record<string, { completed: number; total: number; percent: number }>, course: any) => {
             const total = course._count?.topics ?? 0;
             const completed = Math.min(completedByCourse[course.id] || 0, total);
@@ -112,14 +157,19 @@ export default function Dashboard() {
             return acc;
           }, {});
 
+          // Save the math we just did into the state variable so the screen can update
           setCourseProgress(nextProgress);
         } catch {
+          // If the progress fails to load, just default to an empty object to avoid crashing
           setCourseProgress({});
         }
       } else {
+        // Professors don't track progress, so they get an empty object
         setCourseProgress({});
       }
     } catch (err: any) {
+      // If fetching the courses fails with a 400+ error, it likely means the user's 
+      // login session expired. Kick them out to the login screen.
       if (err.response?.status >= 400) {
         localStorage.removeItem('user');
         navigate('/login');
@@ -127,6 +177,13 @@ export default function Dashboard() {
     }
   };
 
+  // ============================================================================
+  // SIDE EFFECTS (useEffect)
+  // ============================================================================
+  
+  // Effect 1: Security check on load.
+  // When the dashboard first opens, check if there is a logged-in user.
+  // If not, redirect them. If yes, fetch their data.
   useEffect(() => {
     if (!user) {
       navigate('/login');
@@ -135,29 +192,45 @@ export default function Dashboard() {
     }
   }, [user, navigate]);
 
+  // Effect 2: Onboarding Guide check.
+  // We don't want to spam the user with tutorials. We check if they've seen the 
+  // dashboard guide before. If they haven't, we show it to them.
   useEffect(() => {
     if (user && !hasSeenGuide(user, 'dashboard')) {
       setShowGuide(true);
     }
   }, [user]);
 
+  // Effect 3: Learning Activity check.
+  // If the user is a student, we calculate how many days in a row they've studied 
+  // and how many minutes they've spent learning today.
   useEffect(() => {
     if (user?.role === 'STUDENT') {
       setLearningActivity(getLearningActivityStats(user.id));
     }
   }, [user]);
 
+  // Effect 4: AI Chat setup.
+  // The AI chat at the bottom needs to be attached to a specific course.
+  // By default, we select the very first course in their list.
   useEffect(() => {
     if (!aiCourseId && courses.length > 0) {
       setAiCourseId(courses[0].id);
     }
   }, [aiCourseId, courses]);
 
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
+
+  // Closes the onboarding guide and marks it as seen so it doesn't bother them again.
   const closeGuide = () => {
     markGuideSeen(user, 'dashboard');
     setShowGuide(false);
   };
 
+  // Enrolls the user in a course using a teacher's join code.
+  // Sends the join code to the server, and if successful, refreshes the course list.
   const handleJoinCourse = async () => {
     try {
       await api.post('/courses/join', { joinCode });
@@ -169,10 +242,13 @@ export default function Dashboard() {
     }
   };
 
+  // Allows the user to leave a public course they previously joined.
+  // We use `leavingCourseId` to show a spinning wheel or disable the button so they don't click it twice.
   const handleLeavePublicCourse = async (courseId: string) => {
     setLeavingCourseId(courseId);
     try {
       await api.post(`/courses/${courseId}/leave-public`, {});
+      // Refresh the screen to show the course is gone
       fetchCourses();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Could not leave this public course.');
@@ -181,9 +257,21 @@ export default function Dashboard() {
     }
   };
 
+  // ============================================================================
+  // SEARCH & FILTERING
+  // ============================================================================
+  
+  // Filters the list of courses based on the user's search query.
+  // We use `useMemo` so we don't recalculate this list on every single screen paint,
+  // only when `courses` or `searchQuery` actually changes.
   const filteredCourses = useMemo(() => {
+    // Strip empty spaces and make everything lowercase for easy matching
     const normalized = searchQuery.trim().toLowerCase();
+    
+    // If the search box is empty, just show everything
     if (!normalized) return courses;
+    
+    // Check if the title, description, or join code contains the search word
     return courses.filter((course) => {
       return [course.title, course.description, course.joinCode]
         .filter(Boolean)
@@ -191,14 +279,32 @@ export default function Dashboard() {
     });
   }, [courses, searchQuery]);
 
+  // ============================================================================
+  // SUMMARY STATISTICS FOR THE TOP BANNER
+  // ============================================================================
+  // Calculate the total number of students across all courses (Professors)
   const totalStudents = courses.reduce((sum, course) => sum + (course._count?.students ?? 0), 0);
+  
+  // Calculate the total number of topics across all courses
   const totalTopics = courses.reduce((sum, course) => sum + (course._count?.topics ?? 0), 0);
+  
+  // Calculate how many topics the student has finished in total
   const completedTopics = Object.values(courseProgress).reduce((sum, progress) => sum + progress.completed, 0);
+  
+  // What percentage of all available topics has the student completed?
   const activePercent = totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0;
+  
+  // Find the exact course object that the AI chat should be talking about
   const aiCourse = courses.find((course) => course.id === aiCourseId) || courses[0];
 
+  // If we haven't loaded the user yet, don't try to draw the screen, just show nothing (or a loader)
   if (!user) return null;
 
+  // ============================================================================
+  // HELPER RENDERS
+  // ============================================================================
+  
+  // A tiny helper that draws the little green "Public" or blue "Private" badge on a course card.
   const renderCourseStatus = (course: any) => (
     course.isPublic ? (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-green-600 dark:bg-green-900/30 dark:text-green-300">
@@ -211,9 +317,22 @@ export default function Dashboard() {
     )
   );
 
+  // ============================================================================
+  // MAIN RENDER (THE SCREEN UI)
+  // ============================================================================
+
+
+  // ============================================================================
+  // MAIN RENDER (THE SCREEN UI)
+  // ============================================================================
+
   return (
     <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8">
+      {/* -------------------------------------------------------------------------
+          HEADER SECTION: Welcome message and search/create actions
+      ------------------------------------------------------------------------- */}
       <section className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        {/* Left Side: Welcome Text */}
         <div>
           <p className="mb-2 text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-gray-400">
             {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
@@ -226,7 +345,9 @@ export default function Dashboard() {
           </p>
         </div>
 
+        {/* Right Side: Search Bar and Buttons */}
         <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+          {/* Search Input */}
           <div className="relative min-w-0 flex-1 lg:w-80">
             <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -236,6 +357,8 @@ export default function Dashboard() {
               className="h-12 w-full rounded-2xl border border-gray-200 bg-white pl-11 pr-4 text-sm font-semibold text-gray-800 outline-none shadow-sm transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-blue-950"
             />
           </div>
+          
+          {/* Browse Public Courses Button */}
           <button
             onClick={() => {
               closeGuide();
@@ -245,6 +368,8 @@ export default function Dashboard() {
           >
             <Globe size={18} /> Public Courses
           </button>
+          
+          {/* Create Course Button (Only for Professors) */}
           {isProfessor && (
             <button
               onClick={() => {
@@ -259,6 +384,9 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* -------------------------------------------------------------------------
+          STUDENT ONLY: Join a Course Box
+      ------------------------------------------------------------------------- */}
       {user.role === 'STUDENT' && (
         <section className="mb-5 rounded-[1.75rem] border border-blue-100 bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-600/15 sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -284,18 +412,25 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* -------------------------------------------------------------------------
+          TOP STATISTICS BANNER: 3 large colored boxes showing summary stats
+      ------------------------------------------------------------------------- */}
       <section className={`mb-5 grid gap-4 ${isProfessor ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+        
+        {/* Box 1: Total Courses (Prof) OR Days Streak (Student) */}
         <div 
           className="rounded-[1.75rem] p-5 shadow-sm"
           style={{ backgroundColor: CN.green, color: 'white' }}
         >
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white/80">{isProfessor ? 'Courses' : 'Streak'}</p>
-            {isProfessor ? <Flame size={18} className="text-white" /> : <Flame size={18} className="text-white" />}
+            <Flame size={18} className="text-white" />
           </div>
           <p className="text-4xl font-black text-white">{isProfessor ? courses.length : learningActivity.streak}</p>
           <p className="mt-1 text-sm font-medium text-white/90">{isProfessor ? 'created or managed' : learningActivity.streak === 1 ? 'day streak' : 'days streak'}</p>
         </div>
+        
+        {/* Box 2: Total Students (Prof) OR Minutes Today (Student) */}
         <div 
           className="rounded-[1.75rem] p-5 shadow-sm"
           style={{ backgroundColor: isProfessor ? CN.yellow : CN.red, color: 'white' }}
@@ -307,6 +442,8 @@ export default function Dashboard() {
           <p className="text-4xl font-black text-white">{isProfessor ? totalStudents : learningActivity.todayMinutes}</p>
           <p className="mt-1 text-sm font-medium text-white/90">{isProfessor ? 'total enrollments' : 'resource minutes today'}</p>
         </div>
+        
+        {/* Box 3: Total Progress % (Student Only) */}
         {!isProfessor && (
           <div 
             className="rounded-[1.75rem] p-5 shadow-sm"
@@ -324,8 +461,12 @@ export default function Dashboard() {
         )}
       </section>
 
+      {/* -------------------------------------------------------------------------
+          MY COURSES LIST: Grid of all courses the user is in
+      ------------------------------------------------------------------------- */}
       <section>
         <div className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+          {/* Header of the Course List */}
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-blue-500">My Courses</p>
@@ -333,17 +474,19 @@ export default function Dashboard() {
                 {filteredCourses.length} shown - {courses.length} total
               </h2>
             </div>
+            {/* Another quick link to browse public courses */}
             <button
               onClick={() => {
                 closeGuide();
                 navigate('/courses/public');
               }}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gray-100 px-4 py-2 text-sm font-black text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-100"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-green-50 px-4 py-2 text-sm font-black text-green-600 transition hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-800/40"
             >
               Browse public <Globe size={15} />
             </button>
           </div>
 
+          {/* Empty State: If no courses match the search, or they have no courses at all */}
           {filteredCourses.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-gray-100 py-14 text-center dark:border-gray-700">
               <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20">
@@ -370,6 +513,8 @@ export default function Dashboard() {
               )}
             </div>
           ) : (
+            
+            /* The Actual Grid of Course Cards */
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredCourses.map((course) => {
                 const progress = courseProgress[course.id]?.percent ?? 0;
@@ -378,6 +523,7 @@ export default function Dashboard() {
                     key={course.id}
                     className="flex min-h-[14rem] flex-col rounded-3xl border border-gray-200 bg-gray-50/70 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md dark:border-gray-700 dark:bg-gray-900/40 dark:hover:bg-gray-900"
                   >
+                    {/* Course Card Header (Icon, Title, Public/Private Badge) */}
                     <div className="mb-4 flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${course.isPublic ? 'bg-green-600' : 'bg-blue-600'}`}>
@@ -390,10 +536,12 @@ export default function Dashboard() {
                       </div>
                     </div>
 
+                    {/* Course Description */}
                     <p className="mb-4 line-clamp-2 text-sm leading-6 text-gray-500">
                       {course.description || 'No description yet.'}
                     </p>
 
+                    {/* Professor View: Shows Student count, Topic count, and the Join Code */}
                     {isProfessor ? (
                       <div className="mb-4 space-y-4">
                         <div className="flex gap-4 text-sm font-bold text-gray-400">
@@ -411,17 +559,19 @@ export default function Dashboard() {
                         </div>
                       </div>
                     ) : (
+                      /* Student View: Shows a progress bar for this specific course */
                       <div className="mb-4">
                         <div className="mb-2 flex items-center justify-between text-xs font-black text-gray-500">
                           <span>Course progress</span>
                           <span>{progress}%</span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                          <div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
+                          <div className={`h-full rounded-full ${course.isPublic ? 'bg-green-600' : 'bg-blue-600'}`} style={{ width: `${progress}%` }} />
                         </div>
                       </div>
                     )}
 
+                    {/* Action Buttons at the bottom of the card */}
                     <div className={`mt-auto gap-2 ${isProfessor ? 'flex' : course.isPublic ? 'grid grid-cols-[minmax(0,1fr)_2.75rem]' : 'flex'}`}>
                       {isProfessor ? (
                         <button
@@ -454,6 +604,8 @@ export default function Dashboard() {
                           </button>
                         </>
                       )}
+                      
+                      {/* Leave Public Course Button (Small red button) */}
                       {user.role === 'STUDENT' && course.isPublic && (
                         <button
                           onClick={() => handleLeavePublicCourse(course.id)}
@@ -473,6 +625,9 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* -------------------------------------------------------------------------
+          AI CHAT COMPANION (Floating at the bottom of the screen)
+      ------------------------------------------------------------------------- */}
       {aiCourse && (
         <section className="mt-5">
           <AiChatCompanion
@@ -481,6 +636,7 @@ export default function Dashboard() {
             topics={[]}
             variant="embedded"
             headerAction={
+              /* If they have multiple courses, let them select which one the AI talks about */
               courses.length > 1 ? (
                 <select
                   value={aiCourse.id}
@@ -499,6 +655,9 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* -------------------------------------------------------------------------
+          MODALS & OVERLAYS
+      ------------------------------------------------------------------------- */}
       <CreateCourseModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -508,6 +667,7 @@ export default function Dashboard() {
         }}
       />
 
+      {/* The Visual Walkthrough Guide (Pointers for new users) */}
       {showGuide && (
         <GuideOverlay
           onClose={closeGuide}
