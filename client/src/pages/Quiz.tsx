@@ -1,7 +1,10 @@
+// Student quiz player.
+// Scores each question type and saves quiz statistics.
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import axios from "axios";
+import axios from "axios"; // Nur noch für axios.isAxiosError() gebraucht
 import { ArrowLeft, Trophy, GripVertical, CheckCircle2, XCircle } from "lucide-react";
+import { api } from "../utils/api";
 
 export default function Quiz() {
   const navigate = useNavigate();
@@ -18,7 +21,7 @@ export default function Quiz() {
   const [reorderList, setReorderList] = useState<any[]>([]);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean }>>([]);
+  const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean; pointsEarned: number }>>([]);
   const markAsSkip = Boolean((location.state as { markAsSkip?: boolean } | null)?.markAsSkip);
 
   // Namespaced keys for localStorage to track opened resources and completed quizzes per user.
@@ -53,6 +56,113 @@ export default function Quiz() {
     left.length === right.length && left.every((item, index) => item === right[index])
   );
 
+  // Use professor-defined points with a safe fallback.
+  const getQuestionPoints = (question: any) => {
+    const points = Number(question?.points);
+    return Number.isFinite(points) && points > 0 ? points : 1;
+  };
+
+  // Max score is the sum of all question points.
+  const getTotalQuizPoints = () => (
+    Array.isArray(quiz?.questions)
+      ? quiz.questions.reduce((total: number, question: any) => total + getQuestionPoints(question), 0)
+      : 0
+  );
+
+  // Normalize text for strict answer comparison.
+  const normalizeAnswerText = (value: string) => String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Split typed answers into clear list items.
+  const splitAnswerItems = (value: string) => String(value || "")
+    .split(/[,;\n]+|\s+\/\s+/g)
+    .map((item) => normalizeAnswerText(item))
+    .filter(Boolean);
+
+  // Slash means alternatives for the same required answer.
+  const buildAnswerGroups = (acceptedAnswers: string[]) => (
+    Array.isArray(acceptedAnswers) ? acceptedAnswers : []
+  )
+    .map((answer) => String(answer || "")
+      .split("/")
+      .map((variant) => normalizeAnswerText(variant))
+      .filter(Boolean))
+    .filter((group) => group.length > 0);
+
+  // Choose grading mode when older quizzes do not define it.
+  const getOpenAnswerGradingMode = (question: any, acceptedAnswers: string[]) => {
+    if (question?.gradingMode === "all" || question?.gradingMode === "any") return question.gradingMode;
+
+    const questionText = String(question?.question || "").toLowerCase();
+    const asksForOne = /\b(name one|one phrase|which key term|which term|name the|what is|worum|wann|welche[rsmn]? begriff)\b/i.test(questionText);
+    if (asksForOne) return "any";
+    return acceptedAnswers.length > 1 ? "all" : "any";
+  };
+
+  // Minimum matched required answers for partial credit.
+  const getPartialCreditThreshold = (question: any, requiredCount: number, fallback = 1) => {
+    const rawThreshold = Number(question?.partialCreditThreshold);
+    if (Number.isFinite(rawThreshold) && rawThreshold > 0) {
+      return Math.min(requiredCount, Math.max(1, Math.round(rawThreshold)));
+    }
+
+    return Math.min(requiredCount, Math.max(1, Math.round(fallback)));
+  };
+
+  // Score checkbox questions with optional partial credit.
+  const scoreMultipleSelect = (selectedIndices: number[], questionForScoring: any = q) => {
+    const correct = Array.isArray(questionForScoring?.correctIndices) ? questionForScoring.correctIndices : [];
+    if (!correct.length) return 0;
+
+    const selectedSet = new Set(selectedIndices);
+    const matchedCount = correct.filter((index: number) => selectedSet.has(index)).length;
+
+    // Full credit requires the exact correct set.
+    if (matchedCount === correct.length && selectedIndices.length === correct.length) return 1;
+
+    // Partial credit rewards any enough-correct selection.
+    const partialEnabled = questionForScoring?.partialCreditEnabled !== false;
+    if (!partialEnabled) return 0;
+
+    // Teacher controls how many correct choices are enough for 0.5.
+    const partialThreshold = getPartialCreditThreshold(questionForScoring, correct.length);
+    return matchedCount >= partialThreshold ? 0.5 : 0;
+  };
+
+  // Score open answers with strict matching.
+  const scoreOpenAnswer = (selectedAnswer: string, acceptedAnswers: string[], questionForScoring: any = q) => {
+    const normalizedSelected = normalizeAnswerText(selectedAnswer);
+    if (!normalizedSelected) return 0;
+
+    const accepted = Array.isArray(acceptedAnswers) ? acceptedAnswers : [];
+    const answerGroups = buildAnswerGroups(accepted);
+    if (!answerGroups.length) return 0;
+
+    const selectedItems = splitAnswerItems(selectedAnswer);
+    const selectedText = ` ${normalizedSelected} `;
+    const matchesGroup = (group: string[]) => group.some((variant) => {
+      const variantText = ` ${variant} `;
+      return selectedItems.includes(variant) || selectedText.includes(variantText);
+    });
+
+    const mode = getOpenAnswerGradingMode(questionForScoring, accepted);
+    if (mode === "any") return answerGroups.some(matchesGroup) ? 1 : 0;
+
+    const matchedCount = answerGroups.filter(matchesGroup).length;
+    if (matchedCount === answerGroups.length) return 1;
+
+    // Teacher can require full correctness only.
+    if (questionForScoring?.partialCreditEnabled === false) return 0;
+
+    const partialThreshold = getPartialCreditThreshold(questionForScoring, answerGroups.length);
+    return matchedCount >= partialThreshold ? 0.5 : 0;
+  };
+
   const buildReorderStart = (items: any[]) => {
     if (!Array.isArray(items)) return [];
     if (items.length < 2) return [...items];
@@ -78,10 +188,7 @@ export default function Quiz() {
   useEffect(() => {
     const load = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`http://localhost:3000/api/topics/quizzes/topic/${topicId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get(`/topics/quizzes/topic/${topicId}`);
         setLoadError('');
         
         if (res.data && Array.isArray(res.data.questions) && res.data.questions.length > 0) {
@@ -120,13 +227,11 @@ export default function Quiz() {
     // SAFE STRING CHECK: Prevents .toLowerCase().trim() from crashing on null
     if (q.type === "open_answer") {
       const validAnswers = Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [];
-      const safeSelected = (selected || "").toString().toLowerCase().trim();
-      return validAnswers.map((a: string) => a.toLowerCase()).includes(safeSelected);
+      return scoreOpenAnswer(String(selected || ""), validAnswers, q) >= 1;
     }
     
     if (q.type === "multiple_select") {
-      const correct = Array.isArray(q.correctIndices) ? q.correctIndices : [];
-      return JSON.stringify([...multiSelect].sort()) === JSON.stringify([...correct].sort());
+      return scoreMultipleSelect(multiSelect, q) >= 1;
     }
     
     if (q.type === "reorder") {
@@ -168,37 +273,87 @@ export default function Quiz() {
   const saveQuizResult = async (
     finalScore: number,
     totalQuestions: number,
-    finalAnswerResults: Array<{ type: string; correct: boolean }>
+    finalAnswerResults: Array<{ type: string; correct: boolean; pointsEarned: number }>
   ) => {
     if (!quiz?.id || !topicId) return;
 
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      await axios.post(
-        'http://localhost:3000/api/statistics/quiz-result',
-        {
-          quizId: quiz.id,
-          topicId,
-          score: finalScore,
-          totalQuestions,
-          questionStats: finalAnswerResults,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/statistics/quiz-result', {
+        quizId: quiz.id,
+        topicId,
+        score: finalScore,
+        totalQuestions,
+        questionStats: finalAnswerResults,
+      });
     } catch (error) {
       console.error('Could not save quiz statistics:', error);
     }
   };
 
+  /**
+   * Calculate points earned for the current question.
+   * This function handles scoring for all question types in the quiz.
+   *
+   * Scoring by question type:
+   * - open_answer: Uses strict matching with optional partial credit
+   * - multiple_select: Uses exact matching with optional partial credit
+   * - reorder: Uses partial scoring based on correct position count
+   * - multiple_choice, true_false: Binary (1 or 0)
+   *
+   * @returns Points earned: 1 (full), 0.5 (partial), or 0 (incorrect)
+   */
+  const scoreCurrentQuestion = () => {
+    if (!q) return 0;
+    const questionPoints = getQuestionPoints(q);
+
+    // Type: open_answer (user types text answer)
+    // Uses smart matching with multiple accepted answer variants
+    if (q.type === "open_answer") {
+      return scoreOpenAnswer(String(selected || ""), Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [], q) * questionPoints;
+    }
+
+    // Type: multiple_select (checkbox answers)
+    // Partial credit: enough correct choices = 0.5 points
+    if (q.type === "multiple_select") {
+      return scoreMultipleSelect(multiSelect, q) * questionPoints;
+    }
+
+    // Type: reorder (drag and drop ordering)
+    // Partial credit uses the teacher-defined threshold.
+    if (q.type === "reorder") {
+      const sourceItems = Array.isArray(q.items) ? q.items : [];
+      const order = Array.isArray(q.correctOrder) ? q.correctOrder : sourceItems.map((_: unknown, idx: number) => idx);
+      const correctItems = order.map((itemIndex: number) => sourceItems[itemIndex]).filter(Boolean);
+
+      // Count how many items are in their correct position
+      let correctPositions = 0;
+      for (let i = 0; i < reorderList.length; i++) {
+        if (reorderList[i] === correctItems[i]) correctPositions++;
+      }
+
+      // Scoring: all correct = full credit.
+      if (correctPositions === correctItems.length) return questionPoints;
+
+      // Partial credit follows the same rule as other multi-part questions.
+      if (q.partialCreditEnabled === false) return 0;
+      const partialThreshold = getPartialCreditThreshold(q, correctItems.length, Math.ceil(correctItems.length / 2));
+      if (correctPositions >= partialThreshold) return questionPoints * 0.5;
+      return 0;
+    }
+
+    // Types: multiple_choice, true_false
+    // Binary scoring only.
+    return isCorrect() ? questionPoints : 0;
+  };
+
   const handleNext = () => {
-    const correct = isCorrect();
-    const nextScore = correct ? score + 1 : score;
-    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct }];
+    const earnedPoints = scoreCurrentQuestion();
+    const maxCurrentPoints = getQuestionPoints(q);
+    const nextScore = score + earnedPoints;
+    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct: earnedPoints >= maxCurrentPoints, pointsEarned: earnedPoints }];
 
     setAnswerResults(nextAnswerResults);
-    if (correct) setScore(nextScore);
+    if (earnedPoints > 0) setScore(nextScore);
     
     const totalQuestions = Array.isArray(quiz?.questions) ? quiz.questions.length : 0;
     
@@ -228,18 +383,13 @@ export default function Quiz() {
           }
 
           if (nextResourceIds.includes(topicId)) {
-            const token = localStorage.getItem('token');
-            if (token) {
-              axios.post(`http://localhost:3000/api/progress`, { topicId, completed: true }, {
-                headers: { Authorization: `Bearer ${token}` }
-              }).catch(() => {});
-            }
+            api.post('/progress', { topicId, completed: true }).catch(() => {});
           }
         } catch {
           // Ignore local progress persistence errors and still finish the quiz.
         }
       }
-      saveQuizResult(nextScore, totalQuestions, nextAnswerResults);
+      saveQuizResult(nextScore, getTotalQuizPoints() || totalQuestions, nextAnswerResults);
       setFinished(true);
     }
   };
@@ -259,7 +409,7 @@ export default function Quiz() {
       <div className="text-center p-8 rounded-[32px] border shadow-2xl bg-[var(--cn-card)] border-[var(--cn-border)] max-w-sm w-full">
         <Trophy size={48} className="text-[#F5C518] mx-auto mb-4" />
         <h1 className="text-2xl font-black mb-1" style={{color: "var(--cn-text)"}}>Final Results</h1>
-        <p className="text-5xl font-black text-blue-600 mb-6">{score} / {quiz.questions.length}</p>
+        <p className="text-5xl font-black text-blue-600 mb-6">{Number.isInteger(score) ? score : score.toFixed(1)} / {getTotalQuizPoints() || quiz.questions.length}</p>
         <button onClick={() => navigate(-1)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest">Exit</button>
       </div>
     </div>
@@ -269,7 +419,15 @@ export default function Quiz() {
   const optionsToRender = q.type === "true_false"
     ? (currentIdx % 2 === 0 ? ["True", "False"] : ["False", "True"])
     : (Array.isArray(q.options) ? q.options : ["True", "False"]);
-  const answerState = revealed ? (isCorrect() ? "correct" : "incorrect") : "idle";
+  const revealedScore = revealed ? scoreCurrentQuestion() : 0;
+  const currentQuestionPoints = getQuestionPoints(q);
+  const answerState = !revealed
+    ? "idle"
+    : revealedScore >= currentQuestionPoints
+      ? "correct"
+      : revealedScore > 0
+        ? "partial"
+        : "incorrect";
 
   return (
     <div className="h-screen w-full flex flex-col transition-colors px-4 pt-2 pb-6" style={{ background: "var(--cn-page)" }}>
@@ -328,11 +486,11 @@ export default function Quiz() {
               )}
               
               {revealed && (
-                <div className={`mt-4 p-4 rounded-2xl border-2 animate-in slide-in-from-top-2 shadow-lg ${answerState === 'correct' ? 'bg-emerald-100 border-emerald-400/80 shadow-emerald-500/10 dark:bg-emerald-900/45 dark:border-emerald-500/65 dark:shadow-emerald-950/25' : 'bg-red-100 border-red-400/80 shadow-red-500/10 dark:bg-red-900/40 dark:border-red-500/65 dark:shadow-red-950/25'}`}>
-                  <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
-                    {isCorrect() ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
+                <div className={`mt-4 p-4 rounded-2xl border-2 animate-in slide-in-from-top-2 shadow-lg ${answerState === 'correct' ? 'bg-emerald-100 border-emerald-400/80 shadow-emerald-500/10 dark:bg-emerald-900/45 dark:border-emerald-500/65 dark:shadow-emerald-950/25' : answerState === 'partial' ? 'bg-amber-100 border-amber-400/80 shadow-amber-500/10 dark:bg-amber-900/40 dark:border-amber-500/65 dark:shadow-amber-950/25' : 'bg-red-100 border-red-400/80 shadow-red-500/10 dark:bg-red-900/40 dark:border-red-500/65 dark:shadow-red-950/25'}`}>
+                  <div className={`inline-flex items-center gap-2 mb-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-[0.18em] uppercase ${answerState === 'correct' ? 'bg-emerald-600 text-white border border-emerald-500 dark:bg-emerald-600/35 dark:text-emerald-50 dark:border-emerald-400/35' : answerState === 'partial' ? 'bg-amber-600 text-white border border-amber-500 dark:bg-amber-600/35 dark:text-amber-50 dark:border-amber-400/35' : 'bg-red-600 text-white border border-red-500 dark:bg-red-600/35 dark:text-red-50 dark:border-red-400/35'}`}>
+                    {answerState === 'correct' ? <><CheckCircle2 size={15} className="text-white dark:text-emerald-200"/> CORRECT</> : answerState === 'partial' ? <><CheckCircle2 size={15} className="text-white dark:text-amber-200"/> PARTIAL</> : <><XCircle size={15} className="text-white dark:text-red-200"/> INCORRECT</>}
                   </div>
-                  {!isCorrect() && (
+                  {answerState !== 'correct' && (
                     <div className="mb-2.5 p-2.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10">
                       <p className="text-[10px] font-black text-red-500/80 dark:text-red-400/80 uppercase tracking-widest mb-1.5">The Correct Answer</p>
                       <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100">{getCorrectAnswerText()}</p>

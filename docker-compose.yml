@@ -1,0 +1,89 @@
+version: '3.9'
+
+services:
+
+  # ─────────────────────────────────────────
+  # PostgreSQL Datenbank (mit pgvector)
+  # ─────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # Backend — Node.js / Express
+  # ─────────────────────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+      # Datenbank (zeigt auf den postgres-Container)
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
+      # Auth
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+
+      # CORS
+      CORS_ORIGIN: ${CORS_ORIGIN}
+
+      # AI-Service (zeigt auf den ai-service-Container)
+      AI_SERVICE_URL: http://ai-service:8001
+
+      # KI-Provider für Quiz/Summary (Mistral)
+      AI_PROVIDER: ${AI_PROVIDER:-mistral}
+      GROQ_BASE_URL: ${AI_BASE_URL}
+      GROQ_MODEL: ${AI_CHAT_MODEL:-mistral}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-120000}
+
+      # OAuth2 / SSO (Uni)
+      OAUTH2_CLIENT_ID: ${OAUTH2_CLIENT_ID}
+      OAUTH2_CLIENT_SECRET: ${OAUTH2_CLIENT_SECRET}
+      OAUTH2_ISSUER_URL: ${OAUTH2_ISSUER_URL}
+      OAUTH2_CALLBACK_URL: ${OAUTH2_CALLBACK_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Prisma-Migration beim Start automatisch ausführen
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+
+  # ─────────────────────────────────────────
+  # AI-Service — Python / FastAPI / RAG
+  # ─────────────────────────────────────────
+  ai-service:
+    build: ./ai-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      # Mistral (Uni self-hosted) — OpenAI-kompatibler Endpoint
+      AI_API_KEY: ${AI_API_KEY}
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-mistral}
+      AI_EMBED_MODEL: ${AI_EMBED_MODEL:-nomic-embed-text}
+
+      # Supabase für pgvector (Embeddings)
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+
+volumes:
+  postgres_data:

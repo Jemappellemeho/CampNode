@@ -3,14 +3,12 @@
 
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../utils/api';
 import {
   BookOpen, Headphones, HelpCircle, Play,
   X, LayoutList
 } from 'lucide-react';
 import TopicAbstractModal from '../components/TopicAbstractModal';
-
-const API = 'http://localhost:3000/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SubTopic {
@@ -419,11 +417,8 @@ export default function CoursePlayer() {
   }, []);
 
   const fetchCourse = useCallback(async () => {
-    const token = localStorage.getItem('token');
     try {
-      const res = await axios.get(`${API}/courses/${courseId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/courses/${courseId}`);
       setCourse(res.data);
     } catch (e) {
       setError('Failed to load course. Please try again.');
@@ -435,31 +430,18 @@ export default function CoursePlayer() {
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
 
   const markComplete = async (topicId: string, completed: boolean) => {
-    const token = localStorage.getItem('token');
     try {
-      await axios.patch(
-        `${API}/courses/${courseId}/progress/${topicId}`,
-        { completed },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      fetchCourse(); // refresh to update colors
+      await api.patch(`/courses/${courseId}/progress/${topicId}`, { completed });
+      fetchCourse();
     } catch (e) { console.error(e); }
   };
 
   const openNodeArticle = async (node: { id: string; name: string; articleUrl?: string; wikidataId?: string }) => {
-    const token = localStorage.getItem('token');
-
-    // Uploaded PDF-backed nodes should render the cleaned text modal instead of hitting /uploads.
     if (node.articleUrl && node.articleUrl.includes('/uploads/')) {
       try {
-        const res = await axios.get(`${API}/topics/${node.id}/content?lang=en`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await api.get(`/topics/${node.id}/content?lang=en`);
         if (res.data?.content) {
-          setActiveContent({
-            title: node.name,
-            content: res.data.content,
-          });
+          setActiveContent({ title: node.name, content: res.data.content });
           return;
         }
       } catch (e) {
@@ -467,26 +449,19 @@ export default function CoursePlayer() {
       }
     }
 
-    // Prefer topic-based endpoint: it can resolve article by wikidataId or topic name.
     try {
-      const res = await axios.get(`${API}/topics/${node.id}/content?lang=en`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get(`/topics/${node.id}/content?lang=en`);
       if (res.data?.content) {
-        setActiveContent({
-          title: node.name,
-          content: res.data.content,
-        });
+        setActiveContent({ title: node.name, content: res.data.content });
         return;
       }
     } catch (e) {
       console.error('Failed to load topic content', e);
     }
 
-    // Fallback to direct Wikidata route for legacy entries where wikidataId is available.
     if (node.wikidataId) {
       try {
-        const res = await axios.get(`${API}/wiki/article/${node.wikidataId}?lang=en`);
+        const res = await api.get(`/wiki/article/${node.wikidataId}?lang=en`);
         if (res.data?.content) {
           setActiveContent({
             title: res.data.title || node.name,

@@ -13,7 +13,7 @@ async function ensureQuizResultTable() {
       "quizId" TEXT NOT NULL,
       "topicId" TEXT NOT NULL,
       "userId" TEXT NOT NULL,
-      "score" INTEGER NOT NULL,
+      "score" NUMERIC(10,2) NOT NULL,
       "totalQuestions" INTEGER NOT NULL,
       "questionStats" JSONB NOT NULL DEFAULT '[]'::jsonb,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -35,6 +35,7 @@ function normalizeQuestionStats(questionStats) {
         .map((item) => ({
           type: item.type,
           correct: Boolean(item.correct),
+          pointsEarned: Number.isFinite(Number(item.pointsEarned)) ? Number(item.pointsEarned) : 0,
         }))
     : [];
 }
@@ -45,6 +46,7 @@ function emptyStats() {
     students: 0,
     averageScore: 0,
     averagePercent: 0,
+    scores: [],
     questionTypes: {},
   };
 }
@@ -52,9 +54,9 @@ function emptyStats() {
 function addResult(target, result, studentSet) {
   target.attempts += 1;
   target.averageScore += Number(result.score || 0);
-  target.averagePercent += result.totalQuestions > 0
-    ? (Number(result.score || 0) / Number(result.totalQuestions)) * 100
-    : 0;
+  const pct = result.totalQuestions > 0 ? (Number(result.score || 0) / Number(result.totalQuestions)) * 100 : 0;
+  target.averagePercent += pct;
+  target.scores.push(pct);
   studentSet.add(result.userId);
 
   const stats = Array.isArray(result.questionStats) ? result.questionStats : [];

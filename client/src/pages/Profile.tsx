@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../ThemeContext';
 import { useNavigate } from 'react-router-dom';
+import { api, clearToken } from '../utils/api';
 
 function Profile() {
   const { theme, toggleTheme } = useTheme();
@@ -31,9 +32,14 @@ function Profile() {
     }
   }, [user, navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
+    clearToken();
     localStorage.removeItem('user');
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Logout-Fehler ignorieren
+    }
     navigate('/login');
   };
 

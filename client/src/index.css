@@ -273,3 +273,16 @@
 .wikipedia-article-content sup.reference {
   display: none !important;
 }
+/* Custom utility to hide scrollbars while keeping scroll functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+
+body::-webkit-scrollbar, html::-webkit-scrollbar { display: none; }
+body, html { -ms-overflow-style: none; scrollbar-width: none; }
+

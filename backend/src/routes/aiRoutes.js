@@ -1,11 +1,16 @@
 const express = require("express");
 const router = express.Router();
+const { verifyToken } = require("../middleware/authMiddleware");
+
+// AI-Service-URL aus Umgebungsvariable (docker-compose setzt: http://ai-service:8001)
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://ai-service:8001";
 
 // Route: POST /api/ai/ask
-router.post("/ask", async (req, res) => {
+// verifyToken: nur eingeloggte User dürfen den AI-Service nutzen
+router.post("/ask", verifyToken, async (req, res) => {
   try {
-    // Wir leiten die Anfrage an unseren laufenden Python-Service (Port 8001) weiter
-    const response = await fetch("http://127.0.0.1:8001/ask", {
+    // Anfrage an Python-Service weiterleiten (intern im Docker-Netz)
+    const response = await fetch(`${AI_SERVICE_URL}/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
