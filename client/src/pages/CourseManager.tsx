@@ -1,3 +1,4 @@
+// Professor course manager - handles topic management, resources, quizzes
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -15,6 +16,11 @@ import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 const API_ORIGIN = 'http://localhost:3000';
 const BLUE = '#1E6FFF';
 
+const PARTIAL_CREDIT_ON_LABEL = 'Partial answer gives 0.5';
+const PARTIAL_CREDIT_OFF_LABEL = 'Only fully correct gives credit';
+const PARTIAL_CREDIT_THRESHOLD_LABEL = 'Minimum correct parts for 0.5';
+
+// Wikidata search field - searches Wikipedia/Wikidata for adding topics
 function WikidataSearchField({
   query,
   results,
@@ -96,8 +102,7 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
   }) : [{ name: 'No data', fullName: 'No data', expected: 0, actual: 0 }];
 
   // 2. Daily Engagement (Mock 7 Days)
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const engagementData = days.map((day) => ({
+  const engagementData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({
     day,
     activeStudents: Math.floor(Math.random() * 40) + 10,
   }));
@@ -278,7 +283,7 @@ export default function CourseManager() {
   const [statisticsError, setStatisticsError] = useState('');
   const [loading, setLoading] = useState(true);
   
-  // Logic States
+  // UI state for managing forms and editing interaction
   const [addingSubTo, setAddingSubTo] = useState<string | null>(null);
   const [newSubForm, setNewSubForm] = useState({
     name: '',
@@ -316,6 +321,7 @@ export default function CourseManager() {
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   
+  // Load course data from API
   const fetchCourse = useCallback(async () => {
     try {
       const res = await api.get(`/courses/${courseId}`);
@@ -331,11 +337,13 @@ export default function CourseManager() {
     }
   }, [course, user]);
 
+  // Close tutorial overlay
   const closeGuide = () => {
     markGuideSeen(user, 'professor-course');
     setShowGuide(false);
   };
 
+  // Load feedback for this course
   const fetchFeedback = useCallback(async () => {
     if (!courseId) return;
     setFeedbackError('');
@@ -353,6 +361,7 @@ export default function CourseManager() {
     if (tab === 'feedback') fetchFeedback();
   }, [tab, fetchFeedback]);
 
+  // Load quiz statistics for this course
   const fetchStatistics = useCallback(async () => {
     if (!courseId) return;
     setStatisticsError('');
@@ -370,6 +379,7 @@ export default function CourseManager() {
     if (tab === 'statistics') fetchStatistics();
   }, [tab, fetchStatistics]);
 
+  // Search Wikidata for a topic
   const searchWiki = async (
     query: string,
     setQuery: (value: string) => void,
@@ -389,6 +399,7 @@ export default function CourseManager() {
     }
   };
 
+  // Handle selecting a Wikidata result
   const selectWikiResult = (
     item: any,
     setQuery: (value: string) => void,
@@ -400,7 +411,7 @@ export default function CourseManager() {
     setForm((prev: any) => ({ ...prev, wikidataId: item.id }));
   };
 
-  // Make backend-local resource paths clickable from the teacher dashboard.
+  // Convert relative paths to full URLs for clicking
   const resolveResourceUrl = (url?: string | null) => {
     if (!url) return null;
     if (/^https?:\/\//i.test(url)) return url;
@@ -408,6 +419,7 @@ export default function CourseManager() {
     return `${API_ORIGIN}/${url}`;
   };
 
+  // Toggle course visibility (public/private)
   const toggleVisibility = async () => {
     const nextStatus = !course.isPublic;
     try {
@@ -416,6 +428,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Add a new subtopic under a topic
   const addSubtopic = async (parentId: string) => {
     if (!newSubForm.name.trim()) return;
     try {
@@ -436,6 +449,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Add a new main topic to course
   const addTopic = async () => {
     if (!newTopicForm.name.trim()) return;
     try {
@@ -452,6 +466,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Save resource links for a topic
   const saveLinks = async (subId: string) => {
     try {
       const formData = new FormData();
@@ -466,7 +481,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
-  // Hide the stale /uploads/... value when a new replacement PDF is selected.
+  // Handle PDF file replacement - clears old path if new file uploaded
   const handleReplacementFile = (file: File | null) => {
     setLinkData((prev) => ({
       ...prev,
@@ -476,7 +491,7 @@ export default function CourseManager() {
     }));
   };
 
-  // Clearing articleUrl removes the current local PDF association for that node.
+  // Remove attached PDF from topic
   const clearAttachedPdf = async (topicId: string) => {
     try {
       await api.put(`/courses/${courseId}/topics/${topicId}`, { articleUrl: '' });
@@ -489,6 +504,7 @@ export default function CourseManager() {
     }
   };
 
+  // Drag-drop reordering of topics
   const handleTopicDrop = async (srcId: string, targetId: string) => {
     if (!course || srcId === targetId) return;
     const topics = [...course.topics];
@@ -503,6 +519,7 @@ export default function CourseManager() {
     }
   };
 
+  // Drag-drop reordering of subtopics within same parent
   const handleSubtopicDrop = async (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => {
     if (!course || srcId === targetId || parentTopicId !== targetParentId) return;
 
@@ -528,11 +545,13 @@ export default function CourseManager() {
     }
   };
 
+  // Start inline name editing
   const startEditingName = (id: string, currentName: string) => {
     setEditingNameId(id);
     setEditingNameValue(currentName);
   };
 
+  // Save edited topic name
   const saveName = async (id: string) => {
     if (!editingNameValue.trim()) {
       setEditingNameId(null);
@@ -545,6 +564,7 @@ export default function CourseManager() {
     } catch(e) { console.error(e); }
   };
 
+  // Delete a topic/subtopic
   const deleteTopic = async (id: string) => {
     if (!window.confirm("Delete this topic/subtopic permanently?")) return;
     try {
@@ -554,6 +574,7 @@ export default function CourseManager() {
     } catch(e) { console.error(e); }
   };
 
+  // Create empty quiz question template
   const getEmptyQuestion = () => ({
     type: 'multiple_choice',
     question: '',
@@ -564,10 +585,13 @@ export default function CourseManager() {
     items: ['Step 1', 'Step 2', 'Step 3'],
     correctOrder: [0, 1, 2],
     acceptedAnswers: ['Answer'],
+    partialCreditEnabled: true,
+    partialCreditThreshold: 1,
     explanation: '',
-    points: 10,
+    points: 1,
   });
 
+  // Open quiz editor for a topic
   const openQuizEditor = (topic: any) => {
     const existingQuiz = Array.isArray(topic.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
     setQuizEditorTopic(topic);
@@ -576,6 +600,7 @@ export default function CourseManager() {
     setQuizEditorOpen(true);
   };
 
+  // Generate AI quiz draft from topic content
   const generateQuizDraft = async (topic: any) => {
     try {
       setQuizEditorBusy(true);
@@ -599,10 +624,12 @@ export default function CourseManager() {
     }
   };
 
+  // Update single question in editor
   const updateQuizQuestion = (index: number, patch: any) => {
     setQuizEditorQuestions((prev) => prev.map((question, currentIndex) => (currentIndex === index ? { ...question, ...patch } : question)));
   };
 
+  // Save quiz questions to backend
   const saveQuizEditor = async () => {
     if (!quizEditorTopic) return;
 
@@ -613,7 +640,13 @@ export default function CourseManager() {
           ...question,
           question: (question.question || '').trim(),
           explanation: (question.explanation || '').trim(),
-          points: Number.isFinite(Number(question.points)) ? Number(question.points) : 10,
+          points: Number.isFinite(Number(question.points)) ? Number(question.points) : 1,
+          gradingMode: question.type === 'open_answer' && Array.isArray(question.acceptedAnswers) && question.acceptedAnswers.length > 1
+            ? (question.gradingMode || 'all')
+            : question.gradingMode,
+          partialCreditThreshold: Number.isFinite(Number(question.partialCreditThreshold))
+            ? Math.max(1, Math.round(Number(question.partialCreditThreshold)))
+            : 1,
         }))
         .filter((question) => question.question.length > 0);
 
@@ -636,6 +669,7 @@ export default function CourseManager() {
     }
   };
 
+  // Render quiz preview summary for a topic
   const renderQuizOverview = (topic: any) => {
     const existingQuiz = Array.isArray(topic?.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
     const questions = Array.isArray(existingQuiz?.questions) ? existingQuiz.questions : [];
@@ -671,7 +705,7 @@ export default function CourseManager() {
     );
   };
 
-  // Resource Overview is a compact audit of sources attached to the node.
+  // Compact audit of sources attached to the node
   const renderResourceOverview = (topic: any) => {
     const items = [
       topic.videoUrl ? { label: 'Video', value: topic.videoUrl, tone: 'text-red-500' } : null,
@@ -709,37 +743,34 @@ export default function CourseManager() {
           </button>
         </div>
         <div className="space-y-2">
-          {items.map((item, index) => (
-            (() => {
-              const href = item.label === 'Wikidata'
-                ? `https://www.wikidata.org/wiki/${item.value}`
-                : (resolveResourceUrl(item.value) || '#');
+          {items.map((item, index) => {
+            const href = item.label === 'Wikidata'
+              ? `https://www.wikidata.org/wiki/${item.value}`
+              : (resolveResourceUrl(item.value) || '#');
 
-              return (
-            <a
-              key={`${topic.id}-resource-${index}`}
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center justify-between gap-3 rounded-xl bg-white/80 dark:bg-gray-900/50 border border-white/70 dark:border-gray-800 px-3 py-2 hover:bg-white dark:hover:bg-gray-900 transition-colors"
-            >
-              <div className="min-w-0">
-                <p className={`text-[10px] font-black uppercase tracking-widest ${item.tone}`}>{item.label}</p>
-                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
-                  {item.label === 'Wikidata' ? item.value : href}
-                </p>
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Open</span>
-            </a>
-              );
-            })()
-          ))}
+            return (
+              <a
+                key={`${topic.id}-resource-${index}`}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-3 rounded-xl bg-white/80 dark:bg-gray-900/50 border border-white/70 dark:border-gray-800 px-3 py-2 hover:bg-white dark:hover:bg-gray-900 transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${item.tone}`}>{item.label}</p>
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+                    {item.label === 'Wikidata' ? item.value : href}
+                  </p>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Open</span>
+              </a>
+            );
+          })}
         </div>
       </div>
     );
   };
 
-  // Label the preview honestly by source type instead of always calling it Wikipedia.
   const getContentPreviewMeta = (topic: any) => {
     if (!topic?.content) return null;
 
@@ -774,11 +805,40 @@ export default function CourseManager() {
     };
   };
 
+  // Render single question editor form with all question types
   const renderQuestionEditor = (question: any, index: number) => {
     const setCommaSeparatedValues = (value: string, key: string) => {
       const parsed = value.split(',').map((item) => item.trim()).filter(Boolean);
       updateQuizQuestion(index, { [key]: parsed });
     };
+
+    const renderPartialCreditControls = () => (
+      <>
+        <div className="mb-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Partial credit rule</label>
+          <select
+            value={question.partialCreditEnabled === false ? 'off' : 'on'}
+            onChange={(e) => updateQuizQuestion(index, { partialCreditEnabled: e.target.value === 'on' })}
+            className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+          >
+            <option value="on">{PARTIAL_CREDIT_ON_LABEL}</option>
+            <option value="off">{PARTIAL_CREDIT_OFF_LABEL}</option>
+          </select>
+        </div>
+        {question.partialCreditEnabled !== false && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">{PARTIAL_CREDIT_THRESHOLD_LABEL}</label>
+            <input
+              type="number"
+              min={1}
+              value={question.partialCreditThreshold ?? 1}
+              onChange={(e) => updateQuizQuestion(index, { partialCreditThreshold: Number(e.target.value) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+      </>
+    );
 
     return (
       <div key={index} className="relative p-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border dark:border-gray-700">
@@ -849,15 +909,18 @@ export default function CourseManager() {
         )}
 
         {question.type === 'multiple_select' && (
-          <div className="mb-4">
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct indices, separated by commas</label>
-            <input
-              type="text"
-              value={Array.isArray(question.correctIndices) ? question.correctIndices.join(', ') : ''}
-              onChange={(e) => updateQuizQuestion(index, { correctIndices: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
-              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
-            />
-          </div>
+          <>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct indices, separated by commas</label>
+              <input
+                type="text"
+                value={Array.isArray(question.correctIndices) ? question.correctIndices.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { correctIndices: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
+                className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+            {renderPartialCreditControls()}
+          </>
         )}
 
         {question.type === 'reorder' && (
@@ -879,19 +942,23 @@ export default function CourseManager() {
                 className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
               />
             </div>
+            {renderPartialCreditControls()}
           </>
         )}
 
         {question.type === 'open_answer' && (
-          <div className="mb-4">
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Accepted answers, separated by commas</label>
-            <input
-              type="text"
-              value={Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers.join(', ') : ''}
-              onChange={(e) => updateQuizQuestion(index, { acceptedAnswers: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
-              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
-            />
-          </div>
+          <>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Accepted answers, separated by commas</label>
+              <input
+                type="text"
+                value={Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { acceptedAnswers: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
+                className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+            {renderPartialCreditControls()}
+          </>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -907,7 +974,7 @@ export default function CourseManager() {
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Points</label>
             <input
               type="number"
-              value={question.points ?? 10}
+              value={question.points ?? 1}
               onChange={(e) => updateQuizQuestion(index, { points: Number(e.target.value) })}
               className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
             />
@@ -926,7 +993,6 @@ export default function CourseManager() {
   if (loading) return <div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div>;
   if (!course) return null;
 
-  // Build one flat topic list so each student's completion can be calculated consistently with the learner view.
   const flatCourseTopics = Array.isArray(course.topics)
     ? course.topics.flatMap((topic: any) => [
         { id: topic.id, name: topic.name },
@@ -956,7 +1022,6 @@ export default function CourseManager() {
     const getBg = (color: string) => `${color}${bgOpacity}`;
     const getTextColor = (color: string) => isTransparent ? color : 'white';
     const getLabelColor = (color: string) => isTransparent ? color : 'white';
-
     const getIconColor = (color: string) => isTransparent ? color : 'white';
 
     return (
@@ -1101,7 +1166,6 @@ export default function CourseManager() {
             </div>
           )}
 
-          {/* STUDENTS TAB RESTORED */}
           {tab === "students" && (
             <div className="space-y-3 animate-in fade-in">
               <h2 className="text-sm font-black dark:text-white uppercase tracking-widest mb-4">Enrolled Students</h2>
@@ -1109,7 +1173,6 @@ export default function CourseManager() {
                 <div className="p-12 text-center border-2 border-dashed rounded-3xl text-gray-400 text-sm">No students yet</div>
               ) : (
                 course.students.map((s: any) => {
-                  // Reuse student progress entries to compute completion and unresolved-topic question markers.
                   const progressByTopicId = new Map(
                     (Array.isArray(s.progress) ? s.progress : []).map((item: any) => [item.topicId, Boolean(item.completed)])
                   );
@@ -1121,39 +1184,40 @@ export default function CourseManager() {
                   const needsHelpTopics = flatCourseTopics.filter((topic: any) => !progressByTopicId.get(topic.id));
 
                   return (
-                  <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 shrink-0 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">{s.email?.[0].toUpperCase()}</div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold dark:text-white truncate">{s.name || "Student"}</p>
-                        <p className="text-[10px] text-gray-500 truncate">{s.email}</p>
-                      </div>
-                    </div>
-                    <div className="w-full sm:w-auto sm:text-right sm:min-w-[220px]">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Progress</p>
-                      <p className="text-sm font-black text-blue-600">{completionPercent}%</p>
-                      {/* Match student syllabus progress look: neutral track + yellow fill. */}
-                      <div className="mt-1 h-2 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
-                        <div
-                          className="h-full transition-all duration-500"
-                          style={{ width: `${completionPercent}%`, background: '#F5C518' }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-gray-500 mt-1">
-                        {`${completedCount}/${totalTopics} topics completed`}
-                      </p>
-                      {needsHelpTopics.length > 0 && (
-                        <div className="mt-2 flex flex-wrap sm:justify-end gap-1">
-                          {needsHelpTopics.slice(0, 3).map((topic: any) => (
-                            <span key={`${s.id}-${topic.id}`} className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                              {topic.name} ?
-                            </span>
-                          ))}
+                    <div key={s.id} className="p-4 bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 shrink-0 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">{s.email?.[0].toUpperCase()}</div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold dark:text-white truncate">{s.name || "Student"}</p>
+                          <p className="text-[10px] text-gray-500 truncate">{s.email}</p>
                         </div>
-                      )}
+                      </div>
+                      <div className="w-full sm:w-auto sm:text-right sm:min-w-[220px]">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Progress</p>
+                        <p className="text-sm font-black text-blue-600">{completionPercent}%</p>
+                        
+                        <div className="mt-1 h-2 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
+                          <div
+                            className="h-full transition-all duration-500"
+                            style={{ width: `${completionPercent}%`, background: '#F5C518' }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1">
+                          {`${completedCount}/${totalTopics} topics completed`}
+                        </p>
+                        {needsHelpTopics.length > 0 && (
+                          <div className="mt-2 flex flex-wrap sm:justify-end gap-1">
+                            {needsHelpTopics.slice(0, 3).map((topic: any) => (
+                              <span key={`${s.id}-${topic.id}`} className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                                {topic.name} ?
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )})
+                  );
+                })
               )}
             </div>
           )}
@@ -1200,40 +1264,39 @@ export default function CourseManager() {
 
                           {expandedStatsTopics[topic.id] !== false && (
                             <>
+                              <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/40">
+                                <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Combined topic stats</p>
+                                {renderStatsSummary(topic.combinedStats, true)}
+                                <div className="mt-3">{renderQuestionTypes(topic.combinedStats)}</div>
+                              </div>
 
-                          <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/40">
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Combined topic stats</p>
-                            {renderStatsSummary(topic.combinedStats, true)}
-                            <div className="mt-3">{renderQuestionTypes(topic.combinedStats)}</div>
-                          </div>
-
-                          {(topic.ownStats?.attempts || 0) > 0 && (
-                            <div className="mt-4 rounded-2xl border p-4 dark:border-gray-700">
-                              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Main node quiz</p>
-                              {renderStatsSummary(topic.ownStats, true)}
-                              <div className="mt-3">{renderQuestionTypes(topic.ownStats)}</div>
-                            </div>
-                          )}
-
-                          {topic.subtopics?.length > 0 && (
-                            <div className="mt-4 space-y-3">
-                              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Subtopics</p>
-                              {topic.subtopics.map((subtopic: any) => (
-                                <div key={subtopic.id} className="rounded-2xl border p-4 dark:border-gray-700">
-                                  <div className="mb-3 flex items-center justify-between gap-3">
-                                    <p className="font-bold text-gray-900 dark:text-white">{subtopic.name}</p>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                      {subtopic.stats?.attempts || 0} attempts
-                                    </span>
-                                  </div>
-                                  {renderStatsSummary(subtopic.stats, true)}
-                                  <div className="mt-3">{renderQuestionTypes(subtopic.stats)}</div>
+                              {(topic.ownStats?.attempts || 0) > 0 && (
+                                <div className="mt-4 rounded-2xl border p-4 dark:border-gray-700">
+                                  <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Main node quiz</p>
+                                  {renderStatsSummary(topic.ownStats, true)}
+                                  <div className="mt-3">{renderQuestionTypes(topic.ownStats)}</div>
                                 </div>
-                              ))}
-                            </div>
+                              )}
+
+                              {topic.subtopics?.length > 0 && (
+                                <div className="mt-4 space-y-3">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Subtopics</p>
+                                  {topic.subtopics.map((subtopic: any) => (
+                                    <div key={subtopic.id} className="rounded-2xl border p-4 dark:border-gray-700">
+                                      <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="font-bold text-gray-900 dark:text-white">{subtopic.name}</p>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                          {subtopic.stats?.attempts || 0} attempts
+                                        </span>
+                                      </div>
+                                      {renderStatsSummary(subtopic.stats, true)}
+                                      <div className="mt-3">{renderQuestionTypes(subtopic.stats)}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
-                          </>
-                        )}
                         </div>
                       ))}
                     </div>
@@ -1285,20 +1348,20 @@ export default function CourseManager() {
 
               {isAddingTopic && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 flex gap-2">
-                    <input autoFocus className="flex-1 px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="New Topic Name..." value={newTopicForm.name} onChange={(e) => setNewTopicForm((prev) => ({ ...prev, name: e.target.value }))} />
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Wikidata</p>
-                      <WikidataSearchField
-                        query={newTopicWikiQuery}
-                        results={newTopicWikiResults}
-                        placeholder="Search a topic in Wikidata"
-                        onQueryChange={(value) => {
-                          setNewTopicForm((prev) => ({ ...prev, wikidataId: '' }));
-                          searchWiki(value, setNewTopicWikiQuery, setNewTopicWikiResults);
-                        }}
-                        onSelect={(item) => selectWikiResult(item, setNewTopicWikiQuery, setNewTopicWikiResults, setNewTopicForm)}
-                      />
-                    </div>
+                  <input autoFocus className="flex-1 px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="New Topic Name..." value={newTopicForm.name} onChange={(e) => setNewTopicForm((prev) => ({ ...prev, name: e.target.value }))} />
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Wikidata</p>
+                    <WikidataSearchField
+                      query={newTopicWikiQuery}
+                      results={newTopicWikiResults}
+                      placeholder="Search a topic in Wikidata"
+                      onQueryChange={(value) => {
+                        setNewTopicForm((prev) => ({ ...prev, wikidataId: '' }));
+                        searchWiki(value, setNewTopicWikiQuery, setNewTopicWikiResults);
+                      }}
+                      onSelect={(item) => selectWikiResult(item, setNewTopicWikiQuery, setNewTopicWikiResults, setNewTopicForm)}
+                    />
+                  </div>
                   <div className="flex items-center justify-between rounded-2xl border border-dashed dark:border-gray-700 px-4 py-3">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">PDF Source</p>
@@ -1354,197 +1417,196 @@ export default function CourseManager() {
                   
                   {expandedMainTopics[topic.id] && (
                     <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                      {/* WIKIDATA CONTENT PREVIEW */}
-                  {topic.content && getContentPreviewMeta(topic) && (
-                    <div className="ml-6 mb-6 pl-4 border-l-2 border-gray-100 dark:border-gray-800 relative">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{getContentPreviewMeta(topic)?.title}</p>
-                        <button onClick={() => setExpandedTopics(prev => ({...prev, [topic.id]: prev[topic.id] === undefined ? false : !prev[topic.id]}))} className="text-[10px] text-blue-600 font-bold uppercase transition-all hover:text-blue-700">
-                          {expandedTopics[topic.id] !== false ? getContentPreviewMeta(topic)?.actionOpen : getContentPreviewMeta(topic)?.actionClosed}
-                        </button>
-                      </div>
-                      {expandedTopics[topic.id] !== false && (
-                        <div 
-                           className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 overflow-y-auto max-h-40"
-                           dangerouslySetInnerHTML={{ __html: topic.content }} 
-                        />
+                      {topic.content && getContentPreviewMeta(topic) && (
+                        <div className="ml-6 mb-6 pl-4 border-l-2 border-gray-100 dark:border-gray-800 relative">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{getContentPreviewMeta(topic)?.title}</p>
+                            <button onClick={() => setExpandedTopics(prev => ({...prev, [topic.id]: prev[topic.id] === undefined ? false : !prev[topic.id]}))} className="text-[10px] text-blue-600 font-bold uppercase transition-all hover:text-blue-700">
+                              {expandedTopics[topic.id] !== false ? getContentPreviewMeta(topic)?.actionOpen : getContentPreviewMeta(topic)?.actionClosed}
+                            </button>
+                          </div>
+                          {expandedTopics[topic.id] !== false && (
+                            <div 
+                               className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 overflow-y-auto max-h-40"
+                               dangerouslySetInnerHTML={{ __html: topic.content }} 
+                            />
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
 
-                  <div className="ml-6 mt-3 flex flex-wrap items-center gap-2">
-                    {topic.articleUrl?.includes('/uploads/') && (
-                      <button
-                        onClick={() => clearAttachedPdf(topic.id)}
-                        className="rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
-                      >
-                        Delete Current PDF
-                      </button>
-                    )}
-                  </div>
-
-                  {renderResourceOverview(topic)}
-                  {renderQuizOverview(topic)}
-
-                  {editingSubId === topic.id && (
-                    <div className="ml-6 mt-4 rounded-2xl border dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40 p-4 space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                        <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                          <Play size={12} className="text-red-500" />
-                          <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Video URL" value={linkData.video} onChange={e => setLinkData({...linkData, video: e.target.value})} />
-                        </div>
-                        <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                          <BookOpen size={12} className="text-blue-500" />
-                          <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Article URL" value={linkData.article} onChange={e => setLinkData({...linkData, article: e.target.value})} />
-                        </div>
-                        <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                          <Headphones size={12} className="text-green-500" />
-                          <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Podcast URL" value={linkData.podcast} onChange={e => setLinkData({...linkData, podcast: e.target.value})} />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                          <BookOpen size={12} className="text-violet-500" />
-                          <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="New source URL to rescrape" value={linkData.sourceUrl} onChange={e => setLinkData({...linkData, sourceUrl: e.target.value})} />
-                        </div>
-                        <label className="flex items-center justify-between gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700 cursor-pointer">
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-gray-300 truncate">{linkData.file?.name || 'Replace attached PDF'}</span>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Upload</span>
-                          <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleReplacementFile(e.target.files?.[0] || null)} />
-                        </label>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => saveLinks(topic.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
-                    {topic.subtopics?.map((sub: any) => (
-                      <div 
-                        key={sub.id} 
-                        draggable
-                        onDragStart={(e) => {
-                           e.stopPropagation();
-                           e.dataTransfer.setData('subtopicId', sub.id);
-                           e.dataTransfer.setData('parentTopicId', topic.id);
-                        }}
-                        onDragOver={(e) => {
-                           e.preventDefault();
-                           e.stopPropagation();
-                        }}
-                        onDrop={(e) => {
-                           e.stopPropagation();
-                           handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, e.dataTransfer.getData('parentTopicId'), topic.id);
-                        }}
-                        className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <GripVertical size={14} className="text-gray-300 cursor-grab hover:text-gray-500 transition-colors" />
-                          <div className="flex-1">
-                            {editingNameId === sub.id ? (
-                              <div className="flex items-center gap-2">
-                                <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(sub.id)} />
-                                <button onClick={() => saveName(sub.id)} className="text-xs text-blue-600 font-bold">Save</button>
-                                <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 group/subtitle">
-                                <p className="font-bold dark:text-white text-sm">{sub.name}</p>
-                                <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
-                                <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
-                                <button onClick={() => openQuizEditor(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
-                                <button onClick={() => generateQuizDraft(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
-                              </div>
-                            )}
-                            {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
-                            {renderResourceOverview(sub)}
-                            {renderQuizOverview(sub)}
-                          </div>
-                          <button onClick={() => {
-                            setEditingSubId(editingSubId === sub.id ? null : sub.id);
-                            setLinkData({ video: sub.videoUrl || '', article: sub.articleUrl || '', podcast: sub.podcastUrl || '', sourceUrl: '', file: null });
-                          }} className="text-gray-400 hover:text-blue-600 p-2"><ChevronRight size={16} className={editingSubId === sub.id ? 'rotate-90' : ''}/></button>
-                        </div>
-
-                        {editingSubId === sub.id && (
-                          <div className="mt-4 pt-4 border-t space-y-3 animate-in fade-in">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                                <Play size={12} className="text-red-500" />
-                                <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Video URL" value={linkData.video} onChange={e => setLinkData({...linkData, video: e.target.value})} />
-                              </div>
-                              <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                                <BookOpen size={12} className="text-blue-500" />
-                                <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Article URL" value={linkData.article} onChange={e => setLinkData({...linkData, article: e.target.value})} />
-                              </div>
-                              <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                                <Headphones size={12} className="text-green-500" />
-                                <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Podcast URL" value={linkData.podcast} onChange={e => setLinkData({...linkData, podcast: e.target.value})} />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
-                                <BookOpen size={12} className="text-violet-500" />
-                                <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="New source URL to rescrape" value={linkData.sourceUrl} onChange={e => setLinkData({...linkData, sourceUrl: e.target.value})} />
-                              </div>
-                              <label className="flex items-center justify-between gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700 cursor-pointer">
-                                <span className="text-[10px] font-bold text-gray-500 dark:text-gray-300 truncate">{linkData.file?.name || 'Replace attached PDF'}</span>
-                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Upload</span>
-                                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleReplacementFile(e.target.files?.[0] || null)} />
-                              </label>
-                            </div>
-                            <div className="flex justify-end mt-2">
-                              <button onClick={() => saveLinks(sub.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
-                            </div>
-                          </div>
+                      <div className="ml-6 mt-3 flex flex-wrap items-center gap-2">
+                        {topic.articleUrl?.includes('/uploads/') && (
+                          <button
+                            onClick={() => clearAttachedPdf(topic.id)}
+                            className="rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                          >
+                            Delete Current PDF
+                          </button>
                         )}
                       </div>
-                    ))}
-                    {addingSubTo === topic.id ? (
-                      <div className="mt-3 rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3">
-                        <input autoFocus className="w-full px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Subtopic Name..." value={newSubForm.name} onChange={(e) => setNewSubForm((prev) => ({ ...prev, name: e.target.value }))} />
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Wikidata</p>
-                          <WikidataSearchField
-                            query={newSubWikiQuery}
-                            results={newSubWikiResults}
-                            placeholder="Search a topic in Wikidata"
-                            onQueryChange={(value) => {
-                              setNewSubForm((prev) => ({ ...prev, wikidataId: '' }));
-                              searchWiki(value, setNewSubWikiQuery, setNewSubWikiResults);
-                            }}
-                            onSelect={(item) => selectWikiResult(item, setNewSubWikiQuery, setNewSubWikiResults, setNewSubForm)}
-                          />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                          <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Video URL" value={newSubForm.video} onChange={(e) => setNewSubForm((prev) => ({ ...prev, video: e.target.value }))} />
-                          <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Article URL" value={newSubForm.article} onChange={(e) => setNewSubForm((prev) => ({ ...prev, article: e.target.value }))} />
-                          <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Podcast URL" value={newSubForm.podcast} onChange={(e) => setNewSubForm((prev) => ({ ...prev, podcast: e.target.value }))} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-dashed dark:border-gray-700 px-4 py-3">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">PDF Source</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{newSubForm.file?.name || 'No file selected'}</p>
+
+                      {renderResourceOverview(topic)}
+                      {renderQuizOverview(topic)}
+
+                      {editingSubId === topic.id && (
+                        <div className="ml-6 mt-4 rounded-2xl border dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40 p-4 space-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                              <Play size={12} className="text-red-500" />
+                              <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Video URL" value={linkData.video} onChange={e => setLinkData({...linkData, video: e.target.value})} />
+                            </div>
+                            <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                              <BookOpen size={12} className="text-blue-500" />
+                              <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Article URL" value={linkData.article} onChange={e => setLinkData({...linkData, article: e.target.value})} />
+                            </div>
+                            <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                              <Headphones size={12} className="text-green-500" />
+                              <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Podcast URL" value={linkData.podcast} onChange={e => setLinkData({...linkData, podcast: e.target.value})} />
+                            </div>
                           </div>
-                          <label className="cursor-pointer rounded-xl bg-gray-100 dark:bg-gray-900 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-300">
-                            Upload PDF
-                            <input type="file" accept="application/pdf" className="hidden" onChange={(e) => setNewSubForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))} />
-                          </label>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                              <BookOpen size={12} className="text-violet-500" />
+                              <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="New source URL to rescrape" value={linkData.sourceUrl} onChange={e => setLinkData({...linkData, sourceUrl: e.target.value})} />
+                            </div>
+                            <label className="flex items-center justify-between gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700 cursor-pointer">
+                              <span className="text-[10px] font-bold text-gray-500 dark:text-gray-300 truncate">{linkData.file?.name || 'Replace attached PDF'}</span>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Upload</span>
+                              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleReplacementFile(e.target.files?.[0] || null)} />
+                            </label>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => saveLinks(topic.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
+                          </div>
                         </div>
-                        <div className="flex gap-2 justify-end">
-                          <button onClick={() => { setAddingSubTo(null); setNewSubForm({ name: '', sourceUrl: '', wikidataId: '', video: '', article: '', podcast: '', file: null }); setNewSubWikiQuery(''); setNewSubWikiResults([]); }} className="px-4 py-2 rounded-lg text-xs font-bold uppercase text-gray-500">Cancel</button>
-                          <button onClick={() => addSubtopic(topic.id)} className="bg-blue-600 text-white px-4 rounded-lg text-xs font-bold">Add</button>
-                        </div>
+                      )}
+
+                      <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
+                        {topic.subtopics?.map((sub: any) => (
+                          <div 
+                            key={sub.id} 
+                            draggable
+                            onDragStart={(e) => {
+                               e.stopPropagation();
+                               e.dataTransfer.setData('subtopicId', sub.id);
+                               e.dataTransfer.setData('parentTopicId', topic.id);
+                            }}
+                            onDragOver={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                               e.stopPropagation();
+                               handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, e.dataTransfer.getData('parentTopicId'), topic.id);
+                            }}
+                            className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <GripVertical size={14} className="text-gray-300 cursor-grab hover:text-gray-500 transition-colors" />
+                              <div className="flex-1">
+                                {editingNameId === sub.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(sub.id)} />
+                                    <button onClick={() => saveName(sub.id)} className="text-xs text-blue-600 font-bold">Save</button>
+                                    <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 group/subtitle">
+                                    <p className="font-bold dark:text-white text-sm">{sub.name}</p>
+                                    <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
+                                    <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
+                                    <button onClick={() => openQuizEditor(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
+                                    <button onClick={() => generateQuizDraft(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
+                                  </div>
+                                )}
+                                {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
+                                {renderResourceOverview(sub)}
+                                {renderQuizOverview(sub)}
+                              </div>
+                              <button onClick={() => {
+                                setEditingSubId(editingSubId === sub.id ? null : sub.id);
+                                setLinkData({ video: sub.videoUrl || '', article: sub.articleUrl || '', podcast: sub.podcastUrl || '', sourceUrl: '', file: null });
+                              }} className="text-gray-400 hover:text-blue-600 p-2"><ChevronRight size={16} className={editingSubId === sub.id ? 'rotate-90' : ''}/></button>
+                            </div>
+
+                            {editingSubId === sub.id && (
+                              <div className="mt-4 pt-4 border-t space-y-3 animate-in fade-in">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                  <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                                    <Play size={12} className="text-red-500" />
+                                    <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Video URL" value={linkData.video} onChange={e => setLinkData({...linkData, video: e.target.value})} />
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                                    <BookOpen size={12} className="text-blue-500" />
+                                    <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Article URL" value={linkData.article} onChange={e => setLinkData({...linkData, article: e.target.value})} />
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                                    <Headphones size={12} className="text-green-500" />
+                                    <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="Podcast URL" value={linkData.podcast} onChange={e => setLinkData({...linkData, podcast: e.target.value})} />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <div className="flex items-center gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700">
+                                    <BookOpen size={12} className="text-violet-500" />
+                                    <input className="text-[10px] outline-none w-full bg-transparent dark:text-white" placeholder="New source URL to rescrape" value={linkData.sourceUrl} onChange={e => setLinkData({...linkData, sourceUrl: e.target.value})} />
+                                  </div>
+                                  <label className="flex items-center justify-between gap-2 bg-white dark:bg-gray-900 p-2 rounded-lg border dark:border-gray-700 cursor-pointer">
+                                    <span className="text-[10px] font-bold text-gray-500 dark:text-gray-300 truncate">{linkData.file?.name || 'Replace attached PDF'}</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Upload</span>
+                                    <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleReplacementFile(e.target.files?.[0] || null)} />
+                                  </label>
+                                </div>
+                                <div className="flex justify-end mt-2">
+                                  <button onClick={() => saveLinks(sub.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {addingSubTo === topic.id ? (
+                          <div className="mt-3 rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3">
+                            <input autoFocus className="w-full px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Subtopic Name..." value={newSubForm.name} onChange={(e) => setNewSubForm((prev) => ({ ...prev, name: e.target.value }))} />
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Wikidata</p>
+                              <WikidataSearchField
+                                query={newSubWikiQuery}
+                                results={newSubWikiResults}
+                                placeholder="Search a topic in Wikidata"
+                                onQueryChange={(value) => {
+                                  setNewSubForm((prev) => ({ ...prev, wikidataId: '' }));
+                                  searchWiki(value, setNewSubWikiQuery, setNewSubWikiResults);
+                                }}
+                                onSelect={(item) => selectWikiResult(item, setNewSubWikiQuery, setNewSubWikiResults, setNewSubForm)}
+                              />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                              <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Video URL" value={newSubForm.video} onChange={(e) => setNewSubForm((prev) => ({ ...prev, video: e.target.value }))} />
+                              <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Article URL" value={newSubForm.article} onChange={(e) => setNewSubForm((prev) => ({ ...prev, article: e.target.value }))} />
+                              <input className="px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Podcast URL" value={newSubForm.podcast} onChange={(e) => setNewSubForm((prev) => ({ ...prev, podcast: e.target.value }))} />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-dashed dark:border-gray-700 px-4 py-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">PDF Source</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{newSubForm.file?.name || 'No file selected'}</p>
+                              </div>
+                              <label className="cursor-pointer rounded-xl bg-gray-100 dark:bg-gray-900 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-300">
+                                Upload PDF
+                                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => setNewSubForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))} />
+                              </label>
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                              <button onClick={() => { setAddingSubTo(null); setNewSubForm({ name: '', sourceUrl: '', wikidataId: '', video: '', article: '', podcast: '', file: null }); setNewSubWikiQuery(''); setNewSubWikiResults([]); }} className="px-4 py-2 rounded-lg text-xs font-bold uppercase text-gray-500">Cancel</button>
+                              <button onClick={() => addSubtopic(topic.id)} className="bg-blue-600 text-white px-4 rounded-lg text-xs font-bold">Add</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button onClick={() => setAddingSubTo(topic.id)} className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline uppercase tracking-widest">
+                            <Plus size={14} /> Add Subtopic / Links
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <button onClick={() => setAddingSubTo(topic.id)} className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline uppercase tracking-widest">
-                        <Plus size={14} /> Add Subtopic / Links
-                      </button>
-                    )}
-                  </div>
-                  </div>
-                )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
