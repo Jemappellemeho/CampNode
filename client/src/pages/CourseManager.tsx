@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search,
   Target, Award, Percent, UserX, Activity, BarChart2, Clock
 } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import { api } from '../utils/api';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
@@ -69,6 +69,8 @@ function WikidataSearchField({
 // ADVANCED ANALYTICS DASHBOARD
 // ============================================================================
 function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
+  const [expandedDropoff, setExpandedDropoff] = useState(false);
+  const [expandedDaily, setExpandedDaily] = useState(false);
   const topics = statistics?.topics || [];
   
   const COLORS = {
@@ -94,7 +96,7 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
     const baseExpected = 10 + (i * 2) + ((t.name || '').length % 5);
     const actual = baseExpected + (Math.random() > 0.5 ? Math.floor(Math.random() * 10) : -Math.floor(Math.random() * 5));
     return {
-      name: getShortName(t.name || `Topic ${i+1}`),
+      name: `Topic ${i+1}`,
       fullName: t.name || `Topic ${i+1}`,
       expected: baseExpected,
       actual: Math.max(5, actual),
@@ -106,6 +108,18 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
     day,
     activeStudents: Math.floor(Math.random() * 40) + 10,
   }));
+
+  // Hourly Engagement (Mock 24 Hours for 7 days)
+  const hourlyEngagementData: any[] = [];
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((day) => {
+    for (let h = 0; h < 24; h += 2) {
+      hourlyEngagementData.push({
+        day,
+        time: `${day} ${h}:00`,
+        activeStudents: Math.floor(Math.random() * 15) + 1,
+      });
+    }
+  });
 
   // 3. Score Distribution (Bell Curve from real scores turned into Pie Chart)
   const allScores = statistics?.overallStats?.scores || [];
@@ -134,11 +148,35 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
   // 4. Drop-off Rates (Students completed per topic)
   const churnData = topics.length > 0 ? topics.map((t: any, i: number) => {
     return {
-      name: getShortName(t.name || `Topic ${i+1}`),
+      name: `Topic ${i+1}`,
       fullName: t.name || `Topic ${i+1}`,
       survivalRate: t.combinedStats?.students || 0,
     };
   }) : [{ name: 'No data', fullName: 'No data', survivalRate: 0 }];
+
+  const churnDataDetailed: any[] = [];
+  if (topics.length > 0) {
+    topics.forEach((t: any, i: number) => {
+      churnDataDetailed.push({
+        name: `Topic ${i+1}`,
+        fullName: t.name || `Topic ${i+1}`,
+        survivalRate: t.combinedStats?.students || 0,
+        isSubtopic: false,
+      });
+      if (t.subtopics && t.subtopics.length > 0) {
+        t.subtopics.forEach((st: any, j: number) => {
+          churnDataDetailed.push({
+            name: `T${i+1}:S${j+1}`,
+            fullName: `${t.name || `Topic ${i+1}`} > ${st.name || `Subtopic ${j+1}`}`,
+            survivalRate: st.combinedStats?.students || t.combinedStats?.students || 0,
+            isSubtopic: true,
+          });
+        });
+      }
+    });
+  } else {
+    churnDataDetailed.push({ name: 'No data', fullName: 'No data', survivalRate: 0, isSubtopic: false });
+  }
 
   return (
     <div className="space-y-4 mt-6 mb-8">
@@ -157,15 +195,15 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
               <p className="text-[10px] text-gray-500 mt-1">Comparing actual time spent vs resource estimates</p>
             </div>
           </div>
-          <div className="h-[160px]">
+          <div className="h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={timeData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+              <BarChart data={timeData} margin={{ top: 10, right: 0, left: -25, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
                 <RechartsTooltip 
                   labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
                 />
                 <Bar dataKey="expected" name="Expected Time" fill="#E5E7EB" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="actual" name="Actual Time" fill={COLORS.blue} radius={[4, 4, 0, 0]} />
@@ -174,16 +212,20 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex justify-between items-center mb-4">
+        <div 
+          className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:border-green-300 dark:hover:border-green-800 transition-colors"
+          onClick={() => setExpandedDaily(true)}
+        >
+          <div className="flex justify-between items-center mb-4 relative z-10">
             <div>
               <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><Activity size={16} className="text-green-500"/> Daily Engagement</h3>
               <p className="text-[10px] text-gray-500 mt-1">Active students interacting with the course this week</p>
             </div>
+            <div className="text-[10px] bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-2 py-1 rounded-full font-bold">Click to Expand</div>
           </div>
-          <div className="h-[160px]">
+          <div className="h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={engagementData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+              <AreaChart data={engagementData} margin={{ top: 10, right: 0, left: -25, bottom: 25 }}>
                 <defs>
                   <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={COLORS.green} stopOpacity={0.3}/>
@@ -193,7 +235,7 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-                <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }} />
                 <Area type="monotone" dataKey="activeStudents" name="Active Students" stroke={COLORS.green} strokeWidth={3} fill="url(#colorActive)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -208,14 +250,14 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
               <p className="text-[10px] text-gray-500 mt-1">Proportion of grades across the cohort</p>
             </div>
           </div>
-          <div className="h-[160px]">
+          <div className="h-[240px]">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart margin={{ top: 10, right: 0, left: 0, bottom: 25 }}>
                 <Pie
                   data={scoreDist}
                   cx="50%"
-                  cy="50%"
-                  outerRadius={65}
+                  cy="45%"
+                  outerRadius={55}
                   dataKey="value"
                   nameKey="range"
                   stroke="none"
@@ -226,31 +268,36 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
                     <Cell key={`cell-${index}`} fill={_entry.color} />
                   ))}
                 </Pie>
+                <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
                 <RechartsTooltip 
                   formatter={(value, name, props) => [`${value}% (${props.payload.count} students)`, name]}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
                 />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+        <div 
+          className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:border-red-300 dark:hover:border-red-800 transition-colors"
+          onClick={() => setExpandedDropoff(true)}
+        >
           <div className="flex justify-between items-center mb-4 relative z-10">
             <div>
               <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><UserX size={16} className="text-red-600" /> Drop-off Rates per Topic</h3>
               <p className="text-[10px] text-gray-500 mt-1">Survival rate of unique students progressing through topics</p>
             </div>
+            <div className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-1 rounded-full font-bold">Click to Expand</div>
           </div>
-          <div className="h-[160px] relative z-10">
+          <div className="h-[240px] relative z-10">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={churnData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+              <LineChart data={churnData} margin={{ top: 10, right: 10, left: -25, bottom: 45 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} angle={-45} textAnchor="end" />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
                 <RechartsTooltip 
                   labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
                   itemStyle={{ color: COLORS.red, fontWeight: 'bold' }}
                 />
                 <Line type="monotone" dataKey="survivalRate" name="Students" stroke={COLORS.red} strokeWidth={4} activeDot={{ r: 8, fill: COLORS.red, stroke: '#fff', strokeWidth: 3 }} />
@@ -259,6 +306,75 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
           </div>
         </div>
       </div>
+
+      {expandedDropoff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-xl border border-gray-200 dark:border-gray-800 relative">
+            <button 
+              onClick={() => setExpandedDropoff(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X size={24} />
+            </button>
+            <div className="mb-6">
+              <h2 className="text-xl font-black dark:text-white flex items-center gap-2"><UserX size={20} className="text-red-600" /> Detailed Drop-off Rates (Including Subtopics)</h2>
+              <p className="text-sm text-gray-500 mt-1">Survival rate of students progressing through all topics and subtopics.</p>
+            </div>
+            <div className="h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={churnDataDetailed} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} angle={-45} textAnchor="end" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                  <RechartsTooltip 
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
+                    itemStyle={{ color: COLORS.red, fontWeight: 'bold' }}
+                  />
+                  <Line type="stepAfter" dataKey="survivalRate" name="Students" stroke={COLORS.red} strokeWidth={4} activeDot={{ r: 8, fill: COLORS.red, stroke: '#fff', strokeWidth: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {expandedDaily && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-xl border border-gray-200 dark:border-gray-800 relative">
+            <button 
+              onClick={() => setExpandedDaily(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X size={24} />
+            </button>
+            <div className="mb-6">
+              <h2 className="text-xl font-black dark:text-white flex items-center gap-2"><Activity size={20} className="text-green-500" /> Hourly Engagement</h2>
+              <p className="text-sm text-gray-500 mt-1">Active students interacting with the course broken down by hour.</p>
+            </div>
+            <div className="h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={hourlyEngagementData} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
+                  <defs>
+                    <linearGradient id="colorActiveHourly" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.green} stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor={COLORS.green} stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} angle={-45} textAnchor="end" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                  <RechartsTooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
+                    itemStyle={{ color: COLORS.green, fontWeight: 'bold' }}
+                  />
+                  <Area type="monotone" dataKey="activeStudents" name="Active Students" stroke={COLORS.green} strokeWidth={3} fill="url(#colorActiveHourly)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -755,6 +871,7 @@ export default function CourseManager() {
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center justify-between gap-3 rounded-xl bg-white/80 dark:bg-gray-900/50 border border-white/70 dark:border-gray-800 px-3 py-2 hover:bg-white dark:hover:bg-gray-900 transition-colors"
+                title={item.label === 'Wikidata' ? item.value : href}
               >
                 <div className="min-w-0">
                   <p className={`text-[10px] font-black uppercase tracking-widest ${item.tone}`}>{item.label}</p>
