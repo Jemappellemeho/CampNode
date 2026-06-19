@@ -1,3 +1,5 @@
+// PDF extraction service.
+// Produces clean text for RAG and quiz generation without saving uploaded files.
 const pdf = require("pdf-parse");
 const pdfjsLib = require("pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js");
 // Normalize whitespace and punctuation in a line of text
@@ -286,8 +288,82 @@ const buildStructuredTextFromLayout = (lines) => {
   return paragraphs.join("\n\n").trim();
 };
 
-// Extract text from PDF preserving layout (positions, heights for formatting)
-const extractPdfTextWithLayout = async (dataBuffer) => {
+// Pick the first readable heading on a page.
+const detectPageHeading = (pageText, fallbackHeading) => {
+  const heading = String(pageText || "")
+    .split(/\n+/)
+    .map(normalizeLine)
+    .find((line) => isLikelyHeading(line) && line.length >= 4);
+
+  return heading || fallbackHeading;
+};
+
+// Split page text into RAG-ready section chunks.
+const buildPageChunks = (pageText, pageNumber) => {
+  const lines = String(pageText || "")
+    .split(/\n+/)
+    .map(normalizeLine)
+    .filter(Boolean);
+
+  const chunks = [];
+  let heading = `Page ${pageNumber}`;
+  let body = [];
+
+  // Save current section before starting another one.
+  const flush = () => {
+    const text = body.join(" ").replace(/\s{2,}/g, " ").trim();
+    if (text.length >= 40) chunks.push({ heading, text, page: pageNumber });
+    body = [];
+  };
+
+  for (const line of lines) {
+    if (isLikelyHeading(line)) {
+      flush();
+      heading = line;
+      continue;
+    }
+
+    body.push(line);
+  }
+
+  flush();
+
+  if (!chunks.length && lines.join(" ").trim()) {
+    chunks.push({
+      heading: detectPageHeading(pageText, `Page ${pageNumber}`),
+      text: lines.join(" ").trim(),
+      page: pageNumber,
+    });
+  }
+
+  return chunks;
+};
+
+// Build one clean text stream for embeddings and quiz generation.
+const buildRagText = (chunks) => chunks
+  .map((chunk) => [
+    `Heading: ${chunk.heading}`,
+    `Page: ${chunk.page}`,
+    chunk.text,
+  ].join("\n"))
+  .join("\n\n")
+  .trim();
+
+// Build page preview data for the student view.
+const buildPdfPreview = ({ pages, fileName, fileUrl }) => ({
+  type: "pdf",
+  fileName: fileName || null,
+  fileUrl: fileUrl || null,
+  pageCount: pages.length,
+  pages: pages.map((page) => ({
+    page: page.page,
+    heading: page.heading,
+    text: page.text,
+  })),
+});
+
+// Extract pages from PDF preserving layout positions.
+const extractPdfPagesWithLayout = async (dataBuffer) => {
   // load PDF document (disable fonts for security/speed)
   const loadingTask = pdfjsLib.getDocument({
     data: dataBuffer,
@@ -306,11 +382,16 @@ const extractPdfTextWithLayout = async (dataBuffer) => {
     const textContent = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
     const lines = groupItemsIntoLines(textContent.items || []);
     const pageText = buildStructuredTextFromLayout(lines);
-    if (pageText) pages.push(pageText);
+    if (pageText) {
+      pages.push({
+        page: pageIndex,
+        text: pageText,
+        heading: detectPageHeading(pageText, `Page ${pageIndex}`),
+      });
+    }
   }
 
-  // join pages with delimiter
-  return pages.join("\n\n--- PAGE BREAK ---\n\n").trim();
+  return pages;
 };
 
 // Clean extracted PDF text (remove page breaks, footers, fix broken words)
@@ -338,26 +419,61 @@ const cleanExtractedText = (rawText) => {
   return cleaned.trim();
 };
 
-// Main export: parse PDF file and return cleaned structured text
-const parsePdf = async (dataBuffer) => {
+// Extract pages with a text-only fallback.
+const extractPdfPages = async (dataBuffer) => {
   try {
-    let rawText;
-    try {
-      // primary: extract with layout positions
-      rawText = await extractPdfTextWithLayout(dataBuffer);
-    } catch (layoutError) {
-      // fallback: simple text extraction if layout fails
-      console.warn("PDF layout extraction failed, falling back to text-only parsing:", layoutError.message);
-      const data = await pdf(dataBuffer);
-      rawText = buildStructuredText(data.text);
-    }
+    // Primary parser keeps page layout.
+    return await extractPdfPagesWithLayout(dataBuffer);
+  } catch (layoutError) {
+    // Fallback parser keeps the pipeline alive.
+    console.warn("PDF layout extraction failed, falling back to text-only parsing:", layoutError.message);
+    const data = await pdf(dataBuffer);
+    const pageTexts = String(data.text || "")
+      .split(/\f|\n\s*---\s*PAGE\s+BREAK\s*---\s*\n/gi)
+      .map(buildStructuredText)
+      .filter(Boolean);
 
-    // final cleanup: remove noise, fix broken words
-    return cleanExtractedText(rawText);
+    return pageTexts.map((pageText, index) => ({
+      page: index + 1,
+      text: pageText,
+      heading: detectPageHeading(pageText, `Page ${index + 1}`),
+    }));
+  }
+};
+
+// Main export: parse PDF into RAG text and preview data.
+const parsePdfDocument = async (dataBuffer, options = {}) => {
+  try {
+    const rawPages = await extractPdfPages(dataBuffer);
+    const pages = rawPages
+      .map((page) => {
+        const text = cleanExtractedText(page.text);
+        return {
+          page: page.page,
+          heading: detectPageHeading(text, page.heading || `Page ${page.page}`),
+          text,
+        };
+      })
+      .filter((page) => page.text);
+
+    const chunks = pages.flatMap((page) => buildPageChunks(page.text, page.page));
+    const text = buildRagText(chunks) || cleanExtractedText(pages.map((page) => page.text).join("\n\n--- PAGE BREAK ---\n\n"));
+
+    return {
+      text,
+      chunks,
+      preview: buildPdfPreview({ pages, fileName: options.fileName, fileUrl: options.fileUrl }),
+    };
   } catch (error) {
     console.error("PDF Parsing Error:", error.message);
     throw new Error("Could not read the PDF file.");
   }
 };
 
-module.exports = { parsePdf, cleanExtractedText };
+// Compatibility export for older call sites.
+const parsePdf = async (dataBuffer, options = {}) => {
+  const parsed = await parsePdfDocument(dataBuffer, options);
+  return parsed.text;
+};
+
+module.exports = { parsePdf, parsePdfDocument, cleanExtractedText };

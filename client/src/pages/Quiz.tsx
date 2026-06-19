@@ -1,3 +1,5 @@
+// Student quiz player.
+// Scores each question type and saves quiz statistics.
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import axios from "axios"; // Nur noch für axios.isAxiosError() gebraucht
@@ -54,86 +56,111 @@ export default function Quiz() {
     left.length === right.length && left.every((item, index) => item === right[index])
   );
 
-  /**
-   * Normalize text for comparison by converting to lowercase and removing special characters.
-   * Example: "Unit!" -> "unit", "Null type." -> "null type"
-   *
-   * @param value - Raw user input or correct answer
-   * @returns Normalized lowercase string with only letters, numbers, and spaces
-   */
+  // Use professor-defined points with a safe fallback.
+  const getQuestionPoints = (question: any) => {
+    const points = Number(question?.points);
+    return Number.isFinite(points) && points > 0 ? points : 1;
+  };
+
+  // Max score is the sum of all question points.
+  const getTotalQuizPoints = () => (
+    Array.isArray(quiz?.questions)
+      ? quiz.questions.reduce((total: number, question: any) => total + getQuestionPoints(question), 0)
+      : 0
+  );
+
+  // Normalize text for strict answer comparison.
   const normalizeAnswerText = (value: string) => String(value || "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  /**
-   * Extract meaningful words from normalized text (skip short words with 2 or fewer characters).
-   * These tokens are used to check word overlap between user answer and correct answer.
-   *
-   * @param value - Normalized text string
-   * @returns Array of words with length > 2 (e.g., "Unit test" -> ["unit", "test"])
-   */
-  const meaningfulTokens = (value: string) => normalizeAnswerText(value)
-    .split(" ")
-    .filter((token) => token.length > 2);
+  // Split typed answers into clear list items.
+  const splitAnswerItems = (value: string) => String(value || "")
+    .split(/[,;\n]+|\s+\/\s+/g)
+    .map((item) => normalizeAnswerText(item))
+    .filter(Boolean);
 
-  /**
-   * Score an open-ended text answer against a list of accepted correct answers.
-   * Supports multiple correct answer variants (separated by "/" in acceptedAnswers).
-   *
-   * Scoring Rules:
-   * - Exact match: 1 point
-   * - Contains full correct answer phrase in a sentence: 1 point (e.g., "it is unit" matches "Unit")
-   * - For single-word correct answers like "Unit": user must type "unit" to get credit
-   * - For 2-word answers like "Null type": user must type both words to get partial credit (0.5)
-   * - For 3+ word answers: need at least 2 matching words for partial credit (0.5)
-   * - Short prefixes like "uni" do NOT match "Unit" - prevents false positives
-   *
-   * @param selectedAnswer - User's typed answer
-   * @param acceptedAnswers - Array of accepted correct answers (e.g., ["Unit", "Void"])
-   * @returns Score: 1 (full), 0.5 (partial), or 0 (incorrect)
-   */
-  const scoreOpenAnswer = (selectedAnswer: string, acceptedAnswers: string[]) => {
+  // Slash means alternatives for the same required answer.
+  const buildAnswerGroups = (acceptedAnswers: string[]) => (
+    Array.isArray(acceptedAnswers) ? acceptedAnswers : []
+  )
+    .map((answer) => String(answer || "")
+      .split("/")
+      .map((variant) => normalizeAnswerText(variant))
+      .filter(Boolean))
+    .filter((group) => group.length > 0);
+
+  // Choose grading mode when older quizzes do not define it.
+  const getOpenAnswerGradingMode = (question: any, acceptedAnswers: string[]) => {
+    if (question?.gradingMode === "all" || question?.gradingMode === "any") return question.gradingMode;
+
+    const questionText = String(question?.question || "").toLowerCase();
+    const asksForOne = /\b(name one|one phrase|which key term|which term|name the|what is|worum|wann|welche[rsmn]? begriff)\b/i.test(questionText);
+    if (asksForOne) return "any";
+    return acceptedAnswers.length > 1 ? "all" : "any";
+  };
+
+  // Minimum matched required answers for partial credit.
+  const getPartialCreditThreshold = (question: any, requiredCount: number, fallback = 1) => {
+    const rawThreshold = Number(question?.partialCreditThreshold);
+    if (Number.isFinite(rawThreshold) && rawThreshold > 0) {
+      return Math.min(requiredCount, Math.max(1, Math.round(rawThreshold)));
+    }
+
+    return Math.min(requiredCount, Math.max(1, Math.round(fallback)));
+  };
+
+  // Score checkbox questions with optional partial credit.
+  const scoreMultipleSelect = (selectedIndices: number[], questionForScoring: any = q) => {
+    const correct = Array.isArray(questionForScoring?.correctIndices) ? questionForScoring.correctIndices : [];
+    if (!correct.length) return 0;
+
+    const selectedSet = new Set(selectedIndices);
+    const matchedCount = correct.filter((index: number) => selectedSet.has(index)).length;
+
+    // Full credit requires the exact correct set.
+    if (matchedCount === correct.length && selectedIndices.length === correct.length) return 1;
+
+    // Partial credit rewards any enough-correct selection.
+    const partialEnabled = questionForScoring?.partialCreditEnabled !== false;
+    if (!partialEnabled) return 0;
+
+    // Teacher controls how many correct choices are enough for 0.5.
+    const partialThreshold = getPartialCreditThreshold(questionForScoring, correct.length);
+    return matchedCount >= partialThreshold ? 0.5 : 0;
+  };
+
+  // Score open answers with strict matching.
+  const scoreOpenAnswer = (selectedAnswer: string, acceptedAnswers: string[], questionForScoring: any = q) => {
     const normalizedSelected = normalizeAnswerText(selectedAnswer);
     if (!normalizedSelected) return 0;
 
     const accepted = Array.isArray(acceptedAnswers) ? acceptedAnswers : [];
-    const selectedTokens = new Set(meaningfulTokens(normalizedSelected));
+    const answerGroups = buildAnswerGroups(accepted);
+    if (!answerGroups.length) return 0;
 
-    // Check each accepted answer variant for match
-    for (const candidate of accepted) {
-      const normalizedCandidate = normalizeAnswerText(candidate);
-      if (!normalizedCandidate) continue;
+    const selectedItems = splitAnswerItems(selectedAnswer);
+    const selectedText = ` ${normalizedSelected} `;
+    const matchesGroup = (group: string[]) => group.some((variant) => {
+      const variantText = ` ${variant} `;
+      return selectedItems.includes(variant) || selectedText.includes(variantText);
+    });
 
-      // Rule 1: Exact match (case-insensitive)
-      // Example: "unit" == "unit" -> 1 point
-      if (normalizedCandidate === normalizedSelected) return 1;
+    const mode = getOpenAnswerGradingMode(questionForScoring, accepted);
+    if (mode === "any") return answerGroups.some(matchesGroup) ? 1 : 0;
 
-      // Rule 2: Full answer embedded in user's sentence counts as correct
-      // Example: "it is unit" contains "unit" as complete word -> 1 point
-      // But "uni" does NOT match "unit" (prefix only, not whole word)
-      const candidateWords = normalizedCandidate.split(" ").filter(Boolean);
-      const selectedWords = normalizedSelected.split(" ").filter(Boolean);
-      const containsWholeCandidate = candidateWords.length > 0
-        && selectedWords.length >= candidateWords.length
-        && selectedWords.some((_word, startIndex) => (
-          candidateWords.every((candidateWord, offset) => selectedWords[startIndex + offset] === candidateWord)
-        ));
-      if (containsWholeCandidate) return 1;
+    const matchedCount = answerGroups.filter(matchesGroup).length;
+    if (matchedCount === answerGroups.length) return 1;
 
-      // Rule 3: Partial credit for multi-word answers (0.5 points)
-      // For 2-word answers like "Null type": require BOTH words to match
-      // For 3+ word answers: require at least 2 words to match
-      // This prevents "null" from getting partial credit for "Null type"
-      const candidateTokens = meaningfulTokens(normalizedCandidate);
-      const sharedTokens = candidateTokens.filter((t) => selectedTokens.has(t));
+    // Teacher can require full correctness only.
+    if (questionForScoring?.partialCreditEnabled === false) return 0;
 
-      if (candidateTokens.length === 2 && sharedTokens.length >= 2) return 0.5;
-      if (candidateTokens.length >= 3 && sharedTokens.length >= 2) return 0.5;
-    }
-
-    return 0;
+    const partialThreshold = getPartialCreditThreshold(questionForScoring, answerGroups.length);
+    return matchedCount >= partialThreshold ? 0.5 : 0;
   };
 
   const buildReorderStart = (items: any[]) => {
@@ -200,12 +227,11 @@ export default function Quiz() {
     // SAFE STRING CHECK: Prevents .toLowerCase().trim() from crashing on null
     if (q.type === "open_answer") {
       const validAnswers = Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [];
-      return scoreOpenAnswer(String(selected || ""), validAnswers) >= 1;
+      return scoreOpenAnswer(String(selected || ""), validAnswers, q) >= 1;
     }
     
     if (q.type === "multiple_select") {
-      const correct = Array.isArray(q.correctIndices) ? q.correctIndices : [];
-      return JSON.stringify([...multiSelect].sort()) === JSON.stringify([...correct].sort());
+      return scoreMultipleSelect(multiSelect, q) >= 1;
     }
     
     if (q.type === "reorder") {
@@ -269,23 +295,31 @@ export default function Quiz() {
    * This function handles scoring for all question types in the quiz.
    *
    * Scoring by question type:
-   * - open_answer: Uses scoreOpenAnswer() for flexible matching with partial credit
+   * - open_answer: Uses strict matching with optional partial credit
+   * - multiple_select: Uses exact matching with optional partial credit
    * - reorder: Uses partial scoring based on correct position count
-   * - multiple_choice, true_false, multiple_select: Binary (1 or 0)
+   * - multiple_choice, true_false: Binary (1 or 0)
    *
    * @returns Points earned: 1 (full), 0.5 (partial), or 0 (incorrect)
    */
   const scoreCurrentQuestion = () => {
     if (!q) return 0;
+    const questionPoints = getQuestionPoints(q);
 
     // Type: open_answer (user types text answer)
     // Uses smart matching with multiple accepted answer variants
     if (q.type === "open_answer") {
-      return scoreOpenAnswer(String(selected || ""), Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : []);
+      return scoreOpenAnswer(String(selected || ""), Array.isArray(q.acceptedAnswers) ? q.acceptedAnswers : [], q) * questionPoints;
+    }
+
+    // Type: multiple_select (checkbox answers)
+    // Partial credit: enough correct choices = 0.5 points
+    if (q.type === "multiple_select") {
+      return scoreMultipleSelect(multiSelect, q) * questionPoints;
     }
 
     // Type: reorder (drag and drop ordering)
-    // Partial credit: at least 50% in correct position = 0.5 points
+    // Partial credit uses the teacher-defined threshold.
     if (q.type === "reorder") {
       const sourceItems = Array.isArray(q.items) ? q.items : [];
       const order = Array.isArray(q.correctOrder) ? q.correctOrder : sourceItems.map((_: unknown, idx: number) => idx);
@@ -297,21 +331,26 @@ export default function Quiz() {
         if (reorderList[i] === correctItems[i]) correctPositions++;
       }
 
-      // Scoring: all correct = 1, at least half = 0.5, less than half = 0
-      if (correctPositions === correctItems.length) return 1;
-      if (correctPositions >= Math.ceil(correctItems.length / 2)) return 0.5;
+      // Scoring: all correct = full credit.
+      if (correctPositions === correctItems.length) return questionPoints;
+
+      // Partial credit follows the same rule as other multi-part questions.
+      if (q.partialCreditEnabled === false) return 0;
+      const partialThreshold = getPartialCreditThreshold(q, correctItems.length, Math.ceil(correctItems.length / 2));
+      if (correctPositions >= partialThreshold) return questionPoints * 0.5;
       return 0;
     }
 
-    // Types: multiple_choice, true_false, multiple_select
-    // Binary scoring only (no partial credit)
-    return isCorrect() ? 1 : 0;
+    // Types: multiple_choice, true_false
+    // Binary scoring only.
+    return isCorrect() ? questionPoints : 0;
   };
 
   const handleNext = () => {
     const earnedPoints = scoreCurrentQuestion();
+    const maxCurrentPoints = getQuestionPoints(q);
     const nextScore = score + earnedPoints;
-    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct: earnedPoints >= 0.5, pointsEarned: earnedPoints }];
+    const nextAnswerResults = [...answerResults, { type: q?.type || 'unknown', correct: earnedPoints >= maxCurrentPoints, pointsEarned: earnedPoints }];
 
     setAnswerResults(nextAnswerResults);
     if (earnedPoints > 0) setScore(nextScore);
@@ -350,7 +389,7 @@ export default function Quiz() {
           // Ignore local progress persistence errors and still finish the quiz.
         }
       }
-      saveQuizResult(nextScore, totalQuestions, nextAnswerResults);
+      saveQuizResult(nextScore, getTotalQuizPoints() || totalQuestions, nextAnswerResults);
       setFinished(true);
     }
   };
@@ -370,7 +409,7 @@ export default function Quiz() {
       <div className="text-center p-8 rounded-[32px] border shadow-2xl bg-[var(--cn-card)] border-[var(--cn-border)] max-w-sm w-full">
         <Trophy size={48} className="text-[#F5C518] mx-auto mb-4" />
         <h1 className="text-2xl font-black mb-1" style={{color: "var(--cn-text)"}}>Final Results</h1>
-        <p className="text-5xl font-black text-blue-600 mb-6">{Number.isInteger(score) ? score : score.toFixed(1)} / {quiz.questions.length}</p>
+        <p className="text-5xl font-black text-blue-600 mb-6">{Number.isInteger(score) ? score : score.toFixed(1)} / {getTotalQuizPoints() || quiz.questions.length}</p>
         <button onClick={() => navigate(-1)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest">Exit</button>
       </div>
     </div>
@@ -381,9 +420,10 @@ export default function Quiz() {
     ? (currentIdx % 2 === 0 ? ["True", "False"] : ["False", "True"])
     : (Array.isArray(q.options) ? q.options : ["True", "False"]);
   const revealedScore = revealed ? scoreCurrentQuestion() : 0;
+  const currentQuestionPoints = getQuestionPoints(q);
   const answerState = !revealed
     ? "idle"
-    : revealedScore >= 1
+    : revealedScore >= currentQuestionPoints
       ? "correct"
       : revealedScore > 0
         ? "partial"

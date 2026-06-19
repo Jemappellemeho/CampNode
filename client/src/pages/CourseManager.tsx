@@ -1,3 +1,4 @@
+// Professor course manager - handles topic management, resources, quizzes
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -13,6 +14,11 @@ import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 const API_ORIGIN = 'http://localhost:3000';
 const BLUE = '#1E6FFF';
 
+const PARTIAL_CREDIT_ON_LABEL = 'Partial answer gives 0.5';
+const PARTIAL_CREDIT_OFF_LABEL = 'Only fully correct gives credit';
+const PARTIAL_CREDIT_THRESHOLD_LABEL = 'Minimum correct parts for 0.5';
+
+// Wikidata search field - searches Wikipedia/Wikidata for adding topics
 function WikidataSearchField({
   query,
   results,
@@ -77,7 +83,7 @@ export default function CourseManager() {
   const [statisticsError, setStatisticsError] = useState('');
   const [loading, setLoading] = useState(true);
   
-  // Logic States
+  // UI state for managing forms and editing interaction
   const [addingSubTo, setAddingSubTo] = useState<string | null>(null);
   const [newSubForm, setNewSubForm] = useState({
     name: '',
@@ -114,6 +120,7 @@ export default function CourseManager() {
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   
+  // Load course data from API
   const fetchCourse = useCallback(async () => {
     try {
       const res = await api.get(`/courses/${courseId}`);
@@ -129,11 +136,13 @@ export default function CourseManager() {
     }
   }, [course, user]);
 
+  // Close tutorial overlay
   const closeGuide = () => {
     markGuideSeen(user, 'professor-course');
     setShowGuide(false);
   };
 
+  // Load feedback for this course
   const fetchFeedback = useCallback(async () => {
     if (!courseId) return;
     setFeedbackError('');
@@ -151,6 +160,7 @@ export default function CourseManager() {
     if (tab === 'feedback') fetchFeedback();
   }, [tab, fetchFeedback]);
 
+  // Load quiz statistics for this course
   const fetchStatistics = useCallback(async () => {
     if (!courseId) return;
     setStatisticsError('');
@@ -168,6 +178,7 @@ export default function CourseManager() {
     if (tab === 'statistics') fetchStatistics();
   }, [tab, fetchStatistics]);
 
+  // Search Wikidata for a topic
   const searchWiki = async (
     query: string,
     setQuery: (value: string) => void,
@@ -187,6 +198,7 @@ export default function CourseManager() {
     }
   };
 
+  // Handle selecting a Wikidata result
   const selectWikiResult = (
     item: any,
     setQuery: (value: string) => void,
@@ -199,6 +211,7 @@ export default function CourseManager() {
   };
 
   // Make backend-local resource paths clickable from the teacher dashboard.
+  // Convert relative paths to full URLs for clicking
   const resolveResourceUrl = (url?: string | null) => {
     if (!url) return null;
     if (/^https?:\/\//i.test(url)) return url;
@@ -206,6 +219,7 @@ export default function CourseManager() {
     return `${API_ORIGIN}/${url}`;
   };
 
+  // Toggle course visibility (public/private)
   const toggleVisibility = async () => {
     const nextStatus = !course.isPublic;
     try {
@@ -214,6 +228,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Add a new subtopic under a topic
   const addSubtopic = async (parentId: string) => {
     if (!newSubForm.name.trim()) return;
     try {
@@ -234,6 +249,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Add a new main topic to course
   const addTopic = async () => {
     if (!newTopicForm.name.trim()) return;
     try {
@@ -250,6 +266,7 @@ export default function CourseManager() {
     } catch (e) { console.error(e); }
   };
 
+  // Save resource links for a topic
   const saveLinks = async (subId: string) => {
     try {
       const formData = new FormData();
@@ -265,6 +282,7 @@ export default function CourseManager() {
   };
 
   // Hide the stale /uploads/... value when a new replacement PDF is selected.
+  // Handle PDF file replacement - clears old path if new file uploaded
   const handleReplacementFile = (file: File | null) => {
     setLinkData((prev) => ({
       ...prev,
@@ -275,6 +293,7 @@ export default function CourseManager() {
   };
 
   // Clearing articleUrl removes the current local PDF association for that node.
+  // Remove attached PDF from topic
   const clearAttachedPdf = async (topicId: string) => {
     try {
       await api.put(`/courses/${courseId}/topics/${topicId}`, { articleUrl: '' });
@@ -287,6 +306,7 @@ export default function CourseManager() {
     }
   };
 
+  // Drag-drop reordering of topics
   const handleTopicDrop = async (srcId: string, targetId: string) => {
     if (!course || srcId === targetId) return;
     const topics = [...course.topics];
@@ -301,6 +321,7 @@ export default function CourseManager() {
     }
   };
 
+  // Drag-drop reordering of subtopics within same parent
   const handleSubtopicDrop = async (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => {
     if (!course || srcId === targetId || parentTopicId !== targetParentId) return;
 
@@ -326,11 +347,13 @@ export default function CourseManager() {
     }
   };
 
+  // Start inline name editing
   const startEditingName = (id: string, currentName: string) => {
     setEditingNameId(id);
     setEditingNameValue(currentName);
   };
 
+  // Save edited topic name
   const saveName = async (id: string) => {
     if (!editingNameValue.trim()) {
       setEditingNameId(null);
@@ -343,6 +366,7 @@ export default function CourseManager() {
     } catch(e) { console.error(e); }
   };
 
+  // Delete a topic/subtopic
   const deleteTopic = async (id: string) => {
     if (!window.confirm("Delete this topic/subtopic permanently?")) return;
     try {
@@ -352,6 +376,7 @@ export default function CourseManager() {
     } catch(e) { console.error(e); }
   };
 
+  // Create empty quiz question template
   const getEmptyQuestion = () => ({
     type: 'multiple_choice',
     question: '',
@@ -362,10 +387,14 @@ export default function CourseManager() {
     items: ['Step 1', 'Step 2', 'Step 3'],
     correctOrder: [0, 1, 2],
     acceptedAnswers: ['Answer'],
+    // Multi-part questions allow 0.5 by default.
+    partialCreditEnabled: true,
+    partialCreditThreshold: 1,
     explanation: '',
-    points: 10,
+    points: 1,
   });
 
+  // Open quiz editor for a topic
   const openQuizEditor = (topic: any) => {
     const existingQuiz = Array.isArray(topic.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
     setQuizEditorTopic(topic);
@@ -374,6 +403,7 @@ export default function CourseManager() {
     setQuizEditorOpen(true);
   };
 
+  // Generate AI quiz draft from topic content
   const generateQuizDraft = async (topic: any) => {
     try {
       setQuizEditorBusy(true);
@@ -397,10 +427,12 @@ export default function CourseManager() {
     }
   };
 
+  // Update single question in editor
   const updateQuizQuestion = (index: number, patch: any) => {
     setQuizEditorQuestions((prev) => prev.map((question, currentIndex) => (currentIndex === index ? { ...question, ...patch } : question)));
   };
 
+  // Save quiz questions to backend
   const saveQuizEditor = async () => {
     if (!quizEditorTopic) return;
 
@@ -411,7 +443,15 @@ export default function CourseManager() {
           ...question,
           question: (question.question || '').trim(),
           explanation: (question.explanation || '').trim(),
-          points: Number.isFinite(Number(question.points)) ? Number(question.points) : 10,
+          points: Number.isFinite(Number(question.points)) ? Number(question.points) : 1,
+          // Open answers with multiple entries are graded as multi-part by default.
+          gradingMode: question.type === 'open_answer' && Array.isArray(question.acceptedAnswers) && question.acceptedAnswers.length > 1
+            ? (question.gradingMode || 'all')
+            : question.gradingMode,
+          // Keep saved partial-credit thresholds numeric and safe.
+          partialCreditThreshold: Number.isFinite(Number(question.partialCreditThreshold))
+            ? Math.max(1, Math.round(Number(question.partialCreditThreshold)))
+            : 1,
         }))
         .filter((question) => question.question.length > 0);
 
@@ -434,6 +474,7 @@ export default function CourseManager() {
     }
   };
 
+  // Render quiz preview summary for a topic
   const renderQuizOverview = (topic: any) => {
     const existingQuiz = Array.isArray(topic?.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
     const questions = Array.isArray(existingQuiz?.questions) ? existingQuiz.questions : [];
@@ -572,11 +613,41 @@ export default function CourseManager() {
     };
   };
 
+  // Render single question editor form with all question types
   const renderQuestionEditor = (question: any, index: number) => {
     const setCommaSeparatedValues = (value: string, key: string) => {
       const parsed = value.split(',').map((item) => item.trim()).filter(Boolean);
       updateQuizQuestion(index, { [key]: parsed });
     };
+
+    // Shared partial-credit controls keep wording identical for all multi-part questions.
+    const renderPartialCreditControls = () => (
+      <>
+        <div className="mb-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Partial credit rule</label>
+          <select
+            value={question.partialCreditEnabled === false ? 'off' : 'on'}
+            onChange={(e) => updateQuizQuestion(index, { partialCreditEnabled: e.target.value === 'on' })}
+            className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+          >
+            <option value="on">{PARTIAL_CREDIT_ON_LABEL}</option>
+            <option value="off">{PARTIAL_CREDIT_OFF_LABEL}</option>
+          </select>
+        </div>
+        {question.partialCreditEnabled !== false && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">{PARTIAL_CREDIT_THRESHOLD_LABEL}</label>
+            <input
+              type="number"
+              min={1}
+              value={question.partialCreditThreshold ?? 1}
+              onChange={(e) => updateQuizQuestion(index, { partialCreditThreshold: Number(e.target.value) })}
+              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+            />
+          </div>
+        )}
+      </>
+    );
 
     return (
       <div key={index} className="relative p-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border dark:border-gray-700">
@@ -609,6 +680,7 @@ export default function CourseManager() {
           />
         </div>
 
+        {/* Options field - comma-separated list for choice-based question types */}
         {(question.type === 'multiple_choice' || question.type === 'multiple_select') && (
           <div className="mb-4">
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Options, separated by commas</label>
@@ -620,6 +692,7 @@ export default function CourseManager() {
           </div>
         )}
 
+        {/* Single correct answer index for multiple choice */}
         {question.type === 'multiple_choice' && (
           <div className="mb-4">
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct option index</label>
@@ -632,6 +705,7 @@ export default function CourseManager() {
           </div>
         )}
 
+        {/* True/False question type - simple boolean answer */}
         {question.type === 'true_false' && (
           <div className="mb-4">
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct answer</label>
@@ -646,18 +720,23 @@ export default function CourseManager() {
           </div>
         )}
 
+        {/* Multiple correct answers - supports partial credit */}
         {question.type === 'multiple_select' && (
-          <div className="mb-4">
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct indices, separated by commas</label>
-            <input
-              type="text"
-              value={Array.isArray(question.correctIndices) ? question.correctIndices.join(', ') : ''}
-              onChange={(e) => updateQuizQuestion(index, { correctIndices: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
-              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
-            />
-          </div>
+          <>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Correct indices, separated by commas</label>
+              <input
+                type="text"
+                value={Array.isArray(question.correctIndices) ? question.correctIndices.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { correctIndices: e.target.value.split(',').map((item) => Number(item.trim())).filter(Number.isFinite) })}
+                className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+            {renderPartialCreditControls()}
+          </>
         )}
 
+        {/* Reorder question type - user must arrange items in correct order */}
         {question.type === 'reorder' && (
           <>
             <div className="mb-4">
@@ -677,19 +756,24 @@ export default function CourseManager() {
                 className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
               />
             </div>
+            {renderPartialCreditControls()}
           </>
         )}
 
+        {/* Open answer - text input with accepted answer variants */}
         {question.type === 'open_answer' && (
-          <div className="mb-4">
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Accepted answers, separated by commas</label>
-            <input
-              type="text"
-              value={Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers.join(', ') : ''}
-              onChange={(e) => updateQuizQuestion(index, { acceptedAnswers: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
-              className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
-            />
-          </div>
+          <>
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Accepted answers, separated by commas</label>
+              <input
+                type="text"
+                value={Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers.join(', ') : ''}
+                onChange={(e) => updateQuizQuestion(index, { acceptedAnswers: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })}
+                className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
+              />
+            </div>
+            {renderPartialCreditControls()}
+          </>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -705,7 +789,7 @@ export default function CourseManager() {
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Points</label>
             <input
               type="number"
-              value={question.points ?? 10}
+              value={question.points ?? 1}
               onChange={(e) => updateQuizQuestion(index, { points: Number(e.target.value) })}
               className="w-full bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-all dark:text-white"
             />
@@ -721,10 +805,12 @@ export default function CourseManager() {
     );
   };
 
+  // Loading state - show spinner while fetching course data
   if (loading) return <div className="py-20 text-center text-gray-400 text-xs uppercase tracking-widest">Synchronizing...</div>;
+  // No course found - return null to avoid rendering errors
   if (!course) return null;
 
-  // Build one flat topic list so each student's completion can be calculated consistently with the learner view.
+  // Flat list of all topics + subtopics for progress calculation
   const flatCourseTopics = Array.isArray(course.topics)
     ? course.topics.flatMap((topic: any) => [
         { id: topic.id, name: topic.name },
@@ -732,6 +818,7 @@ export default function CourseManager() {
       ])
     : [];
 
+  // Get human-readable label for question type
   const questionTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
       multiple_choice: 'Multiple choice',
@@ -744,6 +831,7 @@ export default function CourseManager() {
     return labels[type] || type.replace(/_/g, ' ');
   };
 
+  // Render quiz statistics summary box
   const renderStatsSummary = (stats: any) => (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div className="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
@@ -765,6 +853,7 @@ export default function CourseManager() {
     </div>
   );
 
+  // Render breakdown of correct/incorrect by question type
   const renderQuestionTypes = (stats: any) => {
     const entries = Object.entries(stats?.questionTypes || {});
 
@@ -884,6 +973,7 @@ export default function CourseManager() {
                     <div className="text-right min-w-[220px]">
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Progress</p>
                       <p className="text-sm font-black text-blue-600">{completionPercent}%</p>
+                      
                       {/* Match student syllabus progress look: neutral track + yellow fill. */}
                       <div className="mt-1 h-2 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
                         <div
@@ -1018,6 +1108,7 @@ export default function CourseManager() {
             </div>
           )}
 
+          {/* Curriculum nodes tab - manage topics, subtopics, resources, and quizzes */}
           {tab === "nodes" && (
             <div className="space-y-4 animate-in slide-in-from-bottom-2">
               <div className="flex justify-between items-center mb-4">
@@ -1025,6 +1116,7 @@ export default function CourseManager() {
                 <button onClick={() => setIsAddingTopic(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md">+ Add Topic</button>
               </div>
 
+              {/* Add new topic form - name, Wikidata search, PDF upload */}
               {isAddingTopic && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 flex gap-2">
                     <input autoFocus className="flex-1 px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="New Topic Name..." value={newTopicForm.name} onChange={(e) => setNewTopicForm((prev) => ({ ...prev, name: e.target.value }))} />
@@ -1058,6 +1150,7 @@ export default function CourseManager() {
                 </div>
               )}
 
+              {/* Render each main topic with drag-drop, expand/collapse, subtopics */}
               {course.topics?.map((topic: any, i: number) => (
                 <div 
                   key={topic.id} draggable
@@ -1161,6 +1254,7 @@ export default function CourseManager() {
                     </div>
                   )}
 
+                  {/* Subtopics list - nested under main topic */}
                   <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
                     {topic.subtopics?.map((sub: any) => (
                       <div 

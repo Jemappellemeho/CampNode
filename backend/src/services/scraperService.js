@@ -1,5 +1,10 @@
+// Web source extraction service.
+// Keeps only readable article text for RAG/quiz generation.
 const axios = require("axios");
 const cheerio = require("cheerio");
+
+// Reader fallback helps when normal HTML scraping is blocked.
+const READER_FALLBACK_ENABLED = process.env.SCRAPER_READER_FALLBACK !== "false";
 
 // Ensure URL has protocol (add https:// if missing)
 const normalizeUrl = (url) => {
@@ -19,6 +24,33 @@ const normalizeExtractedText = (text) => String(text || "")
   .replace(/\n{3,}/g, "\n\n") // collapse blank lines
   .trim();
 
+// Remove reader-service metadata before sending text to RAG/quiz generation.
+const cleanReaderText = (text) => normalizeExtractedText(text)
+  .replace(/^Title:\s*/gim, "")
+  .replace(/^URL Source:\s*https?:\/\/\S+\s*/gim, "")
+  .replace(/^Markdown Content:\s*/gim, "")
+  .trim();
+
+// Fallback for pages that block simple HTML scraping or require browser/OAuth redirects.
+const fetchReaderText = async (targetUrl) => {
+  const readerUrl = `https://r.jina.ai/http://${targetUrl}`;
+  const { data } = await axios.get(readerUrl, {
+    timeout: 30000,
+    responseType: "text",
+    headers: {
+      "Accept": "text/plain,text/markdown,*/*;q=0.8",
+      "User-Agent": "CampNode/1.0",
+    },
+  });
+
+  const text = cleanReaderText(data);
+  if (text.length < 300 || /^error\b/i.test(text)) {
+    throw new Error("Reader fallback did not expose enough readable text.");
+  }
+
+  return text;
+};
+
 // Extract text from block elements (add newlines around content)
 const extractBlockText = ($, root) => {
   // select heading, paragraph, list, code, table elements
@@ -36,8 +68,8 @@ const extractBlockText = ($, root) => {
  * @returns {Promise<string>} - The parsed, cleaned text content
  */
 const scrapeUrl = async (url) => {
+  const targetUrl = normalizeUrl(url);
   try {
-    const targetUrl = normalizeUrl(url);
     if (!targetUrl) throw new Error("Missing URL.");
 
     // 1. Fetch the raw HTML of the webpage
@@ -86,9 +118,33 @@ const scrapeUrl = async (url) => {
 
     return text;
   } catch (error) {
-    console.error("Scraper Error:", error.message);
-    throw new Error("Could not read the webpage content.");
+    const statusCode = error.response?.status;
+    console.error("Scraper Error:", statusCode ? `HTTP ${statusCode}` : error.message);
+
+    if (targetUrl && READER_FALLBACK_ENABLED) {
+      try {
+        console.log("[Scraper] Trying reader fallback for:", targetUrl);
+        return await fetchReaderText(targetUrl);
+      } catch (readerError) {
+        console.error("[Scraper] Reader fallback failed:", readerError.message);
+      }
+    }
+
+    const wrappedError = new Error("Could not read the webpage content.");
+    wrappedError.statusCode = statusCode;
+    throw wrappedError;
   }
 };
 
-module.exports = { scrapeUrl };
+// Soft scraper for create/update flows.
+// A blocked website should not prevent the topic from being saved.
+const tryScrapeUrl = async (url) => {
+  try {
+    return await scrapeUrl(url);
+  } catch (error) {
+    console.warn(`[Scraper] Skipping unreadable source: ${error.message}`);
+    return "";
+  }
+};
+
+module.exports = { scrapeUrl, tryScrapeUrl };

@@ -1,8 +1,10 @@
+// Course controller.
+// Handles course CRUD, topic sources, and RAG ingestion triggers.
 const prisma = require("../utils/prisma");
 const crypto = require("crypto"); // Built-in Node module for generating random codes
 const axios = require("axios");
-const { scrapeUrl } = require("../services/scraperService");
-const { parsePdf } = require("../services/pdfService");
+const { tryScrapeUrl } = require("../services/scraperService");
+const { parsePdfDocument } = require("../services/pdfService");
 const aiService = require("../services/aiService");
 
 
@@ -311,7 +313,7 @@ exports.updateCourse = async (req, res) => {
       return res.status(403).json({ error: "Only professors can edit courses" });
     }
 
-    // Ownership prüfen: Nur der eigene Kurs darf bearbeitet werden
+    // Only the course owner can update course settings.
     const course = await prisma.course.findUnique({ where: { id } });
     if (!course) {
       return res.status(404).json({ error: "Course not found" });
@@ -422,7 +424,7 @@ exports.addTopic = async (req, res) => {
       return res.status(403).json({ error: "Only professors can add topics" });
     }
 
-    // Ownership prüfen: Topic darf nur zum eigenen Kurs hinzugefügt werden
+    // Only the course owner can add topics here.
     const courseCheck = await prisma.course.findUnique({ where: { id: req.params.id } });
     if (!courseCheck) {
       return res.status(404).json({ error: "Course not found" });
@@ -433,14 +435,18 @@ exports.addTopic = async (req, res) => {
 
     let content = null;
     // articleUrl stays as an external source pointer only.
-    // Uploaded PDFs are parsed to text and are not persisted as files.
+    // Uploaded PDFs are parsed in memory and not stored as files.
     const sourceLink = sourceUrl || articleUrl || null;
     let resolvedArticleUrl = sourceLink;
-    if (sourceLink) {
-      content = await scrapeUrl(sourceLink);
-    } else if (req.file) {
-      content = await parsePdf(req.file.buffer);
+
+    // Prefer uploaded PDF text over linked sources.
+    if (req.file) {
+      const parsedPdf = await parsePdfDocument(req.file.buffer, { fileName: req.file.originalname });
+      content = parsedPdf.text;
       resolvedArticleUrl = null;
+    } else if (sourceLink) {
+      // Save the topic even when a website blocks scraping.
+      content = await tryScrapeUrl(sourceLink);
     } else if (wikidataId) {
       console.log("Fetching WikiText on create for:", wikidataId);
       // This keeps the stored source text aligned with the language chosen in the course modal.
@@ -448,6 +454,7 @@ exports.addTopic = async (req, res) => {
       if (wikiText) content = wikiText;
     }
 
+    // Save topic metadata plus extracted source text.
     const topic = await prisma.topic.create({
       data: {
         name,
@@ -467,6 +474,7 @@ exports.addTopic = async (req, res) => {
     console.log(`[Debug] Topic created in DB. ID: ${topic.id}, CourseID: ${topic.courseId}`);
     console.log(`[Debug] Content status: ${content ? "Has content (length: " + content.length + ")" : "No content"}`);
     
+    // Send clean source text to RAG after the topic exists.
     if (topic.courseId && content) {
       console.log(`[Debug] Triggering RAG ingestion for course: ${topic.courseId}`);
       aiService.ingestToRAG(topic.courseId, topic.name, content);
@@ -496,19 +504,25 @@ exports.updateTopic = async (req, res) => {
       where: { id: req.params.topicId }
     });
 
+    // Start from existing source data and replace only when a new source is provided.
     let nextContent = currentTopic?.content || undefined;
     let nextArticleUrl = currentTopic?.articleUrl || null;
     const sourceLink = sourceUrl || articleUrl || null;
-    if (sourceLink) {
-      nextContent = await scrapeUrl(sourceLink);
-      nextArticleUrl = sourceLink;
-    } else if (req.file) {
-      nextContent = await parsePdf(req.file.buffer);
+
+    // Uploaded files replace article links.
+    if (req.file) {
+      const parsedPdf = await parsePdfDocument(req.file.buffer, { fileName: req.file.originalname });
+      nextContent = parsedPdf.text;
       nextArticleUrl = null;
+    } else if (sourceLink) {
+      // Keep existing content if the new linked page blocks scraping.
+      nextContent = await tryScrapeUrl(sourceLink) || nextContent;
+      nextArticleUrl = sourceLink;
     } else if (articleUrl !== undefined) {
       nextArticleUrl = articleUrl || null;
     }
 
+    // Patch only fields submitted by the client.
     const topic = await prisma.topic.update({
       where: { id: req.params.topicId },
       data: {
@@ -524,8 +538,9 @@ exports.updateTopic = async (req, res) => {
       },
     });
     if (topic.courseId && nextContent) {
+      // RAG receives clean text only.
       aiService.ingestToRAG(topic.courseId, topic.name, nextContent);
-      }
+    }
 
     res.json(topic);
   } catch (err) {

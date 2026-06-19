@@ -1,7 +1,9 @@
+// Topic controller.
+// Handles source parsing, topic content, and quiz regeneration.
 const prisma = require("../utils/prisma");
 const axios = require("axios");
-const { scrapeUrl } = require("../services/scraperService");
-const { parsePdf } = require("../services/pdfService");
+const { scrapeUrl, tryScrapeUrl } = require("../services/scraperService");
+const { parsePdfDocument } = require("../services/pdfService");
 const aiService = require("../services/aiService");
 
 // Markers that indicate a quiz was auto-generated (fallback), not from real content.
@@ -17,6 +19,11 @@ const MOCK_QUESTION_MARKERS = [
   "order the key ideas from the source",
   "name one key idea from the source",
   "which concept is most central to",
+  "how should a student interpret this",
+  "which statements belong with this",
+  "which option best applies this",
+  "which conclusion follows from this",
+  "which key term or concept is connected to this point",
   "unit 1 introduction",
   "unit 2 android",
   "courses tutorials interview",
@@ -30,11 +37,19 @@ const MOCK_QUESTION_MARKERS = [
   "welcome to our tour of kotlin",
   "step names another concept",
   "next changes how",
-  "describes a different part of"
+  "describes a different part of",
+  "infers that popcorn",
+  "can not be a value of",
+  "⇒ error",
+  "are passing the function",
+  "published time",
+  "publication date",
+  "what is emphasized about gmt"
 ];
 
-// Minimum questions required for an acceptable quiz
-const MIN_ACCEPTABLE_QUIZ_QUESTIONS = 8;
+// Minimum questions required for an acceptable quiz.
+// The generator now has clean completion paths, so quizzes should be full length.
+const MIN_ACCEPTABLE_QUIZ_QUESTIONS = 10;
 
 // Save quiz to database: update existing or create new if none exists.
 async function upsertTopicQuiz(topicId, questions) {
@@ -218,18 +233,27 @@ function formatPlainPdfTextAsHtml(rawText) {
   return html.join("");
 }
 
+// Parse PDF once for RAG text.
+async function preparePdfSource(file) {
+  const parsedPdf = await parsePdfDocument(file.buffer, { fileName: file.originalname });
+
+  return {
+    content: parsedPdf.text,
+  };
+}
+
 // GET Quiz for a topic
 // If missing or < 8 questions, regenerates to ensure a full session.
 exports.getQuizByTopic = async (req, res) => {
   try {
     const { topicId } = req.params;
 
+    // Load the latest quiz for this topic.
     let quiz = await prisma.quiz.findFirst({
       where: { topicId: topicId }
     });
 
-    // Accept 8-10 valid questions to avoid endless regeneration loops caused by strict dedupe.
-    // Regenerate only when quiz is clearly legacy/fallback/too short.
+    // Regenerate only when quiz is legacy, fallback, or too short.
     const needsRegeneration = Boolean(
       quiz
       && (
@@ -248,9 +272,11 @@ exports.getQuizByTopic = async (req, res) => {
       const topic = await prisma.topic.findUnique({ where: { id: topicId } });
       if (!topic) return res.status(404).json({ error: "Topic not found." });
 
+      // Resolve the best available source before quiz generation.
       const source = await ensureTopicSourceContent(topic);
       const sourceContent = source.content;
       
+      // Generate a normalized quiz using source text when available.
       const questions = await aiService.generateQuiz(sourceContent || topic.name, topic.name, {
         courseId: topic.courseId,
       });
@@ -273,19 +299,22 @@ exports.createTopic = async (req, res) => {
     const { name, description, courseId, wikidataId, sourceUrl, articleUrl, language } = req.body;
     let content = "";
     // articleUrl is used only for external source links.
-    // Uploaded PDFs are parsed and stored as cleaned text only.
+    // Uploaded PDFs are parsed in memory and not stored as files.
     const sourceLink = sourceUrl || articleUrl || null;
     let resolvedArticleUrl = sourceLink;
 
-    if (sourceLink) {
-      console.log("Scraping website:", sourceLink);
-      content = await scrapeUrl(sourceLink);
-    } 
-    else if (req.file) {
+    // Uploaded PDFs are parsed first because they are the strongest source.
+    if (req.file) {
       console.log("Parsing PDF:", req.file.originalname);
-      content = await parsePdf(req.file.buffer);
+      const pdfSource = await preparePdfSource(req.file);
+      content = pdfSource.content;
       resolvedArticleUrl = null;
     }
+    else if (sourceLink) {
+      console.log("Scraping website:", sourceLink);
+      // Save the topic even when the linked page blocks scraping.
+      content = await tryScrapeUrl(sourceLink);
+    } 
     else if (wikidataId) {
       console.log("Fetching WikiText for:", wikidataId);
       // The optional language keeps standalone topic creation consistent with the course modal flow.
@@ -293,6 +322,7 @@ exports.createTopic = async (req, res) => {
       if (wikiText) content = wikiText;
     }
 
+    // Store extracted text and source pointers, not uploaded files.
     const topic = await prisma.topic.create({
       data: {
         name,
@@ -305,8 +335,9 @@ exports.createTopic = async (req, res) => {
     });
 
     if (topic.courseId && content) {
-  aiService.ingestToRAG(courseId, name, content);
-}
+      // RAG receives clean text only.
+      aiService.ingestToRAG(courseId, name, content);
+    }
 
     res.status(201).json(topic);
   } catch (error) {
@@ -344,15 +375,20 @@ exports.updateTopic = async (req, res) => {
     const currentTopic = await prisma.topic.findUnique({ where: { id } });
     if (!currentTopic) return res.status(404).json({ error: "Topic not found" });
 
+    // New source text is appended to existing content.
     let newContent = "";
     let nextArticleUrl = currentTopic.articleUrl || null;
     const sourceLink = sourceUrl || articleUrl || null;
-    if (sourceLink) {
-      newContent = await scrapeUrl(sourceLink);
-      nextArticleUrl = sourceLink;
-    } else if (req.file) {
-      newContent = await parsePdf(req.file.buffer);
+
+    // File replacement wins over linked sources.
+    if (req.file) {
+      const pdfSource = await preparePdfSource(req.file);
+      newContent = pdfSource.content;
       nextArticleUrl = null;
+    } else if (sourceLink) {
+      // Keep the topic update successful even if scraping fails.
+      newContent = await tryScrapeUrl(sourceLink);
+      nextArticleUrl = sourceLink;
     }
 
     // Keep existing extracted material and append new source text as supplementary content.
@@ -363,14 +399,16 @@ exports.updateTopic = async (req, res) => {
         : newContent;
     }
 
+    // Build a Prisma update payload from editable fields.
     const data = { 
       name, 
       description,
       articleUrl: nextArticleUrl,
-      content: combinedContent 
+      content: combinedContent,
     };
 
     if (prerequisiteIds && Array.isArray(prerequisiteIds)) {
+      // Replace prerequisite links with the teacher-selected list.
       data.prerequisites = {
         set: prerequisiteIds.map(preId => ({ id: preId }))
       };
@@ -412,7 +450,7 @@ exports.getTopicContent = async (req, res) => {
 
     if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-    // For PDF/source-based nodes we return stored cleaned content directly.
+    // For PDF/source-based nodes we render HTML from extracted text.
     if (!topic.wikidataId) {
       if (topic.content && topic.content.trim()) {
         return res.status(200).json({ content: formatPlainPdfTextAsHtml(topic.content) });
@@ -512,17 +550,20 @@ async function fetchWikiText(wikidataId, preferredLang = "en") {
 async function ensureTopicSourceContent(topic) {
   if (!topic) return { topic, content: "" };
 
+  // Reuse already extracted source text when possible.
   if (topic.content && topic.content.trim()) {
     return { topic, content: topic.content.trim() };
   }
 
   let nextContent = "";
 
+  // Wikidata topics fetch plain Wikipedia text.
   if (topic.wikidataId) {
     const wikiText = await fetchWikiText(topic.wikidataId);
     if (wikiText) nextContent = wikiText;
   }
 
+  // Linked article topics fall back to the scraper.
   if (!nextContent && topic.articleUrl) {
     try {
       nextContent = await scrapeUrl(topic.articleUrl);
@@ -535,6 +576,7 @@ async function ensureTopicSourceContent(topic) {
     return { topic, content: "" };
   }
 
+  // Cache extracted text so later quiz generation is faster.
   const updatedTopic = await prisma.topic.update({
     where: { id: topic.id },
     data: { content: nextContent }
@@ -548,16 +590,21 @@ async function ensureTopicSourceContent(topic) {
 exports.enrichTopic = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Only professors can generate or replace quizzes.
     if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Unauthorized." });
 
+    // Load the topic before resolving its source text.
     let topic = await prisma.topic.findUnique({ where: { id } });
     if (!topic) return res.status(404).json({ error: "Topic not found." });
 
-        const source = await ensureTopicSourceContent(topic);
+    // Resolve source text from cached content, Wikidata, or linked article.
+    const source = await ensureTopicSourceContent(topic);
     topic = source.topic;
 
     console.log(`[Debug] Enriching Topic: ${topic.name}. Content found: ${!!source.content}`);
 
+    // Stop early when the quiz generator has no readable material.
     if (!source.content) {
       const hasLinkedSource = Boolean(topic.articleUrl || topic.wikidataId);
       return res.status(400).json({
@@ -567,7 +614,7 @@ exports.enrichTopic = async (req, res) => {
       });
     }
 
-    // Wikipedia-Inhalt an das RAG-System senden
+    // Send clean source text to RAG before quiz generation.
     if (topic.courseId) {
       console.log(`[Debug] Sending enriched content to RAG for course ${topic.courseId}`);
       aiService.ingestToRAG(topic.courseId, topic.name, source.content);
@@ -575,11 +622,15 @@ exports.enrichTopic = async (req, res) => {
       console.log("[Debug] Skipping RAG ingestion in enrich: no courseId");
     }
 
+    // Generate source-grounded quiz questions.
     const quizQuestions = await aiService.generateQuiz(source.content, topic.name, {
       courseId: topic.courseId,
     });
+
+    // Save generated questions into the topic quiz slot.
     const quiz = await upsertTopicQuiz(id, quizQuestions);
 
+    // Reload topic so the response includes the latest quiz list.
     const updatedTopic = await prisma.topic.findUnique({
       where: { id },
       include: { quizzes: true }
@@ -591,6 +642,7 @@ exports.enrichTopic = async (req, res) => {
       message: "AI Enrichment successful!",
       topic: {
         ...updatedTopic,
+        // Ensure the freshly saved quiz is included even if Prisma ordering changes.
         quizzes: updatedTopic.quizzes.some((item) => item.id === quiz.id)
           ? updatedTopic.quizzes
           : [quiz, ...updatedTopic.quizzes]
