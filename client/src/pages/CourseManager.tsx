@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronDown, Play, Headphones, Sparkles, Lock, Edit2, Search,
   Target, Award, Percent, UserX, Activity, BarChart2, Clock
 } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
+import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import { api } from '../utils/api';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
@@ -70,7 +70,6 @@ function WikidataSearchField({
 // ============================================================================
 function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
   const [expandedDropoff, setExpandedDropoff] = useState(false);
-  const [expandedDaily, setExpandedDaily] = useState(false);
   const topics = statistics?.topics || [];
   
   const COLORS = {
@@ -89,39 +88,23 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
     green: "#86EFAC",
   };
 
-  const getShortName = (name: string, max = 10) => name.length > max ? name.substring(0, max) + '...' : name;
+  // Time-on-Task: REAL data now. `expected` = sum of the topic's resource minute estimates,
+  // `actual` = average minutes students actually spent on the topic (from tracked activity).
+  const timeData = Array.isArray(statistics?.timeOnTask) && statistics.timeOnTask.length > 0
+    ? statistics.timeOnTask.map((t: any, i: number) => ({
+        name: `Topic ${i + 1}`,
+        fullName: t.name || `Topic ${i + 1}`,
+        expected: Number(t.expected) || 0,
+        actual: Number(t.actual) || 0,
+      }))
+    : [{ name: 'No data', fullName: 'No data yet', expected: 0, actual: 0 }];
 
-  // 1. Time-on-Task vs Expected (Mock)
-  const timeData = topics.length > 0 ? topics.map((t: any, i: number) => {
-    const baseExpected = 10 + (i * 2) + ((t.name || '').length % 5);
-    const actual = baseExpected + (Math.random() > 0.5 ? Math.floor(Math.random() * 10) : -Math.floor(Math.random() * 5));
-    return {
-      name: `Topic ${i+1}`,
-      fullName: t.name || `Topic ${i+1}`,
-      expected: baseExpected,
-      actual: Math.max(5, actual),
-    };
-  }) : [{ name: 'No data', fullName: 'No data', expected: 0, actual: 0 }];
+  // Daily Engagement: REAL distinct active students per day (last 7 days).
+  const engagementData = Array.isArray(statistics?.dailyEngagement) && statistics.dailyEngagement.length > 0
+    ? statistics.dailyEngagement.map((d: any) => ({ day: d.day, activeStudents: Number(d.activeStudents) || 0 }))
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({ day, activeStudents: 0 }));
 
-  // 2. Daily Engagement (Mock 7 Days)
-  const engagementData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({
-    day,
-    activeStudents: Math.floor(Math.random() * 40) + 10,
-  }));
-
-  // Hourly Engagement (Mock 24 Hours for 7 days)
-  const hourlyEngagementData: any[] = [];
-  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((day) => {
-    for (let h = 0; h < 24; h += 2) {
-      hourlyEngagementData.push({
-        day,
-        time: `${day} ${h}:00`,
-        activeStudents: Math.floor(Math.random() * 15) + 1,
-      });
-    }
-  });
-
-  // 3. Score Distribution (Bell Curve from real scores turned into Pie Chart)
+  // 1. Score Distribution (Bell Curve from real scores turned into Pie Chart)
   const allScores = statistics?.overallStats?.scores || [];
   const scoreDistRaw = [0, 0, 0, 0, 0];
   allScores.forEach((score: number) => {
@@ -187,43 +170,39 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-        {/* ROW 1: Time on Task & Daily Engagement */}
+        {/* ROW 1: Time-on-Task & Daily Engagement (REAL tracked data) */}
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex justify-between items-center mb-4">
             <div>
               <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><Clock size={16} className="text-blue-500"/> Time-on-Task vs. Expected</h3>
-              <p className="text-[10px] text-gray-500 mt-1">Comparing actual time spent vs resource estimates</p>
+              <p className="text-[10px] text-gray-500 mt-1">Avg. minutes students actually spent vs. resource estimates</p>
             </div>
           </div>
-          <div className="h-[200px]">
+          <div className="h-[240px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={timeData} margin={{ top: 10, right: 0, left: -25, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-                <RechartsTooltip 
+                <RechartsTooltip
                   labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
                 />
-                <Bar dataKey="expected" name="Expected Time" fill="#E5E7EB" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="actual" name="Actual Time" fill={COLORS.blue} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expected" name="Expected (min)" fill="#E5E7EB" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="actual" name="Actual (min)" fill={COLORS.blue} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div 
-          className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:border-green-300 dark:hover:border-green-800 transition-colors"
-          onClick={() => setExpandedDaily(true)}
-        >
-          <div className="flex justify-between items-center mb-4 relative z-10">
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
             <div>
               <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><Activity size={16} className="text-green-500"/> Daily Engagement</h3>
-              <p className="text-[10px] text-gray-500 mt-1">Active students interacting with the course this week</p>
+              <p className="text-[10px] text-gray-500 mt-1">Distinct active students per day (last 7 days)</p>
             </div>
-            <div className="text-[10px] bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-2 py-1 rounded-full font-bold">Click to Expand</div>
           </div>
-          <div className="h-[200px]">
+          <div className="h-[240px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={engagementData} margin={{ top: 10, right: 0, left: -25, bottom: 25 }}>
                 <defs>
@@ -234,7 +213,7 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
                 <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }} />
                 <Area type="monotone" dataKey="activeStudents" name="Active Students" stroke={COLORS.green} strokeWidth={3} fill="url(#colorActive)" />
               </AreaChart>
@@ -242,7 +221,7 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
           </div>
         </div>
 
-        {/* ROW 2: Score Distribution & Drop-off Rate */}
+        {/* ROW 2: Score Distribution & Drop-off Rate (both use real statistics data) */}
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex justify-between items-center mb-4">
             <div>
@@ -338,43 +317,6 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
           </div>
         </div>
       )}
-
-      {expandedDaily && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-4xl bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-xl border border-gray-200 dark:border-gray-800 relative">
-            <button 
-              onClick={() => setExpandedDaily(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              <X size={24} />
-            </button>
-            <div className="mb-6">
-              <h2 className="text-xl font-black dark:text-white flex items-center gap-2"><Activity size={20} className="text-green-500" /> Hourly Engagement</h2>
-              <p className="text-sm text-gray-500 mt-1">Active students interacting with the course broken down by hour.</p>
-            </div>
-            <div className="h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={hourlyEngagementData} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
-                  <defs>
-                    <linearGradient id="colorActiveHourly" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={COLORS.green} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={COLORS.green} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} dy={10} angle={-45} textAnchor="end" />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-                  <RechartsTooltip 
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', whiteSpace: 'normal', maxWidth: '300px' }}
-                    itemStyle={{ color: COLORS.green, fontWeight: 'bold' }}
-                  />
-                  <Area type="monotone" dataKey="activeStudents" name="Active Students" stroke={COLORS.green} strokeWidth={3} fill="url(#colorActiveHourly)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -412,6 +354,8 @@ export default function CourseManager() {
   });
   const [editingSubId, setEditingSubId] = useState<string | null>(null);
   const [linkData, setLinkData] = useState({ video: '', article: '', podcast: '', sourceUrl: '', file: null as File | null });
+  // F3: prerequisite selection for the topic whose settings panel is open.
+  const [prereqSelection, setPrereqSelection] = useState<string[]>([]);
   const [isAddingTopic, setIsAddingTopic] = useState(false);
   const [newTopicForm, setNewTopicForm] = useState({
     name: '',
@@ -595,6 +539,24 @@ export default function CourseManager() {
       await api.put(`/courses/${courseId}/topics/${subId}`, formData);
       setEditingSubId(null); fetchCourse();
     } catch (e) { console.error(e); }
+  };
+
+  // F3: keep the prerequisite checkboxes in sync with whichever topic's settings panel is open.
+  useEffect(() => {
+    if (!editingSubId || !course?.topics) { setPrereqSelection([]); return; }
+    const current = course.topics.find((t: any) => t.id === editingSubId);
+    setPrereqSelection(Array.isArray(current?.prerequisites) ? current.prerequisites.map((p: any) => p.id) : []);
+  }, [editingSubId, course]);
+
+  // F3: save resource links AND prerequisites for a root topic.
+  // Prerequisites go through PUT /api/topics/:id (topicController), which handles the relation.
+  const saveTopicSettings = async (topicId: string) => {
+    try {
+      await api.put(`/topics/${topicId}`, { prerequisiteIds: prereqSelection });
+    } catch (e) {
+      console.error('Could not save prerequisites:', e);
+    }
+    await saveLinks(topicId);
   };
 
   // Handle PDF file replacement - clears old path if new file uploaded
@@ -1592,8 +1554,34 @@ export default function CourseManager() {
                               <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleReplacementFile(e.target.files?.[0] || null)} />
                             </label>
                           </div>
+
+                          {/* F3: Prerequisites — which other topics must be learned before this one */}
+                          <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-900 p-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                              <Lock size={11} className="text-amber-500" /> Prerequisites (must be learned first)
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(course.topics || []).filter((other: any) => other.id !== topic.id).map((other: any) => {
+                                const checked = prereqSelection.includes(other.id);
+                                return (
+                                  <button
+                                    key={other.id}
+                                    type="button"
+                                    onClick={() => setPrereqSelection(checked ? prereqSelection.filter((id) => id !== other.id) : [...prereqSelection, other.id])}
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors ${checked ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400'}`}
+                                  >
+                                    {other.name}
+                                  </button>
+                                );
+                              })}
+                              {(course.topics || []).filter((other: any) => other.id !== topic.id).length === 0 && (
+                                <span className="text-[10px] text-gray-400">Add more topics to set prerequisites.</span>
+                              )}
+                            </div>
+                          </div>
+
                           <div className="flex justify-end gap-2">
-                            <button onClick={() => saveLinks(topic.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
+                            <button onClick={() => saveTopicSettings(topic.id)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-md">Save</button>
                           </div>
                         </div>
                       )}

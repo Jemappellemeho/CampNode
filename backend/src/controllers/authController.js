@@ -110,7 +110,8 @@ exports.login = async (req, res) => {
     res.json({
       message: "Login successful",
       token: accessToken, // Heißt weiterhin "token" damit das Frontend keine große Änderung braucht
-      user: { id: user.id, email: user.email, role: user.role, name: user.displayName || user.email }
+      // `name` mirrors the email for now; the schema has no separate display-name field (B15).
+      user: { id: user.id, email: user.email, role: user.role, name: user.email }
     });
   } catch (error) {
     console.error("Login error:", error.message);

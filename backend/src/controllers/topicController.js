@@ -5,6 +5,23 @@ const axios = require("axios");
 const { scrapeUrl, tryScrapeUrl } = require("../services/scraperService");
 const { parsePdfDocument } = require("../services/pdfService");
 const aiService = require("../services/aiService");
+const { resolveTopicCourseId, getCourseAccess } = require("../utils/courseAccess");
+const { sanitizeQuestionsForStudent, gradeQuestion } = require("../services/quizGrading");
+
+// B7: enforce "enrolled student OR course owner" for a topic's course.
+// When the topic is not attached to any course (orphaned/reusable), there is no enrollment
+// context to check, so access is left as-is (still requires a valid token via the route).
+// Returns true when allowed; otherwise sends the response and returns false.
+async function assertTopicAccess(req, res, topicId) {
+  const courseId = await resolveTopicCourseId(topicId);
+  if (!courseId) return true;
+  const access = await getCourseAccess(req.user.userId || req.user.id, courseId);
+  if (!access.allowed) {
+    res.status(403).json({ error: "You are not enrolled in this course" });
+    return false;
+  }
+  return access;
+}
 
 // Markers that indicate a quiz was auto-generated (fallback), not from real content.
 // Used to detect low-quality placeholder content.
@@ -248,6 +265,11 @@ exports.getQuizByTopic = async (req, res) => {
   try {
     const { topicId } = req.params;
 
+    // B7: only the course owner or enrolled students may load a quiz.
+    const access = await assertTopicAccess(req, res, topicId);
+    if (!access) return;
+    const isOwner = access === true ? false : access.isOwner;
+
     // Load the latest quiz for this topic.
     let quiz = await prisma.quiz.findFirst({
       where: { topicId: topicId }
@@ -284,12 +306,44 @@ exports.getQuizByTopic = async (req, res) => {
       quiz = await upsertTopicQuiz(topicId, questions);
     }
 
-    // Return the quiz object directly
-    res.json(quiz);
+    // B4: students receive the quiz WITHOUT correct answers/explanations.
+    // Scoring + reveal happen server-side via POST /api/topics/quizzes/:quizId/grade.
+    // The owner (professor) still gets the full quiz (e.g. for previewing).
+    const safeQuiz = isOwner
+      ? quiz
+      : { ...quiz, questions: sanitizeQuestionsForStudent(quiz.questions) };
+
+    res.json(safeQuiz);
   } catch (error) {
     console.error("Quiz Fetch Error:", error.message);
     const statusCode = error.message?.toLowerCase().includes("quota") ? 503 : 500;
     res.status(statusCode).json({ error: error.message || "Failed to load or generate quiz." });
+  }
+};
+
+// POST grade a single quiz answer server-side (B4).
+// Body: { questionIndex, answer }. Returns { correct, partial, pointsEarned, maxPoints, correctAnswer, explanation }.
+// The correct answer/explanation are returned only for the question the student just answered.
+exports.gradeQuizQuestion = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { questionIndex, answer } = req.body;
+
+    const quiz = await prisma.quiz.findUnique({ where: { id: quizId } });
+    if (!quiz) return res.status(404).json({ error: "Quiz not found" });
+
+    // Enforce enrollment/ownership via the quiz's topic.
+    if (!(await assertTopicAccess(req, res, quiz.topicId))) return;
+
+    const questions = Array.isArray(quiz.questions) ? quiz.questions : [];
+    const index = Number(questionIndex);
+    const question = Number.isInteger(index) ? questions[index] : null;
+    if (!question) return res.status(400).json({ error: "Invalid question index" });
+
+    res.json(gradeQuestion(question, answer));
+  } catch (error) {
+    console.error("Quiz grade error:", error.message);
+    res.status(500).json({ error: "Failed to grade answer" });
   }
 };
 
@@ -350,14 +404,21 @@ exports.createTopic = async (req, res) => {
 exports.getTopicsByCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
+
+    // B7: only the course owner or enrolled students may list a course's topics.
+    const access = await getCourseAccess(req.user.userId || req.user.id, courseId);
+    if (!access.exists) return res.status(404).json({ error: "Course not found" });
+    if (!access.allowed) return res.status(403).json({ error: "You are not enrolled in this course" });
+
     const topics = await prisma.topic.findMany({
       where: { courseId },
       include: {
-        prerequisites: true,
+        prerequisites: { select: { id: true, name: true } },
       }
     });
     res.json(topics);
   } catch (error) {
+    console.error("Fetch topics error:", error.message);
     res.status(500).json({ error: "Failed to fetch topics" });
   }
 };
@@ -446,6 +507,10 @@ exports.getTopicContent = async (req, res) => {
   try {
     const { id } = req.params;
     const lang = req.query.lang || "en";
+
+    // B7: gate topic content behind course enrollment/ownership.
+    if (!(await assertTopicAccess(req, res, id))) return;
+
     const topic = await prisma.topic.findUnique({ where: { id } });
 
     if (!topic) return res.status(404).json({ error: "Topic not found" });

@@ -15,6 +15,8 @@ const { createQuizNormalizer } = require("./quizNormalizerService");
 const AI_SERVICE_URL = (process.env.AI_SERVICE_URL || "http://localhost:8001").replace(/\/$/, "");
 const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 6500);
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 60000);
+// B3: shared secret sent on every call to the ai-service so it can reject external callers.
+const INTERNAL_AI_SECRET = process.env.INTERNAL_AI_SECRET || "";
 
 const {
   GENERIC_KEYWORDS,
@@ -1073,6 +1075,7 @@ async function fetchRagQuizContext(courseId, topicName) {
           timeout: AI_TIMEOUT_MS,
           headers: {
             "Content-Type": "application/json",
+            "X-Internal-Secret": INTERNAL_AI_SECRET,
           },
         }
       );
@@ -1181,6 +1184,8 @@ exports.ingestToRAG = async (courseId, title, content) => {
       course_id: courseId,
       title: title,
       content: content
+    }, {
+      headers: { "X-Internal-Secret": INTERNAL_AI_SECRET },
     });
     console.log("[RAG] Ingestion successful:", response.data);
   } catch (error) {

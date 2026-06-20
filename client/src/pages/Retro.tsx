@@ -7,7 +7,7 @@ import NodeDetailPanel from '../components/NodeDetailPanel';
 import AiChatCompanion from '../components/AiChatCompanion';
 import { ChevronLeft } from 'lucide-react';
 import GuideOverlay from '../components/GuideOverlay';
-import { estimateLearningTime, formatLearningTime, getResourceTypeLabel, parseLearningMinutes, recordLearningActivity } from '../utils/learningTime';
+import { estimateLearningTime, formatLearningTime, getResourceTypeLabel, parseLearningMinutes, recordLearningActivity, trackActivity } from '../utils/learningTime';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
@@ -564,6 +564,24 @@ export default function Retro() {
     if (!courseId) return;
     persistStoredNotes(getQuestionNotesStorageKey(user?.id, courseId), topicNotes);
   }, [topicNotes, user?.id, courseId]);
+
+  // Real time-on-task tracking: measure how long a learning node stays open and report the
+  // elapsed seconds to the server when the node changes or the page unmounts (B-tracking).
+  useEffect(() => {
+    const topicId = selectedSubnode?.id;
+    if (!topicId || !courseId) return;
+    const startedAt = Date.now();
+    return () => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      if (seconds >= 1) trackActivity({ courseId, topicId, seconds });
+    };
+  }, [selectedSubnode?.id, courseId]);
+
+  // Daily-engagement "online" ping when the course player loads (counts the student as active today).
+  useEffect(() => {
+    if (!courseId) return;
+    trackActivity({ courseId, seconds: 0 });
+  }, [courseId]);
 
   // When a user passes a quiz, immediately check if that was enough to complete the entire topic
   useEffect(() => {

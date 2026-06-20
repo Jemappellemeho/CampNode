@@ -47,6 +47,8 @@ services:
 
       # AI-Service (zeigt auf den ai-service-Container)
       AI_SERVICE_URL: http://ai-service:8001
+      # Internes Shared Secret für die Backend -> ai-service Calls (B3 / A4)
+      INTERNAL_AI_SECRET: ${INTERNAL_AI_SECRET}
 
       # KI-Provider für Quiz/Summary (Mistral)
       AI_PROVIDER: ${AI_PROVIDER:-mistral}
@@ -72,14 +74,19 @@ services:
   ai-service:
     build: ./ai-service
     restart: unless-stopped
-    ports:
-      - "8001:8001"
+    # B3/A4: KEIN öffentliches Port-Mapping mehr. Der Service ist nur im internen
+    # Docker-Netz erreichbar; das Backend spricht ihn über http://ai-service:8001 an.
+    expose:
+      - "8001"
     environment:
       # Mistral (Uni self-hosted) — OpenAI-kompatibler Endpoint
       AI_API_KEY: ${AI_API_KEY}
       AI_BASE_URL: ${AI_BASE_URL}
       AI_CHAT_MODEL: ${AI_CHAT_MODEL:-mistral}
       AI_EMBED_MODEL: ${AI_EMBED_MODEL:-nomic-embed-text}
+
+      # Internes Shared Secret (muss mit dem Backend übereinstimmen)
+      INTERNAL_AI_SECRET: ${INTERNAL_AI_SECRET}
 
       # Supabase für pgvector (Embeddings)
       SUPABASE_URL: ${SUPABASE_URL}

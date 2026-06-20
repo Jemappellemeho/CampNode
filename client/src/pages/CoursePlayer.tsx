@@ -36,6 +36,7 @@ interface Topic {
   articleUrl?: string;
   podcastUrl?: string;
   quizzes?: { id: string }[];
+  prerequisites?: { id: string; name: string }[];
   wikidataId?: string;
 }
 
@@ -368,6 +369,12 @@ function SyllabusPanel({
                   ({doneCount}/{total})
                 </span>
               </div>
+              {/* F3: show prerequisites set by the professor (criterion 8). */}
+              {Array.isArray(topic.prerequisites) && topic.prerequisites.length > 0 && (
+                <p style={{ fontSize: 11, color: '#b45309', marginBottom: 4, fontWeight: 600 }}>
+                  Requires: {topic.prerequisites.map((p) => p.name).join(', ')}
+                </p>
+              )}
               {topic.description && (
                 <p style={{ fontSize: 12, color: '#666', marginBottom: 6, lineHeight: 1.5 }}>
                   {topic.description}

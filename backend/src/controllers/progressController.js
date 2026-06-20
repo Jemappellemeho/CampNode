@@ -1,10 +1,20 @@
 const prisma = require("../utils/prisma");
+const { resolveTopicCourseId, getCourseAccess } = require("../utils/courseAccess");
 
 // 1. Set or update progress (Create / Update)
 exports.upsertProgress = async (req, res) => {
   try {
     const { topicId, completed } = req.body;
     const userId = req.user.userId; // Retrieved from the JWT token
+
+    // B7: a user may only record progress on topics of a course they own or are enrolled in.
+    const courseId = await resolveTopicCourseId(topicId);
+    if (courseId) {
+      const access = await getCourseAccess(userId, courseId);
+      if (!access.allowed) {
+        return res.status(403).json({ error: "You are not enrolled in this course" });
+      }
+    }
 
     // Upsert operation: "Update if it exists, otherwise create it"
     const progress = await prisma.progress.upsert({

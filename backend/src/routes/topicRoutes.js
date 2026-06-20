@@ -19,8 +19,12 @@ router.get("/course/:courseId", verifyToken, topicController.getTopicsByCourse);
 
 // NEW ROUTE FOR THE "Q" BUTTON
 // Route: GET /api/topics/quizzes/topic/:topicId
-// Fetch or auto-generate a quiz for a specific topic
+// Fetch or auto-generate a quiz for a specific topic (answers stripped for students)
 router.get("/quizzes/topic/:topicId", verifyToken, topicController.getQuizByTopic);
+
+// Route: POST /api/topics/quizzes/:quizId/grade
+// Server-side grading of a single answer (B4). Keeps correct answers off the client.
+router.post("/quizzes/:quizId/grade", verifyToken, topicController.gradeQuizQuestion);
 
 // Route: PUT /api/topics/:id
 // Update a topic, optionally attaching a new PDF file

@@ -164,9 +164,12 @@ function NodeDetailPanel({
               <X size={24} />
             </button>
           </div>
-          <p className="text-white/90 text-sm mt-2">
-            Choose how you want to learn
-          </p>
+          {/* F5: only invite a modality choice when there is actually more than one resource type. */}
+          {resources.length > 1 && (
+            <p className="text-white/90 text-sm mt-2">
+              Choose how you want to learn
+            </p>
+          )}
         </div>
 
         {/* LIST OF RESOURCES (Using our ResourceItem sub-component) */}

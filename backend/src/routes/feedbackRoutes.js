@@ -1,50 +1,46 @@
 const express = require("express");
-const crypto = require("crypto");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+// Use the shared Prisma singleton (B6) to avoid exhausting the connection pool.
+const prisma = require("../utils/prisma");
 const { verifyToken } = require("../middleware/authMiddleware");
 
 const getUserId = (req) => req.user.userId || req.user.id;
 
+// B5: studentNote is now a real schema column, so we use normal Prisma calls instead of raw SQL.
 const saveFeedbackToProgressNote = async ({ userId, topicId, content }) => {
-  await prisma.$executeRaw`
-    INSERT INTO "Progress" ("id", "userId", "topicId", "completed", "updatedAt", "studentNote")
-    VALUES (${crypto.randomUUID()}, ${userId}, ${topicId}, false, NOW(), ${content})
-    ON CONFLICT ("userId", "topicId")
-    DO UPDATE SET "studentNote" = EXCLUDED."studentNote", "updatedAt" = NOW()
-  `;
+  await prisma.progress.upsert({
+    where: { userId_topicId: { userId, topicId } },
+    update: { studentNote: content },
+    create: { userId, topicId, completed: false, studentNote: content },
+  });
 };
 
 const loadProgressNoteFeedback = async (courseId) => {
-  const rows = await prisma.$queryRaw`
-    SELECT
-      p."id",
-      p."studentNote" AS "content",
-      p."updatedAt" AS "createdAt",
-      u."id" AS "userId",
-      u."email" AS "userEmail",
-      t."id" AS "topicId",
-      t."name" AS "topicName",
-      t."parentTopicId" AS "parentTopicId"
-    FROM "Progress" p
-    INNER JOIN "User" u ON u."id" = p."userId"
-    INNER JOIN "Topic" t ON t."id" = p."topicId"
-    LEFT JOIN "Topic" parent ON parent."id" = t."parentTopicId"
-    WHERE COALESCE(t."courseId", parent."courseId") = ${courseId}
-      AND p."studentNote" IS NOT NULL
-      AND btrim(p."studentNote") <> ''
-    ORDER BY p."updatedAt" DESC
-  `;
+  // Match notes on topics of this course, including subtopics (courseId lives on the parent).
+  const rows = await prisma.progress.findMany({
+    where: {
+      studentNote: { not: null },
+      topic: {
+        OR: [{ courseId }, { parentTopic: { courseId } }],
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      user: { select: { id: true, email: true } },
+      topic: { select: { id: true, name: true, parentTopicId: true } },
+    },
+  });
 
-  return rows.map((row) => ({
-    id: `progress-note-${row.id}`,
-    content: row.content,
-    createdAt: row.createdAt,
-    user: { id: row.userId, email: row.userEmail },
-    topic: { id: row.topicId, name: row.topicName, parentTopicId: row.parentTopicId },
-    source: "progressNote",
-  }));
+  return rows
+    .filter((row) => row.studentNote && row.studentNote.trim() !== "")
+    .map((row) => ({
+      id: `progress-note-${row.id}`,
+      content: row.studentNote,
+      createdAt: row.updatedAt,
+      user: row.user,
+      topic: row.topic,
+      source: "progressNote",
+    }));
 };
 
 router.post("/", verifyToken, async (req, res) => {

@@ -4,6 +4,8 @@ const { verifyToken } = require("../middleware/authMiddleware");
 
 // AI-Service-URL aus Umgebungsvariable (docker-compose setzt: http://ai-service:8001)
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://ai-service:8001";
+// B3: Shared secret, damit nur das Backend (nicht beliebige Clients) den ai-service erreichen darf.
+const INTERNAL_AI_SECRET = process.env.INTERNAL_AI_SECRET || "";
 
 // Route: POST /api/ai/ask
 // verifyToken: nur eingeloggte User dürfen den AI-Service nutzen
@@ -13,7 +15,9 @@ router.post("/ask", verifyToken, async (req, res) => {
     const response = await fetch(`${AI_SERVICE_URL}/ask`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        // Internes Shared Secret — der ai-service weist Calls ohne gültiges Secret mit 401 ab.
+        "X-Internal-Secret": INTERNAL_AI_SECRET
       },
       body: JSON.stringify({
         course_id: req.body.course_id,
