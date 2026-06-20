@@ -105,7 +105,9 @@ const scrapeUrl = async (url) => {
       ? $("article").first()
       : $("main").first().length
         ? $("main").first()
-        : $("body");
+        : $("#main, [role='main']").first().length
+          ? $("#main, [role='main']").first()
+          : $("body");
 
     let text = extractBlockText($, root);
     if (text.length < 300 && root.get(0) !== $("body").get(0)) {

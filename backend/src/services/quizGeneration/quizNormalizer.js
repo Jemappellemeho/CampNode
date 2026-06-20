@@ -244,6 +244,11 @@ const NAVIGATION_JUNK_PATTERNS = [
   /tutorial\s*interview\s*questions\s*projects/i,
   /last\s+updated\s*:\s*\d{1,2}\s+[a-z]{3}/i,
   /geeksforgeeks|w3schools|tutorialspoint/i,
+  /w\s*3\s*schools\s+is\s+(?:optimized|powered)/i,
+  /examples might be simplified to improve reading and learning/i,
+  /tutorials,? references,? and examples are constantly reviewed/i,
+  /cannot warrant full correctness/i,
+  /send us an e-?mail|report an error|make a suggestion/i,
 ];
 
 // Common stopwords used by keyword extraction and fuzzy deduplication.

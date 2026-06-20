@@ -332,8 +332,7 @@ export default function Retro() {
             resources: [
               ...(topic.videoUrl ? [{ type: 'video', title: topic.name, url: topic.videoUrl, estimatedMinutes: topic.videoMinutes }] : []),
               ...((topic.articleUrl || topic.wikidataId || topic.content) ? [{ type: 'article', title: topic.name, url: topic.articleUrl, estimatedMinutes: topic.articleMinutes }] : []),
-              ...(topic.podcastUrl ? [{ type: 'podcast', title: topic.name, url: topic.podcastUrl, estimatedMinutes: topic.podcastMinutes }] : []),
-              ...((Array.isArray(topic.quizzes) && topic.quizzes.length > 0) ? [{ type: 'quiz', title: 'Knowledge Check', url: '#', estimatedMinutes: topic.quizMinutes }] : [])
+              ...(topic.podcastUrl ? [{ type: 'podcast', title: topic.name, url: topic.podcastUrl, estimatedMinutes: topic.podcastMinutes }] : [])
             ],
             // The first topic is unlocked ('current') by default, others are 'locked' until reached
             status: index === 0 ? 'current' : 'locked',
@@ -539,9 +538,22 @@ export default function Retro() {
     options?: { markAsSkip?: boolean }
   ) => {
     if (!selectedSubnode) return;
+    const mainNode = pathData.find((node) => node.id === selectedSubnode.id);
+    if (mainNode && resource.type === 'quiz') {
+      navigate(`/quiz/${mainNode.id}`, {
+        state: { markAsSkip: Boolean(options?.markAsSkip), includeSubtopics: true },
+      });
+      return;
+    }
     const parentNode = pathData.find((node) => node.subnodes.some((sub) => sub.id === selectedSubnode.id));
     const subnode = parentNode?.subnodes.find((sub) => sub.id === selectedSubnode.id);
     if (!subnode) return;
+    if (resource.type === 'quiz' && options?.markAsSkip && parentNode) {
+      navigate(`/quiz/${parentNode.id}`, {
+        state: { markAsSkip: true, includeSubtopics: true },
+      });
+      return;
+    }
     await openSubnodeResource(subnode, resource, options);
   };
 
@@ -1092,6 +1104,19 @@ export default function Retro() {
                             >
                                 ?
                             </button>
+                            {node.isMain && node.hasQuiz && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/quiz/${node.id}`, {
+                                    state: { markAsSkip: true, includeSubtopics: true },
+                                  });
+                                }}
+                                className="absolute left-1/2 top-full mt-12 w-40 -translate-x-1/2 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase leading-tight text-white shadow-lg transition hover:bg-blue-700"
+                              >
+                                Already know this?<br />Take Quiz to Skip →
+                              </button>
+                            )}
                         </div>
                     </div>
                 );

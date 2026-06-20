@@ -8,7 +8,7 @@ const {
 } = require("./quizNormalizer");
 
 // Keep source text bounded before building prompts or fallback quizzes.
-const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 6500);
+const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 14000);
 
 // Add readable boundaries to dense PDF text.
 function addWordBoundariesToDenseText(text) {
@@ -32,13 +32,28 @@ function isCodeLikeText(text) {
     || /\breturn\b.+[;}]/i.test(value)
     || /:\s*(String|Int|Boolean|Unit|List<|Map<|\([^)]*\)\s*->)/.test(value)
     || /->|=>|[{}]/.test(value)
-    || /@\w+/.test(value)
+    || /^\s*@\w+\s*$/.test(value)
+    || /\b(?:for|while|if|switch|catch)\s*\(/.test(value)
+    || /\b(?:System\.out\.\w+|console\.\w+)\s*\(/.test(value)
+    || /\b(?:int|long|double|float|boolean|char|String)\s+\w+\s*(?:=|;)/.test(value)
   );
 }
 
 // Normalize spacing and common PDF extraction glitches.
 function normalizeKnowledgeText(text) {
-  const value = String(text || "")
+  const raw = String(text || "");
+  const prepared = isCodeLikeText(raw)
+    ? raw
+    : raw
+      .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, " ")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/https?:\/\/\S+/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+#{1,6}\s+.*$/g, " ")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/[*_~]{1,3}/g, "");
+  const value = prepared
     .replace(/[\t\u00A0]+/g, " ")
     .replace(/([a-z])\.([A-Z])/g, "$1. $2")
     .replace(/([a-z])(:)([A-Z])/g, "$1$2 $3")
@@ -70,10 +85,10 @@ function isExerciseInstructionLine(text) {
   if (!value) return true;
 
   const words = countMeaningfulWords(value);
-  const startsLikeExercise = /^(?:check|try|write|run|copy|open|click|select|enter|print|create|change|replace|look at|read)\b/i.test(value);
+  const startsLikeExercise = /^(?:do|check|try|write|run|copy|open|click|select|enter|print|create|change|replace|complete|follow|look at|read)\b/i.test(value);
   const hasReasoningSignal = /\b(?:because|therefore|means|refers to|allows|requires|returns|throws|prevents|used to|used for|is|are)\b/i.test(value);
 
-  if (/^(?:check|try|run|copy|open|click|select|enter|print)\b/i.test(value) && words <= 16) return true;
+  if (/^(?:do|check|try|run|copy|open|click|select|enter|print|complete|follow)\b/i.test(value) && words <= 20) return true;
   return startsLikeExercise && words <= 12 && !hasReasoningSignal;
 }
 
@@ -145,7 +160,10 @@ function salvageUsefulTailFromNavigation(text) {
 
 // Clean one source line before scoring it.
 function sanitizeSourceLine(line) {
-  let value = normalizeKnowledgeText(line);
+  const raw = String(line || "").trim();
+  if (/^\s{0,3}#{1,6}\s+/.test(raw)) return "";
+
+  let value = normalizeKnowledgeText(raw);
 
   if (!value || /^---\s*PAGE\s+BREAK\s*---$/i.test(value)) return "";
 
@@ -163,10 +181,40 @@ function isLikelyTitleOnly(text) {
   if (!value) return true;
   if (isLikelyCourseOutlineLine(value)) return true;
   if (PDF_NOISE_PATTERNS.some((pattern) => pattern.test(value)) && value.length < 160) return true;
+  const words = value.split(/\s+/).filter(Boolean);
+  const titleWords = words.filter((word) => /^(?:[A-Z][A-Za-z0-9/@.-]*|of|and|in|for|to|the|a|an)$/.test(word));
+  if (words.length >= 2 && words.length <= 9 && titleWords.length === words.length && !/[.?!:;]/.test(value)) return true;
   return isMostlyUppercase(value)
     && value.length < 120
     && countMeaningfulWords(value) <= 9
     && !/[.?!:]/.test(value);
+}
+
+// Reject editorial narration.
+function isEditorialNarration(text) {
+  const value = String(text || "").trim();
+  if (!value || isCodeLikeText(value)) return false;
+  return (
+    /\b(?:I|we|our|my|me|us|let['’]s|let us|hopefully)\b/i.test(value)
+    || /^[aq]\s*:/i.test(value)
+    || /^how to\b/i.test(value)
+    || /^q\s*:/i.test(value)
+    || /\?$/.test(value)
+    || /^[‘’'"]/.test(value)
+    || /^(?:line|step)\s*\d+\s*:/i.test(value)
+    || /^(?:now|next),?\s+(?:let['’]s|we)\b/i.test(value)
+    || /^for this example\b/i.test(value)
+    || /^as an example\b/i.test(value)
+    || /^so\s+(?:a|an|the)\b.*\bwould be\b/i.test(value)
+    || /^in fact,?\s+it\b/i.test(value)
+    || /^otherwise\b/i.test(value)
+    || /^the last three steps\b/i.test(value)
+    || /^these all\b/i.test(value)
+    || /\binterview question\b/i.test(value)
+    || /\bmake sure\b/i.test(value)
+    || /\b(?:sometimes ignore this final step|other employees deploy)\b/i.test(value)
+    || /\b(?:a few words about|about the author|started coding when|fell in love with coding|author bio)\b/i.test(value)
+  );
 }
 
 // Decide whether a line contains usable learning content.
@@ -174,8 +222,11 @@ function isUsableKnowledgeText(text, { allowShort = false } = {}) {
   const value = normalizeKnowledgeText(String(text || "").trim());
   if (!value) return false;
   if (/^[=)}\],.;:!?-]/.test(value)) return false;
+  if (/^\/\//.test(value)) return false;
+  if (/^@\w+\s*\([^)]*\)\s*[.;]?$/.test(value)) return false;
   if (isLikelyNavigationJunk(value)) return false;
   if (isLikelyTitleOnly(value)) return false;
+  if (isEditorialNarration(value)) return false;
   if (/\b---\s*PAGE\s+BREAK\s*---\b/i.test(value)) return false;
   if (isIncompleteCodeFragment(value)) return false;
   if (isExerciseInstructionLine(value)) return false;
@@ -183,13 +234,15 @@ function isUsableKnowledgeText(text, { allowShort = false } = {}) {
 
   const words = countMeaningfulWords(value);
   if (isCodeLikeText(value)) return words >= 2;
+  if (/^[a-z]/.test(value)) return false;
   if (isPlaceholderText(value)) return false;
   if (allowShort) return words >= 2 || /\b[A-Z]{2,}\b/.test(value);
 
   const hasSentenceSignal = /[.!?:;]/.test(value);
   const hasLearningSignal = /\b(define|explain|describe|identify|compare|classify|process|component|principle|rule|method|approach|framework|model|theory|mechanism|cause|effect|risk|benefit|limitation|exception|procedure|protocol|assessment|diagnosis|treatment|evidence|case|example|application|relationship|pattern|structure|function|property|factor|criterion|criteria|symptom|sign|measurement|law|policy|contract|scale|interval|rhythm|harmony)\b/i.test(value);
+  const hasPredicate = /\b(is|are|was|were|has|have|can|cannot|means|refers|defines|describes|includes|involves|allows|requires|supports|helps|provides|offers|encourages|uses|verifies|compares|checks|marks|runs|groups|detects|indicates|causes|prevents|reduces|increases|affects|depends|validates|ensures|enables|consists|contains|performs|executes|returns|throws|ended|established|led)\b/i.test(value);
 
-  return words >= 6 && (hasSentenceSignal || hasLearningSignal || value.length > 90);
+  return words >= 6 && hasPredicate && (hasSentenceSignal || hasLearningSignal || value.length > 90);
 }
 
 
@@ -212,6 +265,7 @@ function cleanContentFromPdf(content) {
     .map((line) => sanitizeSourceLine(line))
     .filter((line) => {
       if (!line) return false;
+      if (isCodeLikeText(line) || /^[{}\[\]();]+$/.test(line)) return true;
       if (isLikelyNavigationJunk(line)) return false;
       if (isLikelyTitleOnly(line)) return false;
       if (PDF_NOISE_PATTERNS.some((pattern) => pattern.test(line)) && line.length < 160) return false;
@@ -229,7 +283,7 @@ function cleanContentFromPdf(content) {
 // Score a line by quiz usefulness.
 function scoreKnowledgeLine(line) {
   const value = normalizeKnowledgeText(line);
-  if (!value || isLikelyTitleOnly(value) || isLikelyNavigationJunk(value) || isIncompleteCodeFragment(value)) {
+  if (!value || isLikelyTitleOnly(value) || isLikelyNavigationJunk(value) || isEditorialNarration(value) || isIncompleteCodeFragment(value)) {
     return -100;
   }
 
@@ -240,7 +294,7 @@ function scoreKnowledgeLine(line) {
   if (wordCount >= 7) score += 2;
   if (wordCount >= 14) score += 2;
   if (/[.!?:;]/.test(value)) score += 1;
-  if (isCodeLikeText(value)) score += 1;
+  if (isCodeLikeText(value)) score += 6;
 
   // Reward educational signals.
   if (/\b(is|are|means|refers to|defined as|called|known as|consists of|includes|involves|allows|requires|used to|used for)\b/i.test(value)) score += 3;
@@ -284,7 +338,7 @@ function selectQuizSourceContent(cleanedText) {
 
   const selected = blocks
     .filter((entry) => selectedIndexes.has(entry.index))
-    .sort((left, right) => left.index - right.index)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
     .map((entry) => entry.text);
 
   let result = "";
@@ -438,6 +492,7 @@ function isPlaceholderText(value) {
   // Reject leaked JSON-like fragments that sometimes appear in options/answers.
   // Example: Kotlin {"topic":"Kotlin","source":""}.
   const looksLikeJsonLeak = /\{[^\}]*\}|"topic"\s*:|"source"\s*:|"acceptedanswers"\s*:|"correctindices"\s*:/i.test(raw);
+  const looksLikeWebLeak = /https?:\/\/|www\.|!\[[^\]]*\]\(|\[[^\]]+\]\([^)]*\)|\bimage\s*\d*\s*:/i.test(raw);
 
   // Meta/template-like phrasing (produces nonsense questions).
   const metaLike = (
@@ -466,6 +521,7 @@ function isPlaceholderText(value) {
 
   return (
     looksLikeJsonLeak
+    || looksLikeWebLeak
     || metaLike
     || /^\.{5,}/.test(text)
     || /^\d+$/.test(text)
@@ -563,6 +619,21 @@ function extractSentences(content) {
     })
     .filter(Boolean);
 
+  // Keep adjacent code lines together.
+  const codeBlocks = [];
+  let currentCode = [];
+  const flushCode = () => {
+    if (currentCode.length) codeBlocks.push(currentCode.join("\n"));
+    currentCode = [];
+  };
+
+  str.split(/\n+/).forEach((line) => {
+    const value = line.trim();
+    if (isCodeLikeText(value) || /^[{}\[\]();]+$/.test(value)) currentCode.push(value);
+    else flushCode();
+  });
+  flushCode();
+
   const sentenceSource = str
     .replace(/\badding\s+\?\s+after\b/gi, "adding a question mark (?) after")
     .replace(/\b(String|Int|Boolean|Double|Float|Long|Short|Byte|Char)\s+\?/g, "$1?");
@@ -578,6 +649,7 @@ function extractSentences(content) {
   const scored = dedupeByMeaning([
     ...liCandidates,
     ...arrowCandidates,
+    ...codeBlocks,
     ...codeCandidates,
     ...sentenceCandidates,
   ]).map((candidate) => {
@@ -668,6 +740,7 @@ module.exports = {
   extractSentences,
   isCodeLikeText,
   isExerciseInstructionLine,
+  isEditorialNarration,
   isIncompleteCodeFragment,
   isLikelyNavigationJunk,
   isLikelyTitleOnly,
