@@ -1,5 +1,5 @@
 // Professor course manager - handles topic management, resources, quizzes
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -434,6 +434,8 @@ export default function CourseManager() {
   const [quizEditorOpen, setQuizEditorOpen] = useState(false);
   const [quizEditorBusy, setQuizEditorBusy] = useState(false);
   const [quizEditorSaving, setQuizEditorSaving] = useState(false);
+  const [quizEditorIncludesSubtopics, setQuizEditorIncludesSubtopics] = useState(false);
+  const quizGenerationController = useRef<AbortController | null>(null);
   const [joinCodeCopied, setJoinCodeCopied] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   
@@ -708,8 +710,9 @@ export default function CourseManager() {
   });
 
   // Open quiz editor for a topic
-  const openQuizEditor = (topic: any) => {
+  const openQuizEditor = (topic: any, includeSubtopics = false) => {
     const existingQuiz = Array.isArray(topic.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
+    setQuizEditorIncludesSubtopics(includeSubtopics);
     setQuizEditorTopic(topic);
     setQuizEditorQuiz(existingQuiz);
     setQuizEditorQuestions(Array.isArray(existingQuiz?.questions) && existingQuiz.questions.length > 0 ? existingQuiz.questions : [getEmptyQuestion()]);
@@ -717,10 +720,21 @@ export default function CourseManager() {
   };
 
   // Generate AI quiz draft from topic content
-  const generateQuizDraft = async (topic: any) => {
+  const generateQuizDraft = async (topic: any, includeSubtopics = false) => {
+    quizGenerationController.current?.abort();
+    const controller = new AbortController();
+    const existingQuiz = Array.isArray(topic?.quizzes) ? topic.quizzes[0] : null;
+    quizGenerationController.current = controller;
+    setQuizEditorTopic(topic);
+    setQuizEditorQuiz(existingQuiz);
+    setQuizEditorQuestions(Array.isArray(existingQuiz?.questions) ? existingQuiz.questions : []);
+    setQuizEditorOpen(true);
+
     try {
       setQuizEditorBusy(true);
-      const res = await api.post(`/topics/${topic.id}/enrich`, {});
+      setQuizEditorIncludesSubtopics(includeSubtopics);
+      const res = await api.post(`/topics/${topic.id}/enrich`, { includeSubtopics, draftOnly: true }, { signal: controller.signal });
+      if (controller.signal.aborted) return;
 
       const updatedTopic = res.data?.topic || topic;
       const quiz = Array.isArray(updatedTopic?.quizzes) && updatedTopic.quizzes.length > 0 ? updatedTopic.quizzes[0] : null;
@@ -730,14 +744,26 @@ export default function CourseManager() {
       setQuizEditorOpen(true);
       fetchCourse();
     } catch (err) {
+      if (axios.isCancel(err) || controller.signal.aborted) return;
       console.error('Failed to generate quiz draft', err);
       const message = axios.isAxiosError(err)
         ? err.response?.data?.error || 'AI generation failed.'
         : 'AI generation failed.';
       alert(message);
     } finally {
-      setQuizEditorBusy(false);
+      if (quizGenerationController.current === controller) {
+        quizGenerationController.current = null;
+        setQuizEditorBusy(false);
+      }
     }
+  };
+
+  // Close the editor and stop generation.
+  const closeQuizEditor = () => {
+    quizGenerationController.current?.abort();
+    quizGenerationController.current = null;
+    setQuizEditorBusy(false);
+    setQuizEditorOpen(false);
   };
 
   // Update single question in editor
@@ -776,6 +802,7 @@ export default function CourseManager() {
       setQuizEditorTopic(null);
       setQuizEditorQuiz(null);
       setQuizEditorQuestions([]);
+      setQuizEditorIncludesSubtopics(false);
       fetchCourse();
     } catch (err) {
       console.error('Failed to save quiz', err);
@@ -785,26 +812,60 @@ export default function CourseManager() {
     }
   };
 
+  // Delete a quiz from its overview.
+  const deleteQuizFromOverview = async (quizId: string) => {
+    if (!quizId || !window.confirm('Delete this quiz permanently?')) return;
+
+    try {
+      await api.delete(`/topics/quizzes/${quizId}`);
+      fetchCourse();
+    } catch (err) {
+      console.error('Failed to delete quiz', err);
+      alert('Could not delete quiz.');
+    }
+  };
+
   // Render quiz preview summary for a topic
-  const renderQuizOverview = (topic: any) => {
+  const renderQuizOverview = (topic: any, options: { skipTest?: boolean } = {}) => {
+    const skipTest = Boolean(options.skipTest);
     const existingQuiz = Array.isArray(topic?.quizzes) && topic.quizzes.length > 0 ? topic.quizzes[0] : null;
     const questions = Array.isArray(existingQuiz?.questions) ? existingQuiz.questions : [];
 
-    if (!existingQuiz || questions.length === 0) return null;
+    if (!existingQuiz || questions.length === 0) {
+      if (!skipTest) return null;
+      return (
+        <div className="mt-3 rounded-2xl border border-purple-100 bg-purple-50/60 p-4 dark:border-purple-900/40 dark:bg-purple-950/20">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-300">Skip Quiz Overview</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">Covers this topic and all nested subtopics</p>
+            </div>
+            <button onClick={() => generateQuizDraft(topic, true)} disabled={quizEditorBusy} className="rounded-xl bg-purple-600 px-3 py-2 text-[10px] font-black uppercase text-white disabled:opacity-50">
+              {quizEditorBusy ? 'Generating...' : 'Generate Quiz'}
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="mt-3 rounded-2xl border border-purple-100 dark:border-purple-900/40 bg-purple-50/60 dark:bg-purple-950/20 p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-300">Quiz Overview</p>
-            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">{questions.length} question{questions.length === 1 ? '' : 's'} ready for review</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-300">{skipTest ? 'Skip Quiz Overview' : 'Quiz Overview'}</p>
+            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">{questions.length} question{questions.length === 1 ? '' : 's'} {skipTest ? 'covering the full topic tree' : 'ready for review'}</p>
           </div>
-          <button
-            onClick={() => openQuizEditor(topic)}
-            className="shrink-0 px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800 text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-300 hover:bg-purple-100/70 dark:hover:bg-purple-900/30 transition-colors"
-          >
-            Review Quiz
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => openQuizEditor(topic, skipTest)}
+              className="shrink-0 px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800 text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-300 hover:bg-purple-100/70 dark:hover:bg-purple-900/30 transition-colors"
+            >
+              Review Quiz
+            </button>
+            <button onClick={() => deleteQuizFromOverview(existingQuiz.id)} title="Delete quiz" aria-label="Delete quiz" className="rounded-xl p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20">
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
         <div className="space-y-2">
           {questions.slice(0, 2).map((question: any, index: number) => (
@@ -1519,8 +1580,6 @@ export default function CourseManager() {
                           <h3 className="text-base dark:text-white">{topic.name}</h3>
                           <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
                           <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
-                          <button onClick={() => openQuizEditor(topic)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
-                          <button onClick={() => generateQuizDraft(topic)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
                         </div>
                       )}
                     </div>
@@ -1531,9 +1590,11 @@ export default function CourseManager() {
                       <ChevronDown size={18} className={`transition-transform duration-200 ${expandedMainTopics[topic.id] ? '' : '-rotate-90'}`} />
                     </button>
                   </div>
-                  
+
                   {expandedMainTopics[topic.id] && (
                     <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                      {renderQuizOverview(topic, { skipTest: true })}
+
                       {topic.content && getContentPreviewMeta(topic) && (
                         <div className="ml-6 mb-6 pl-4 border-l-2 border-gray-100 dark:border-gray-800 relative">
                           <div className="flex items-center justify-between mb-2">
@@ -1563,7 +1624,6 @@ export default function CourseManager() {
                       </div>
 
                       {renderResourceOverview(topic)}
-                      {renderQuizOverview(topic)}
 
                       {editingSubId === topic.id && (
                         <div className="ml-6 mt-4 rounded-2xl border dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40 p-4 space-y-3">
@@ -1735,10 +1795,14 @@ export default function CourseManager() {
             <div className="bg-white dark:bg-gray-800 w-full max-w-3xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border dark:border-gray-700">
               <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
                 <div>
-                  <h3 className="text-xl font-bold dark:text-white">Quiz Editor ✨</h3>
-                  <p className="text-xs text-gray-400 mt-1">AI builds a draft from Wikidata, saved article text, or attached source material. Then you can review, edit, and save it.</p>
+                  <h3 className="text-xl font-bold dark:text-white">{quizEditorIncludesSubtopics ? 'Skip Test Editor' : 'Quiz Editor'} ✨</h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {quizEditorIncludesSubtopics
+                      ? 'This test covers the main topic and all nested subtopics.'
+                      : 'AI builds a draft from the attached topic material.'}
+                  </p>
                 </div>
-                <button onClick={() => setQuizEditorOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors">
+                <button onClick={closeQuizEditor} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors">
                   <X size={20} className="text-gray-500" />
                 </button>
               </div>
@@ -1746,7 +1810,7 @@ export default function CourseManager() {
               <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                 <div className="flex flex-wrap gap-3">
                   <button
-                    onClick={() => generateQuizDraft(quizEditorTopic)}
+                    onClick={() => generateQuizDraft(quizEditorTopic, quizEditorIncludesSubtopics)}
                     disabled={quizEditorBusy}
                     className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white disabled:opacity-50"
                   >
@@ -1766,7 +1830,7 @@ export default function CourseManager() {
 
               <div className="p-6 border-t dark:border-gray-700 flex gap-3 bg-gray-50 dark:bg-gray-900/50">
                 <div className="flex-1" />
-                <button onClick={() => setQuizEditorOpen(false)} className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors">
+                <button onClick={closeQuizEditor} className="px-6 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors">
                   Cancel
                 </button>
                 <button onClick={saveQuizEditor} disabled={quizEditorSaving} className="px-8 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20">

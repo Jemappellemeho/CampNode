@@ -6,51 +6,6 @@ const { scrapeUrl, tryScrapeUrl } = require("../services/scraperService");
 const { parsePdfDocument } = require("../services/pdfService");
 const aiService = require("../services/aiService");
 
-// Markers that indicate a quiz was auto-generated (fallback), not from real content.
-// Used to detect low-quality placeholder content.
-const MOCK_QUESTION_MARKERS = [
-  "what is the primary goal of",
-  "which layer usually handles",
-  "what is the biggest risk here",
-  "what is the common 4-letter acronym for database operations",
-  "what is the short name for a web application interface",
-  "the source mentions",
-  "which of these terms appear in the source",
-  "order the key ideas from the source",
-  "name one key idea from the source",
-  "which concept is most central to",
-  "how should a student interpret this",
-  "which statements belong with this",
-  "which option best applies this",
-  "which conclusion follows from this",
-  "which key term or concept is connected to this point",
-  "unit 1 introduction",
-  "unit 2 android",
-  "courses tutorials interview",
-  "interview prep android",
-  "instructional",
-  "distance",
-  "val water filter =",
-  "fun encode msg",
-  "(string) -",
-  "kotlin language documentation",
-  "welcome to our tour of kotlin",
-  "step names another concept",
-  "next changes how",
-  "describes a different part of",
-  "infers that popcorn",
-  "can not be a value of",
-  "⇒ error",
-  "are passing the function",
-  "published time",
-  "publication date",
-  "what is emphasized about gmt"
-];
-
-// Minimum questions required for an acceptable quiz.
-// The generator now has clean completion paths, so quizzes should be full length.
-const MIN_ACCEPTABLE_QUIZ_QUESTIONS = 10;
-
 // Save quiz to database: update existing or create new if none exists.
 async function upsertTopicQuiz(topicId, questions) {
   const existingQuiz = await prisma.quiz.findFirst({
@@ -73,24 +28,52 @@ async function upsertTopicQuiz(topicId, questions) {
   });
 }
 
-// Check if quiz contains auto-generated placeholder content (not real).
-function isFallbackQuiz(questions) {
-  if (!Array.isArray(questions) || questions.length === 0) return true;
+// Load a topic and every nested child.
+async function getTopicTree(topicId) {
+  const root = await prisma.topic.findUnique({ where: { id: topicId } });
+  if (!root) return [];
 
-  return questions.some((question) => {
-    const optionText = Array.isArray(question?.options) ? question.options.join(" ") : "";
-    const answerText = Array.isArray(question?.acceptedAnswers) ? question.acceptedAnswers.join(" ") : "";
-    const text = [
-      question?.question,
-      question?.explanation,
-      optionText,
-      answerText,
-    ]
-      .filter((value) => typeof value === "string")
-      .join(" ")
-      .toLowerCase();
-    return MOCK_QUESTION_MARKERS.some((marker) => text.includes(marker));
+  const courseTopics = root.courseId
+    ? await prisma.topic.findMany({ where: { courseId: root.courseId } })
+    : [root];
+  const byParent = new Map();
+
+  courseTopics.forEach((topic) => {
+    const children = byParent.get(topic.parentTopicId) || [];
+    children.push(topic);
+    byParent.set(topic.parentTopicId, children);
   });
+
+  const tree = [];
+  const visited = new Set();
+  const visit = (topic) => {
+    if (visited.has(topic.id)) return;
+    visited.add(topic.id);
+    tree.push(topic);
+    (byParent.get(topic.id) || []).forEach(visit);
+  };
+  visit(root);
+  return tree;
+}
+
+// Combine readable material from the full tree.
+async function getTopicTreeSource(topicId, { refreshLinkedSources = false } = {}) {
+  const topics = await getTopicTree(topicId);
+  const sections = [];
+
+  for (const topic of topics) {
+    const source = await ensureTopicSourceContent(topic, { refreshLinkedSource: refreshLinkedSources });
+    if (source.content) sections.push({ name: topic.name, content: source.content });
+  }
+
+  const sectionLimit = Math.max(4000, Math.floor(120000 / Math.max(sections.length, 1)));
+
+  return {
+    topics,
+    content: sections
+      .map(({ name, content }) => `## ${name}\n${content.slice(0, sectionLimit)}`)
+      .join("\n\n"),
+  };
 }
 
 // Escape HTML special characters to prevent XSS.
@@ -247,33 +230,23 @@ async function preparePdfSource(file) {
 exports.getQuizByTopic = async (req, res) => {
   try {
     const { topicId } = req.params;
+    const includeSubtopics = req.query.scope === "tree";
 
     // Load the latest quiz for this topic.
     let quiz = await prisma.quiz.findFirst({
       where: { topicId: topicId }
     });
 
-    // Regenerate only when quiz is legacy, fallback, or too short.
-    const needsRegeneration = Boolean(
-      quiz
-      && (
-        !Array.isArray(quiz.questions)
-        || quiz.questions.length < MIN_ACCEPTABLE_QUIZ_QUESTIONS
-        || isFallbackQuiz(quiz.questions)
-      )
-    );
-
-    if (!quiz || needsRegeneration) {
-      if (needsRegeneration) {
-        const questionsCount = Array.isArray(quiz?.questions) ? quiz.questions.length : 0;
-        console.log(`[Quiz] Outdated quiz detected for topic ${topicId} (count=${questionsCount}). Regenerating...`);
-      }
+    // Never replace a teacher's saved quiz.
+    if (!quiz) {
       console.log(`[Quiz] No valid quiz found for topic ${topicId}. Generating 10 questions...`);
       const topic = await prisma.topic.findUnique({ where: { id: topicId } });
       if (!topic) return res.status(404).json({ error: "Topic not found." });
 
       // Resolve the best available source before quiz generation.
-      const source = await ensureTopicSourceContent(topic);
+      const source = includeSubtopics
+        ? await getTopicTreeSource(topicId)
+        : await ensureTopicSourceContent(topic);
       const sourceContent = source.content;
       
       // Generate a normalized quiz using source text when available.
@@ -284,8 +257,11 @@ exports.getQuizByTopic = async (req, res) => {
       quiz = await upsertTopicQuiz(topicId, questions);
     }
 
-    // Return the quiz object directly
-    res.json(quiz);
+    const scopeTopicIds = includeSubtopics
+      ? (await getTopicTree(topicId)).map((topic) => topic.id)
+      : [topicId];
+
+    res.json({ ...quiz, scopeTopicIds });
   } catch (error) {
     console.error("Quiz Fetch Error:", error.message);
     const statusCode = error.message?.toLowerCase().includes("quota") ? 503 : 500;
@@ -547,8 +523,24 @@ async function fetchWikiText(wikidataId, preferredLang = "en") {
 }
 
 // Get content for topic: check local content first, then fetch from Wikipedia/web.
-async function ensureTopicSourceContent(topic) {
+async function ensureTopicSourceContent(topic, { refreshLinkedSource = false } = {}) {
   if (!topic) return { topic, content: "" };
+
+  // Refresh the current article for teacher drafts.
+  if (refreshLinkedSource && topic.articleUrl) {
+    try {
+      const refreshedContent = await scrapeUrl(topic.articleUrl);
+      if (refreshedContent) {
+        const updatedTopic = await prisma.topic.update({
+          where: { id: topic.id },
+          data: { content: refreshedContent }
+        });
+        return { topic: updatedTopic, content: refreshedContent };
+      }
+    } catch (error) {
+      console.error("Article refresh failed:", error.message);
+    }
+  }
 
   // Reuse already extracted source text when possible.
   if (topic.content && topic.content.trim()) {
@@ -590,6 +582,8 @@ async function ensureTopicSourceContent(topic) {
 exports.enrichTopic = async (req, res) => {
   try {
     const { id } = req.params;
+    const includeSubtopics = Boolean(req.body?.includeSubtopics);
+    const draftOnly = Boolean(req.body?.draftOnly);
 
     // Only professors can generate or replace quizzes.
     if (req.user.role !== "PROFESSOR") return res.status(403).json({ error: "Unauthorized." });
@@ -599,8 +593,10 @@ exports.enrichTopic = async (req, res) => {
     if (!topic) return res.status(404).json({ error: "Topic not found." });
 
     // Resolve source text from cached content, Wikidata, or linked article.
-    const source = await ensureTopicSourceContent(topic);
-    topic = source.topic;
+    const source = includeSubtopics
+      ? await getTopicTreeSource(id, { refreshLinkedSources: true })
+      : await ensureTopicSourceContent(topic, { refreshLinkedSource: true });
+    topic = source.topic || topic;
 
     console.log(`[Debug] Enriching Topic: ${topic.name}. Content found: ${!!source.content}`);
 
@@ -626,6 +622,25 @@ exports.enrichTopic = async (req, res) => {
     const quizQuestions = await aiService.generateQuiz(source.content, topic.name, {
       courseId: topic.courseId,
     });
+
+    // Return a draft without saving it.
+    if (draftOnly) {
+      const updatedTopic = await prisma.topic.findUnique({
+        where: { id },
+        include: { quizzes: { orderBy: { createdAt: "desc" } } }
+      });
+      if (!updatedTopic) return res.status(404).json({ error: "Topic not found." });
+
+      const existingQuiz = updatedTopic.quizzes[0] || null;
+      const draftQuiz = existingQuiz
+        ? { ...existingQuiz, questions: quizQuestions }
+        : { id: null, topicId: id, questions: quizQuestions };
+
+      return res.json({
+        message: "Quiz draft generated.",
+        topic: { ...updatedTopic, quizzes: [draftQuiz] }
+      });
+    }
 
     // Save generated questions into the topic quiz slot.
     const quiz = await upsertTopicQuiz(id, quizQuestions);

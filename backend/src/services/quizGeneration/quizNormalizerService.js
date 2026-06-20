@@ -99,7 +99,9 @@ function createQuizNormalizer({
       const acceptedAnswers = dedupeStrings(rawQuestion?.acceptedAnswers);
       const usableAnswers = dedupeOverlappingText(acceptedAnswers)
         .filter((answer) => !isPlaceholderText(answer))
-        .filter((answer) => !answerAppearsInQuestion(answer, baseQuestion));
+        .filter((answer) => answer.startsWith('@')
+          ? !baseQuestion.toLowerCase().includes(answer.toLowerCase())
+          : !answerAppearsInQuestion(answer, baseQuestion));
       return {
         ...base,
         acceptedAnswers: usableAnswers.length ? usableAnswers : ["Answer unavailable"],
@@ -212,10 +214,19 @@ function createQuizNormalizer({
     if (question?.type === "open_answer" || question?.type === "reorder") return false;
     if (options.length < 2) return true;
 
+    const hasWebLeak = options.some((option) => (
+      /https?:\/\/|www\.|!\[[^\]]*\]\(|\[[^\]]+\]\([^)]*\)|\bimage\s*\d*\s*:/i.test(String(option || ""))
+    ));
+    if (hasWebLeak) return true;
+
     const metaLike = options.filter((option) => {
       const t = String(option || "").toLowerCase();
       return (
-        t.includes("the source mentions")
+        t.includes("background trivia")
+        || t.includes("unrelated to the main material")
+        || t.includes("should be ignored")
+        || t.includes("replaces every other concept")
+        || t.includes("the source mentions")
         || t.includes("which of these terms")
         || t.includes("correct answer")
         || t.includes("incorrect")

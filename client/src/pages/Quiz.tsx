@@ -22,7 +22,10 @@ export default function Quiz() {
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
   const [answerResults, setAnswerResults] = useState<Array<{ type: string; correct: boolean; pointsEarned: number }>>([]);
-  const markAsSkip = Boolean((location.state as { markAsSkip?: boolean } | null)?.markAsSkip);
+  const [skipPassed, setSkipPassed] = useState(true);
+  const quizMode = location.state as { markAsSkip?: boolean; includeSubtopics?: boolean } | null;
+  const markAsSkip = Boolean(quizMode?.markAsSkip);
+  const includeSubtopics = Boolean(quizMode?.includeSubtopics);
 
   // Namespaced keys for localStorage to track opened resources and completed quizzes per user.
   const getResourceStorageKey = (userId?: string) => `campnode:resource-opened:${userId || 'anon'}`;
@@ -188,7 +191,7 @@ export default function Quiz() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await api.get(`/topics/quizzes/topic/${topicId}`);
+        const res = await api.get(`/topics/quizzes/topic/${topicId}${includeSubtopics ? '?scope=tree' : ''}`);
         setLoadError('');
         
         if (res.data && Array.isArray(res.data.questions) && res.data.questions.length > 0) {
@@ -212,7 +215,7 @@ export default function Quiz() {
       }
     };
     if (topicId) load();
-  }, [topicId]);
+  }, [topicId, includeSubtopics]);
 
   const q = quiz?.questions?.[currentIdx];
 
@@ -365,6 +368,9 @@ export default function Quiz() {
       setMultiSelect([]);
       if (nextQ?.type === 'reorder') setReorderList(buildReorderStart(nextQ.items));
     } else {
+      const totalPoints = getTotalQuizPoints() || totalQuestions;
+      const passed = !markAsSkip || (totalPoints > 0 && nextScore / totalPoints >= 0.7);
+      setSkipPassed(passed);
       if (topicId) {
         try {
           // Mark quiz as completed in localStorage and optionally sync with backend.
@@ -373,23 +379,32 @@ export default function Quiz() {
           const userId = parsedUser?.id;
           const quizKey = getQuizStorageKey(userId);
           const resourceKey = getResourceStorageKey(userId);
-          const nextQuizIds = [...loadStoredIds(quizKey), topicId];
-          persistStoredIds(quizKey, nextQuizIds);
+          const scopeTopicIds = Array.isArray(quiz?.scopeTopicIds) && quiz.scopeTopicIds.length > 0
+            ? quiz.scopeTopicIds
+            : [topicId];
+          if (passed) {
+            const nextQuizIds = [...loadStoredIds(quizKey), ...scopeTopicIds];
+            persistStoredIds(quizKey, nextQuizIds);
+          }
 
           let nextResourceIds = loadStoredIds(resourceKey);
-          if (markAsSkip && !nextResourceIds.includes(topicId)) {
-            nextResourceIds = [...nextResourceIds, topicId];
+          if (markAsSkip && passed) {
+            nextResourceIds = [...nextResourceIds, ...scopeTopicIds];
             persistStoredIds(resourceKey, nextResourceIds);
           }
 
-          if (nextResourceIds.includes(topicId)) {
-            api.post('/progress', { topicId, completed: true }).catch(() => {});
+          if (passed) {
+            scopeTopicIds.forEach((scopeTopicId: string) => {
+              if (nextResourceIds.includes(scopeTopicId)) {
+                api.post('/progress', { topicId: scopeTopicId, completed: true }).catch(() => {});
+              }
+            });
           }
         } catch {
           // Ignore local progress persistence errors and still finish the quiz.
         }
       }
-      saveQuizResult(nextScore, getTotalQuizPoints() || totalQuestions, nextAnswerResults);
+      saveQuizResult(nextScore, totalPoints, nextAnswerResults);
       setFinished(true);
     }
   };
@@ -410,6 +425,11 @@ export default function Quiz() {
         <Trophy size={48} className="text-[#F5C518] mx-auto mb-4" />
         <h1 className="text-2xl font-black mb-1" style={{color: "var(--cn-text)"}}>Final Results</h1>
         <p className="text-5xl font-black text-blue-600 mb-6">{Number.isInteger(score) ? score : score.toFixed(1)} / {getTotalQuizPoints() || quiz.questions.length}</p>
+        {markAsSkip && (
+          <p className={`mb-6 text-sm font-bold ${skipPassed ? 'text-green-600' : 'text-red-500'}`}>
+            {skipPassed ? 'Topic skipped. All nested topics are complete.' : 'You need 70% to skip this topic.'}
+          </p>
+        )}
         <button onClick={() => navigate(-1)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest">Exit</button>
       </div>
     </div>
@@ -445,7 +465,7 @@ export default function Quiz() {
         
         <div className="bg-[var(--cn-card)] border border-[var(--cn-border)] rounded-[24px] shadow-xl flex flex-col overflow-hidden max-h-[84vh]">
           <div className="overflow-y-auto p-6 sm:p-8 custom-scrollbar">
-            <h2 className="text-lg font-bold mb-6 leading-tight" style={{ color: "var(--cn-text)" }}>{q.question || "Missing Question"}</h2>
+            <h2 className="whitespace-pre-wrap text-lg font-bold mb-6 leading-tight" style={{ color: "var(--cn-text)" }}>{q.question || "Missing Question"}</h2>
             
             <div className="space-y-2">
               {(q.type === "multiple_choice" || q.type === "true_false") && optionsToRender.map((opt: any, i: number) => (
