@@ -63,10 +63,20 @@ exports.createCourse = async (req, res) => {
   }
 };
 
-// Fetch all courses
+// Fetch all courses the user is allowed to see: public courses plus their own and enrolled courses.
+// B9: previously this returned *every* course (including other professors' private ones) to any logged-in user.
 exports.getAllCourses = async (req, res) => {
   try {
+    const userId = req.user.userId || req.user.id;
+
     const courses = await prisma.course.findMany({
+      where: {
+        OR: [
+          { isPublic: true },
+          { instructorId: userId },
+          { students: { some: { id: userId } } },
+        ],
+      },
       // We also fetch instructor details (without fetching their password)
       include: {
         instructor: {
@@ -243,6 +253,7 @@ exports.leavePublicCourse = async (req, res) => {
 exports.getCourseById = async (req, res) => {
   try {
     const { id } = req.params; // ID from URL, e.g., /api/courses/123
+    const userId = req.user.userId || req.user.id;
     const course = await prisma.course.findUnique({
       where: { id },
       include: {
@@ -254,12 +265,14 @@ exports.getCourseById = async (req, res) => {
             quizzes: {
               orderBy: { createdAt: "desc" }
             },
+            prerequisites: { select: { id: true, name: true } },
             subtopics: {
               orderBy: { order: 'asc' },
               include: {
                 quizzes: {
                   orderBy: { createdAt: "desc" }
-                }
+                },
+                prerequisites: { select: { id: true, name: true } }
               }
             }
           }
@@ -287,15 +300,39 @@ exports.getCourseById = async (req, res) => {
 
     if (!course) return res.status(404).json({ error: "Course not found" });
 
+    // B2 (IDOR): only the course owner or an enrolled student may view a course.
+    // The full student roster (emails + per-student progress) is sensitive and must not
+    // leak to other logged-in users.
+    const isOwner = course.instructorId === userId;
+    const isEnrolled = course.students.some((student) => student.id === userId);
+    if (!isOwner && !isEnrolled) {
+      // Don't reveal the existence of private courses to outsiders.
+      return res.status(course.isPublic ? 403 : 404).json({ error: "Access denied" });
+    }
+
+    // B4: students must not receive the correct quiz answers embedded in the topic tree.
+    // Keep only the quiz id (used by the UI to show the "Quiz" button and to open the player);
+    // the full question/answer payload stays for the owner who edits quizzes.
+    const sanitizeQuizzes = (quizzes) =>
+      isOwner
+        ? quizzes
+        : (quizzes || []).map((quiz) => ({ id: quiz.id, topicId: quiz.topicId, createdAt: quiz.createdAt }));
+
     // Map Prisma schema relations to what the frontend expects
     const formattedCourse = {
       ...course,
+      // Only the professor needs the student roster; hide it from enrolled students.
+      students: isOwner ? course.students : undefined,
       topics: course.topics.map(t => ({
         ...t,
-        subtopics: t.subtopics || [] // Prevents frontend from crashing on topic.subtopics.map
+        quizzes: sanitizeQuizzes(t.quizzes),
+        subtopics: (t.subtopics || []).map(st => ({
+          ...st,
+          quizzes: sanitizeQuizzes(st.quizzes),
+        })) // Prevents frontend from crashing on topic.subtopics.map
       }))
     };
-    
+
     res.json(formattedCourse);
   } catch (error) {
     console.error("Error fetching course by ID:", error);

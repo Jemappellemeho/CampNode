@@ -13,8 +13,10 @@ const { createQuizNormalizer } = require("./quizNormalizerService");
 //  CONFIGURATION
 // Runtime configuration for the local RAG-backed quiz flow.
 const AI_SERVICE_URL = (process.env.AI_SERVICE_URL || "http://localhost:8001").replace(/\/$/, "");
-const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 6500);
+const MAX_INPUT_CHARS = Number(process.env.AI_MAX_INPUT_CHARS || 14000);
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 60000);
+// B3: shared secret sent on every call to the ai-service so it can reject external callers.
+const INTERNAL_AI_SECRET = process.env.INTERNAL_AI_SECRET || "";
 
 const {
   GENERIC_KEYWORDS,
@@ -52,6 +54,7 @@ const {
 // Remove weak prefixes/suffixes from extracted concept names.
 function sanitizeConceptTerm(term) {
   let value = String(term || "")
+    .replace(/^(?:in|within)\s+[^,]{2,50},\s*/i, "")
     .replace(/[.,;:!?]+$/g, "")
     .replace(/^(?:if|when|where|while|because|since|from|into|onto|with|without|to|in|on|as|of|is|are|was|were|be|being|this|that|these|those|here|there|you|we|it|a|an|the|der|die|das|den|dem|des|ein|eine|einer|einem|einen|eines)\s+/i, "")
     .replace(/^(?:appears|allows|throws|indicates|receives|receive|corresponds|correspond|passed)\s+/i, "")
@@ -103,6 +106,9 @@ function buildQuestionFocus(card, topicName) {
   const focusSources = [card?.answer, card?.sentence, card?.summary]
     .map((value) => normalizeKnowledgeText(value || ""))
     .filter(Boolean);
+
+  const annotation = focusSources.join(" ").match(/(?:^|\s)(@\w+)\s*:/)?.[1];
+  if (annotation) return annotation;
 
   // Prefer the subject of a complete teaching statement.
   for (const source of focusSources) {
@@ -173,6 +179,7 @@ function cleanQuestionFocus(focus, topicName) {
 function isStrongAcceptedAnswer(answer, questionText = "") {
   const value = sanitizeConceptTerm(answer);
   if (!value || isPlaceholderText(value)) return false;
+  if (/^(?:q|what|line|fact|this|that|it)\b/i.test(value)) return false;
   if (answerAppearsInQuestion(value, questionText)) return false;
 
   const normalized = normalizePhrase(value);
@@ -203,6 +210,14 @@ function buildMultipleSelectQuestion(card, topicName, index = 0) {
 // Returns null if no valid answer found.
 function buildOpenAnswerPayload(card, topicName, index = 0) {
   const sentence = normalizeKnowledgeText(card?.sentence || card?.answer || "");
+
+  const annotationMatch = sentence.match(/^(@\w+)\s*:\s*(.{8,140})/);
+  if (annotationMatch) {
+    return {
+      questionText: `Which annotation ${annotationMatch[2].replace(/[.]+$/g, "").toLowerCase()}?`,
+      acceptedAnswers: [annotationMatch[1]],
+    };
+  }
 
   // German definition pattern: "Bei X handelt es sich um Y".
   const germanDefinitionMatch = sentence.match(/\bbei\s+(.{3,90}?)\s+handelt\s+es\s+sich\b.*?\bum\s+(?:ein(?:e[nmrs]?)?\s+)?(.{3,90}?)(?:[,.]|$)/i);
@@ -314,50 +329,266 @@ function buildOpenAnswerPayload(card, topicName, index = 0) {
   return null;
 }
 
-// Build a question from a code snippet.
-function buildCodeQuestionPayload(codeCard, allCards = [], topicName = "Programming") {
+// Build a code-gap question.
+function buildCodeGapQuestion(codeCard, topicName = "Programming") {
   if (!codeCard || codeCard.kind !== "code") return null;
 
-  const sentence = String(codeCard.sentence || "");
-  // Infer concept from code patterns.
-  const inferredConcept = (() => {
-    if (/\bstatic\s+method\b/i.test(sentence)) return "Static method";
-    if (/\bfun\s+\w+\s*\(|\w+\s*\([^)]*\)/i.test(sentence)) return "Function call";
-    if (/\bnull|!!|\?\./i.test(sentence)) return "Null safety";
-    if (/\breturn\s+type\b/i.test(sentence)) return "Return type";
-    return "";
-  })();
+  const sentence = String(codeCard.sentence || "").trim();
+  const keywordPattern = [
+    { keyword: "for", pattern: /\bfor\s*\(/i },
+    { keyword: "while", pattern: /\bwhile\s*\(/i },
+    { keyword: "if", pattern: /\bif\s*\(/i },
+    { keyword: "return", pattern: /\breturn\s+[^.;{}]+[;}]/i },
+    { keyword: "class", pattern: /\bclass\s+[A-Z]\w*/ },
+    { keyword: "new", pattern: /=\s*new\s+[A-Z]\w*\s*\(/ },
+  ].find((candidate) => candidate.pattern.test(sentence));
+  if (!keywordPattern) return null;
+  const keyword = keywordPattern.keyword;
 
-  // Use card keywords if no pattern matches.
-  const extractedConcept = (Array.isArray(codeCard.keywords) ? codeCard.keywords : [])
-    .map((term) => sanitizeConceptTerm(term))
-    .find((term) => term && !GENERIC_KEYWORDS.has(normalizePhrase(term)));
-  const correct = inferredConcept || extractedConcept;
-  if (!correct) return null;
-
-  // Collect distractors from nearby cards.
-  const distractors = dedupeOverlappingText(allCards
-    .filter((card) => card.id !== codeCard.id)
-    .flatMap((card) => Array.isArray(card.keywords) ? card.keywords : [])
-    .map((term) => sanitizeConceptTerm(term))
-    .filter(Boolean)
-    .filter((term) => !isNearDuplicateText(term, correct))
-    .filter((term) => isUsefulAnswerChoice(term, { allowTerm: true })))
-    .slice(0, 3);
-
-  const fallbackTerms = ["Null safety", "Function call", "Type checking", "Return type"]
-    .filter((term) => !isNearDuplicateText(term, correct));
-  const options = dedupeOverlappingText([correct, ...distractors, ...fallbackTerms]).slice(0, 4);
-  if (options.length < 3) return null;
+  const snippet = shortenSentence(
+    sentence.replace(new RegExp(`\\b${keyword}\\b`, "gi"), "___"),
+    240
+  );
 
   return {
-    type: "multiple_choice",
-    question: `Which concept is demonstrated by the code example in ${capitalize(topicName)}?`,
-    options,
-    correctIndex: 0,
-    explanation: buildEducationalExplanation(codeCard, topicName),
+    type: "open_answer",
+    question: `Complete the missing keyword in this ${capitalize(topicName)} example:\n${snippet}`,
+    acceptedAnswers: [keyword],
+    gradingMode: "any",
+    partialCreditEnabled: false,
+    partialCreditThreshold: 1,
+    explanation: `The missing keyword is "${keyword}".`,
     points: 1,
   };
+}
+
+// Add practical checks only for code sources.
+function addCodeGapQuestions(questions, content, topicName, sourceMetadata) {
+  const lines = String(content || "").split(/\n+/);
+  const blocks = [];
+  let current = [];
+  const flush = () => {
+    if (current.length) blocks.push(current.join("\n"));
+    current = [];
+  };
+
+  const isPracticalCodeLine = (value) => (
+    /[{}]/.test(value)
+    || /^@\w+\s*$/.test(value)
+    || /\b(?:for|while|if|switch|catch)\s*\(/.test(value)
+    || /\b(?:class|interface|enum)\s+[A-Z]\w*/.test(value)
+    || /\b(?:public|private|protected|static)\b.*\(/.test(value)
+    || /\b(?:import|package)\s+[\w.]+/.test(value)
+    || /(?:\w+\s*=\s*.+|[\w.]+\([^)]*\)|\+\+|--)\s*;$/.test(value)
+  );
+
+  lines.forEach((line) => {
+    const value = line.trim();
+    if (isPracticalCodeLine(value) || /^[{}\[\]();]+$/.test(value)) current.push(value);
+    else flush();
+  });
+  flush();
+
+  const codeQuestions = blocks
+    .map((block, index) => buildCodeGapQuestion({ kind: "code", sentence: block, id: `code-${index}` }, topicName))
+    .filter(Boolean)
+    .filter((question, index, items) => items.findIndex((item) => item.question === question.question) === index)
+    .slice(0, 2)
+    .map((question) => ({ ...question, _source: sourceMetadata }));
+
+  const result = [...questions];
+  codeQuestions.forEach((question) => {
+    if (result.length < QUIZ_QUESTION_COUNT) result.push(question);
+    else {
+      const replaceIndex = result.findIndex((item) => item.type === "true_false");
+      if (replaceIndex >= 0) result[replaceIndex] = question;
+      else result[result.length - 1] = question;
+    }
+  });
+  return result.slice(0, QUIZ_QUESTION_COUNT);
+}
+
+// Add one balanced list question.
+function addStructuredListQuestion(questions, content, topicName, sourceMetadata) {
+  const correctOptions = String(content || "")
+    .split(/\n+/)
+    .map((line) => normalizeKnowledgeText(line))
+    .filter((line) => /^(?:Supports|Helps|Encourages|Provides|Offers|Improves|Reduces|Enables|Allows)\b/i.test(line))
+    .filter((line) => isUsefulAnswerChoice(line, { allowTerm: false }))
+    .slice(0, 3);
+  if (correctOptions.length < 3) return questions;
+
+  const falseOptions = correctOptions
+    .map((option) => buildFalseStatement(option))
+    .filter(Boolean)
+    .slice(0, 2);
+  if (falseOptions.length < 2) return questions;
+
+  const entries = shuffleArray([
+    ...correctOptions.map((option) => ({ option, correct: true })),
+    ...falseOptions.map((option) => ({ option, correct: false })),
+  ]);
+  const listQuestion = {
+    type: "multiple_select",
+    question: `Which statements describe benefits or capabilities of ${capitalize(topicName)}?`,
+    options: entries.map((entry) => entry.option),
+    correctIndices: entries.map((entry, index) => entry.correct ? index : -1).filter((index) => index >= 0),
+    partialCreditEnabled: true,
+    partialCreditThreshold: 2,
+    explanation: `The correct statements are supported by the ${capitalize(topicName)} material.`,
+    points: 1,
+    _source: sourceMetadata,
+  };
+
+  const result = [...questions];
+  const invalidIndex = result.findIndex((question) => (
+    question.type === "open_answer"
+    && Array.isArray(question.acceptedAnswers)
+    && question.acceptedAnswers.includes("Answer unavailable")
+  ));
+  const replaceIndex = invalidIndex >= 0
+    ? invalidIndex
+    : result.findIndex((question) => question.type === "true_false");
+  if (replaceIndex >= 0) result[replaceIndex] = listQuestion;
+  else if (result.length < QUIZ_QUESTION_COUNT) result.push(listQuestion);
+  else result[result.length - 1] = listQuestion;
+  return result.slice(0, QUIZ_QUESTION_COUNT);
+}
+
+// Apply source-specific practical questions.
+function finalizeQuiz(questions, content, topicName, sourceMetadata) {
+  const withCode = addCodeGapQuestions(questions, content, topicName, sourceMetadata);
+  const withList = addStructuredListQuestion(withCode, content, topicName, sourceMetadata);
+  return ensureTenQuestions(withList, content, topicName, sourceMetadata);
+}
+
+// Guarantee ten meaningful questions.
+function ensureTenQuestions(questions, content, topicName, sourceMetadata) {
+  const isMalformed = (question) => {
+    const text = String(question?.question || "").trim();
+    if (!text) return true;
+    if (/^@\w+\s*\([^)]*\)\s*[.;]?$/.test(text)) return true;
+    if (question?.type === "true_false" && !isUsableKnowledgeText(text)) return true;
+    return question?.type === "open_answer"
+      && Array.isArray(question?.acceptedAnswers)
+      && question.acceptedAnswers.includes("Answer unavailable");
+  };
+
+  const result = [];
+  const used = new Set();
+  questions.forEach((question) => {
+    const key = String(question?.question || "").trim().toLowerCase();
+    if (!key || used.has(key) || isMalformed(question)) return;
+    used.add(key);
+    result.push(question);
+  });
+
+  const baseFacts = extractSentences(content)
+    .filter((sentence) => isUsableKnowledgeText(sentence))
+    .filter((sentence) => !isCodeLikeText(sentence))
+    .filter((sentence) => !/^@\w+\s*\([^)]*\)/.test(sentence));
+  const detailFacts = baseFacts.flatMap((fact) => sentenceFragments(fact)
+    .filter((fragment) => countMeaningfulWords(fragment) >= 5)
+    .map((fragment) => `A key point about ${capitalize(topicName)} is: ${fragment.charAt(0).toLowerCase()}${fragment.slice(1)}.`));
+  const facts = dedupeByMeaning([...baseFacts, ...detailFacts])
+    .filter((sentence) => isUsableKnowledgeText(sentence));
+
+  for (let pass = 0; result.length < QUIZ_QUESTION_COUNT && pass < 2; pass += 1) {
+    for (const fact of facts) {
+      const falseStatement = pass === 0 ? buildFalseStatement(fact) : "";
+      const statement = toOptionStatement(falseStatement || fact);
+      const key = statement.toLowerCase();
+      if (!statement || used.has(key)) continue;
+
+      used.add(key);
+      result.push({
+        type: "true_false",
+        question: statement,
+        correctAnswer: !falseStatement,
+        explanation: `The material states: ${shortenSentence(fact, 160)}`,
+        points: 1,
+        _source: sourceMetadata,
+      });
+      if (result.length >= QUIZ_QUESTION_COUNT) break;
+    }
+  }
+
+  for (const fact of facts) {
+    if (result.length >= QUIZ_QUESTION_COUNT) break;
+    const correct = toOptionStatement(fact);
+    const distractors = facts
+      .map((candidate) => buildFalseStatement(candidate))
+      .filter((candidate) => candidate && candidate !== correct)
+      .filter((candidate) => isUsefulAnswerChoice(candidate, { allowTerm: false }))
+      .slice(0, 3);
+    if (!correct || distractors.length < 2) continue;
+
+    const focus = cleanQuestionFocus(buildQuestionFocus({ sentence: fact, answer: fact }, topicName), topicName);
+    const rawQuestion = {
+      type: "multiple_choice",
+      question: `Which statement accurately describes ${focus}?`,
+      options: [correct, ...distractors],
+      correctIndex: 0,
+      explanation: `The material states: ${shortenSentence(fact, 160)}`,
+      points: 1,
+    };
+    const question = normalizeQuestion(rawQuestion, result.length, sourceMetadata);
+    const key = String(question.question || "").trim().toLowerCase();
+    if (!key || used.has(key) || isMalformed(question)) continue;
+    used.add(key);
+    result.push(question);
+  }
+
+  for (const fact of facts) {
+    if (result.length >= QUIZ_QUESTION_COUNT) break;
+    const falseStatement = buildFalseStatement(fact);
+    const trueOptions = facts.filter((candidate) => candidate !== fact).slice(0, 2);
+    if (!falseStatement || trueOptions.length < 2) continue;
+
+    const focus = cleanQuestionFocus(buildQuestionFocus({ sentence: fact, answer: fact }, topicName), topicName);
+    const rawQuestion = {
+      type: "multiple_choice",
+      question: `Which statement contradicts the material about ${focus}?`,
+      options: [falseStatement, fact, ...trueOptions],
+      correctIndex: 0,
+      explanation: `The material states: ${shortenSentence(fact, 160)}`,
+      points: 1,
+    };
+    const question = normalizeQuestion(rawQuestion, result.length, sourceMetadata);
+    const key = String(question.question || "").trim().toLowerCase();
+    if (!key || used.has(key) || isMalformed(question)) continue;
+    used.add(key);
+    result.push(question);
+  }
+
+  if (result.length < QUIZ_QUESTION_COUNT && facts.length > 0) {
+    const correctOptions = facts.slice(0, 3);
+    const falseOptions = correctOptions.map((fact) => buildFalseStatement(fact)).filter(Boolean).slice(0, 2);
+    const entries = shuffleArray([
+      ...correctOptions.map((option) => ({ option, correct: true })),
+      ...falseOptions.map((option) => ({ option, correct: false })),
+    ]);
+    if (entries.length >= 2 && falseOptions.length > 0) {
+      const question = {
+        type: "multiple_select",
+        question: `Which statements are supported by the material about ${capitalize(topicName)}?`,
+        options: entries.map((entry) => entry.option),
+        correctIndices: entries.map((entry, index) => entry.correct ? index : -1).filter((index) => index >= 0),
+        partialCreditEnabled: true,
+        partialCreditThreshold: 1,
+        explanation: `The correct statements come directly from the ${capitalize(topicName)} material.`,
+        points: 1,
+        _source: sourceMetadata,
+      };
+      const key = question.question.toLowerCase();
+      if (!used.has(key)) {
+        used.add(key);
+        result.push(question);
+      }
+    }
+  }
+
+  return result.slice(0, QUIZ_QUESTION_COUNT);
 }
 
 // Build a short explanation from the source card.
@@ -371,6 +602,41 @@ function buildEducationalExplanation(card, topicName) {
   }
 
   return `Because the material states: ${shortenSentence(source, 160)}`;
+}
+
+// Build a plausible false statement.
+function buildFalseStatement(statement) {
+  const value = String(statement || "").trim();
+  const replacements = [
+    [/^Supports\b/i, "Does not support"],
+    [/^Helps\b/i, "Does not help"],
+    [/^Encourages\b/i, "Discourages"],
+    [/^Provides\b/i, "Does not provide"],
+    [/^Offers\b/i, "Does not offer"],
+    [/^Allows\b/i, "Does not allow"],
+    [/\bcan be\b/i, "cannot be"],
+    [/\bis used\b/i, "is not used"],
+    [/\bare used\b/i, "are not used"],
+    [/\bhelps\b/i, "does not help"],
+    [/\bsupports\b/i, "does not support"],
+    [/\buses\b/i, "does not use"],
+    [/\bverifies\b/i, "does not verify"],
+    [/\bcompares\b/i, "does not compare"],
+    [/\bchecks\b/i, "does not check"],
+    [/\bmarks\b/i, "does not mark"],
+    [/\bruns\b/i, "does not run"],
+    [/\bgroups\b/i, "does not group"],
+    [/\bdetects\b/i, "does not detect"],
+    [/\brequires\b/i, "does not require"],
+    [/\bincludes\b/i, "does not include"],
+    [/\bis\b/i, "is not"],
+    [/\bare\b/i, "are not"],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    if (pattern.test(value)) return value.replace(pattern, replacement);
+  }
+  return "";
 }
 
 // Reject cards that would create navigation-like or repeated low-value questions.
@@ -399,28 +665,14 @@ function buildConceptCards(topicName, content) {
     return buildKeywordFallbackCards(keywords, safeTopicName);
   }
 
-  const theoryCards = cards.filter((card) => card.kind !== "code");
-  const codeCards = cards.filter((card) => card.kind === "code");
-  const mixed = [];
-  const maxCodeCards = Math.min(3, codeCards.length);
-  let theoryIndex = 0;
-  let codeIndex = 0;
-
-  while (theoryIndex < theoryCards.length || codeIndex < maxCodeCards) {
-    for (let count = 0; count < 2 && theoryIndex < theoryCards.length; count += 1) {
-      mixed.push(theoryCards[theoryIndex]);
-      theoryIndex += 1;
-    }
-
-    if (codeIndex < maxCodeCards) {
-      mixed.push(codeCards[codeIndex]);
-      codeIndex += 1;
-    }
-
-    if (theoryIndex >= theoryCards.length && codeIndex >= maxCodeCards) break;
-  }
-
-  return mixed.length ? mixed : cards;
+  const topicTerms = normalizePhrase(safeTopicName).split(/\s+/).filter((term) => term.length >= 3);
+  const relevantCards = cards.filter((card) => {
+    const sentenceTerms = new Set(normalizePhrase(card.sentence).split(/\s+/));
+    return topicTerms.some((term) => sentenceTerms.has(term));
+  });
+  const selectedCards = relevantCards.length >= 4 ? relevantCards : cards;
+  const theoryCards = selectedCards.filter((card) => card.kind !== "code");
+  return theoryCards.length ? theoryCards : selectedCards;
 }
 
 // Build a keyword bank from frequent source terms.
@@ -652,17 +904,6 @@ function buildContentAwareQuiz(topicName, content) {
     return dedupeOverlappingText([correct, ...distractors]).slice(0, 4);
   };
 
-  // Build safe misconception options when real distractors run out.
-  const misconceptionDistractorsFor = (focus) => {
-    const safeFocus = cleanQuestionFocus(focus || safeTopicName, safeTopicName);
-    return [
-      `${safeFocus} is described as unrelated to the main material.`,
-      `${safeFocus} is presented only as background trivia with no practical role.`,
-      `${safeFocus} should be ignored when applying the material.`,
-      `${safeFocus} replaces every other concept discussed in the material.`,
-    ];
-  };
-
   // === SECTION 4: Generate questions in order (mixed types) ===
   for (let index = 0; index < QUIZ_QUESTION_COUNT; index += 1) {
     const typeCycle = ["multiple_choice", "multiple_select", "open_answer", "multiple_choice", "reorder", "multiple_choice", "multiple_select", "open_answer", "multiple_choice", "true_false"];
@@ -704,12 +945,13 @@ function buildContentAwareQuiz(topicName, content) {
     // === QUESTION TYPE: true_false ===
     if (type === "true_false") {
       if (usedCardIds.has(card.id) && cards.length > questions.length) continue;
-      const trueFalseStatement = toOptionStatement(card.answer);
+      const falseStatement = buildFalseStatement(card.answer);
+      const trueFalseStatement = toOptionStatement(falseStatement || card.answer);
       if (hasUsedOptionPhrase(trueFalseStatement) || isExerciseInstructionLine(trueFalseStatement) || isPlaceholderText(trueFalseStatement)) continue;
       questions.push({
         type,
         question: trueFalseStatement,
-        correctAnswer: true,
+        correctAnswer: !falseStatement,
         explanation: buildEducationalExplanation(card, safeTopicName),
         points: 1
       });
@@ -744,7 +986,7 @@ function buildContentAwareQuiz(topicName, content) {
           .filter((option) => isUsefulAnswerChoice(option, { allowTerm: false }))
           .slice(0, targetCorrectCount);
         questionText = "Which statements are correct according to the material?";
-        distractorCandidates = misconceptionDistractorsFor(safeTopicName);
+        distractorCandidates = [];
       }
 
       if (selectedCorrectOptions.length < 2) continue;
@@ -757,8 +999,12 @@ function buildContentAwareQuiz(topicName, content) {
         .filter((candidate) => !hasUsedOptionPhrase(candidate))
         .filter((candidate) => isUsefulAnswerChoice(candidate, { allowTerm: false }))
         .slice(0, Math.max(2, 5 - selectedCorrectOptions.length));
-      const options = dedupeOverlappingText([...selectedCorrectOptions, ...distractorPool]).slice(0, 5);
-      if (options.length < 3 || hasRepeatedOptionSet(options)) continue;
+      const falseDistractors = selectedCorrectOptions
+        .map((option) => buildFalseStatement(option))
+        .filter((option) => isUsefulAnswerChoice(option, { allowTerm: false }))
+        .slice(0, 2);
+      const options = dedupeStrings([...selectedCorrectOptions, ...distractorPool, ...falseDistractors]).slice(0, 5);
+      if (options.length < 3 || options.length === selectedCorrectOptions.length || hasRepeatedOptionSet(options)) continue;
 
       const correctIndices = options
         .map((option, optionIndex) => (selectedCorrectOptions.includes(option) ? optionIndex : -1))
@@ -982,7 +1228,10 @@ function buildContentAwareQuiz(topicName, content) {
 
     if (usedQuestionKeys.has(key)) continue;
     const correctStatement = card.answer || shortenSentence(card.sentence, 220);
-    const options = buildChoiceOptions(correctStatement, misconceptionDistractorsFor(focus), questionText);
+    const options = buildChoiceOptions(correctStatement, [
+      ...relatedAnswersFor(card, completionIndex),
+      ...card.distractors,
+    ], questionText);
     if (options.length < 3 || hasRepeatedOptionSet(options)) continue;
 
     usedQuestionKeys.add(key);
@@ -1006,7 +1255,8 @@ function buildContentAwareQuiz(topicName, content) {
     && questions.filter((question) => question.type === "true_false").length < 4
   ) {
     const card = cards[emergencyIndex % cards.length] || cardFor(emergencyIndex);
-    const statement = toOptionStatement(card.answer || card.sentence);
+    const falseStatement = emergencyIndex % 2 === 0 ? buildFalseStatement(card.answer || card.sentence) : "";
+    const statement = toOptionStatement(falseStatement || card.answer || card.sentence);
     const key = `true_false::${statement}`.toLowerCase();
     emergencyIndex += 1;
 
@@ -1015,39 +1265,10 @@ function buildContentAwareQuiz(topicName, content) {
     questions.push({
       type: "true_false",
       question: statement,
-      correctAnswer: true,
+      correctAnswer: !falseStatement,
       explanation: buildEducationalExplanation(card, safeTopicName),
       points: 1,
     });
-  }
-
-  // === CODE QUESTION: inject one code question when possible ===
-  const hasCodeQuestion = questions.some((question) => String(question.explanation || "").includes("snippet demonstrates"));
-  const codeCard = cards.find((card) => card.kind === "code");
-  const codeQuestion = !hasCodeQuestion ? buildCodeQuestionPayload(codeCard, cards, safeTopicName) : null;
-  if (codeQuestion) {
-    const correctCodeOption = codeQuestion.options[codeQuestion.correctIndex || 0] || codeQuestion.options[0];
-    const freshCodeDistractors = codeQuestion.options
-      .filter((option) => !isNearDuplicateText(option, correctCodeOption))
-      .filter((option) => !hasUsedOptionPhrase(option));
-    const fallbackCodeDistractors = ["Null safety", "Function call", "Type checking", "Return type", "Static dispatch"]
-      .filter((option) => !isNearDuplicateText(option, correctCodeOption))
-      .filter((option) => !hasUsedOptionPhrase(option));
-    const codeOptions = dedupeOverlappingText([correctCodeOption, ...freshCodeDistractors, ...fallbackCodeDistractors]).slice(0, 4);
-    if (codeOptions.length < 3) {
-      return questions.slice(0, QUIZ_QUESTION_COUNT);
-    }
-    codeQuestion.options = codeOptions;
-    codeQuestion.correctIndex = 0;
-    const replaceIndex = questions.findIndex((question) => question.type === "true_false");
-    if (replaceIndex >= 0) {
-      questions[replaceIndex] = codeQuestion;
-    } else if (questions.length >= QUIZ_QUESTION_COUNT) {
-      questions[questions.length - 1] = codeQuestion;
-    } else {
-      questions.push(codeQuestion);
-    }
-    registerQuestionOptions(codeQuestion.options);
   }
 
   return questions.slice(0, QUIZ_QUESTION_COUNT);
@@ -1073,6 +1294,7 @@ async function fetchRagQuizContext(courseId, topicName) {
           timeout: AI_TIMEOUT_MS,
           headers: {
             "Content-Type": "application/json",
+            "X-Internal-Secret": INTERNAL_AI_SECRET,
           },
         }
       );
@@ -1134,32 +1356,41 @@ exports.generateQuiz = async (content, topicName = "General Knowledge", options 
   const sourceMetadata = { topic: safeTopicName, courseId: safeCourseId, timestamp: new Date().toISOString() };
 
   try {
-    // Pull a small set of course-specific hints from the RAG service before building the quiz.
-    const ragContext = await fetchRagQuizContext(safeCourseId, safeTopicName);
-    const combinedSource = [ragContext, safeContent]
+    // Prefer the topic's own source.
+    const hasDirectSource = countMeaningfulWords(safeContent) >= 8;
+    const ragContext = hasDirectSource ? "" : await fetchRagQuizContext(safeCourseId, safeTopicName);
+    const combinedSource = [safeContent, ragContext]
       .map((value) => String(value || "").trim())
       .filter(Boolean)
       .join("\n\n");
 
     const quizSource = combinedSource || safeTopicName;
-    const normalized = buildContentAwareQuiz(safeTopicName, quizSource).map((question, index) => normalizeQuestion(question, index, sourceMetadata));
+    const normalized = finalizeQuiz(
+      buildContentAwareQuiz(safeTopicName, quizSource).map((question, index) => normalizeQuestion(question, index, sourceMetadata)),
+      safeContent,
+      safeTopicName,
+      sourceMetadata
+    );
     const quality = assessQuizQuality(normalized);
 
     if (!quality.isWeak) {
       return normalized;
     }
 
-    // If the first pass still looks weak, enrich the source once more and rebuild locally.
-    const enrichedSource = ragContext
-      ? [quizSource, `Additional RAG context for ${safeTopicName}:\n${ragContext}`]
-      : [quizSource]
-      .filter(Boolean)
-      .join("\n\n");
-
-    return buildContentAwareQuiz(safeTopicName, enrichedSource).map((question, index) => normalizeQuestion(question, index, sourceMetadata));
+    return finalizeQuiz(
+      buildContentAwareQuiz(safeTopicName, quizSource).map((question, index) => normalizeQuestion(question, index, sourceMetadata)),
+      safeContent,
+      safeTopicName,
+      sourceMetadata
+    );
   } catch (error) {
     console.error("AI quiz error:", error.message || error);
-    return buildContentAwareQuiz(safeTopicName, safeContent).map((question, index) => normalizeQuestion(question, index, sourceMetadata));
+    return finalizeQuiz(
+      buildContentAwareQuiz(safeTopicName, safeContent).map((question, index) => normalizeQuestion(question, index, sourceMetadata)),
+      safeContent,
+      safeTopicName,
+      sourceMetadata
+    );
   }
 };
 // Send course text to the Python RAG service.
@@ -1181,6 +1412,8 @@ exports.ingestToRAG = async (courseId, title, content) => {
       course_id: courseId,
       title: title,
       content: content
+    }, {
+      headers: { "X-Internal-Secret": INTERNAL_AI_SECRET },
     });
     console.log("[RAG] Ingestion successful:", response.data);
   } catch (error) {

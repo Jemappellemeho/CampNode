@@ -40,7 +40,8 @@ function NodeDetailPanel({
   if (!isOpen) return null;
   
   // Find the quiz in the resource list, because we put a special "Take Quiz to Skip" button at the bottom
-  const quizResource = resources.find((resource) => resource.type === 'quiz');
+  const quizResource = resources.find((resource) => resource.type === 'quiz')
+    || { type: 'quiz' as const, title: 'Skip Test', url: '#' };
 
   // Returns a fun emoji depending on what type of file/link this is
   const getIcon = (type: string) => {
@@ -164,9 +165,12 @@ function NodeDetailPanel({
               <X size={24} />
             </button>
           </div>
-          <p className="text-white/90 text-sm mt-2">
-            Choose how you want to learn
-          </p>
+          {/* F5: only invite a modality choice when there is actually more than one resource type. */}
+          {resources.length > 1 && (
+            <p className="text-white/90 text-sm mt-2">
+              Choose how you want to learn
+            </p>
+          )}
         </div>
 
         {/* LIST OF RESOURCES (Using our ResourceItem sub-component) */}
@@ -190,8 +194,7 @@ function NodeDetailPanel({
                 // Clicking this tells the app that they want to take the quiz directly to skip
                 if (quizResource) onOpenResource(quizResource, { markAsSkip: true });
               }}
-              disabled={!quizResource}
-              className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition-all"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-xl transition-all"
             >
               <span className="flex items-center justify-center gap-3">
                 <span>Take Quiz to Skip</span>

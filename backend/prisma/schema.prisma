@@ -9,16 +9,18 @@ datasource db {
 }
 
 model User {
-  id              String     @id @default(uuid())
-  email           String     @unique
+  id              String       @id @default(uuid())
+  email           String       @unique
   password        String
-  role            Role       @default(STUDENT)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  courses         Course[]   @relation("InstructorCourses")
+  role            Role         @default(STUDENT)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  courses         Course[]     @relation("InstructorCourses")
   progress        Progress[]
-  enrolledCourses Course[]   @relation("EnrolledCourses")
+  enrolledCourses Course[]     @relation("EnrolledCourses")
   feedbacks       Feedback[]
+  quizResults     QuizResult[]
+  activityLogs    ActivityLog[]
 }
 
 model Course {
@@ -36,7 +38,7 @@ model Course {
 }
 
 model Topic {
-  id             String     @id @default(uuid())
+  id             String       @id @default(uuid())
   name           String
   description    String?
   courseId       String?
@@ -45,38 +47,64 @@ model Topic {
   wikipediaTitle String?
   progress       Progress[]
   quizzes        Quiz[]
-  course         Course?    @relation(fields: [courseId], references: [id])
+  course         Course?      @relation(fields: [courseId], references: [id])
   parentTopicId  String?
-  order          Int        @default(0)
-  aiSuggested    Boolean    @default(false)
+  order          Int          @default(0)
+  aiSuggested    Boolean      @default(false)
   videoUrl       String?
   articleUrl     String?
   podcastUrl     String?
-  parentTopic    Topic?     @relation("Subtopics", fields: [parentTopicId], references: [id])
-  subtopics      Topic[]    @relation("Subtopics")
-  Topic_A        Topic[]    @relation("TopicHierarchy")
-  Topic_B        Topic[]    @relation("TopicHierarchy")
+  videoMinutes   Int?
+  articleMinutes Int?
+  podcastMinutes Int?
+  quizMinutes    Int?
+  parentTopic    Topic?       @relation("Subtopics", fields: [parentTopicId], references: [id])
+  subtopics      Topic[]      @relation("Subtopics")
+  prerequisites  Topic[]      @relation("TopicHierarchy")
+  requiredBy     Topic[]      @relation("TopicHierarchy")
   feedbacks      Feedback[]
+  quizResults    QuizResult[]
 }
 
 model Quiz {
-  id        String   @id @default(uuid())
-  topicId   String
-  questions Json
-  createdAt DateTime @default(now())
-  topic     Topic    @relation(fields: [topicId], references: [id])
+  id          String       @id @default(uuid())
+  topicId     String
+  questions   Json
+  createdAt   DateTime     @default(now())
+  topic       Topic        @relation(fields: [topicId], references: [id])
+  quizResults QuizResult[]
 }
 
 model Progress {
-  id        String   @id @default(uuid())
-  userId    String
-  topicId   String
-  completed Boolean  @default(false)
-  updatedAt DateTime @updatedAt
-  topic     Topic    @relation(fields: [topicId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
+  id                   String   @id @default(uuid())
+  userId               String
+  topicId              String
+  completed            Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
+  wrongQuestionIndices Json?
+  studentNote          String?
+  topic                Topic    @relation(fields: [topicId], references: [id])
+  user                 User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, topicId])
+}
+
+// Real learning-activity tracking (replaces the old Math.random() analytics).
+// One row per tracked chunk: time-on-topic, daily engagement, focus time and streak are all
+// derived from these rows. courseId/topicId are plain (nullable) ids so rows survive topic/course
+// changes; only userId is a hard FK.
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String?
+  topicId   String?
+  seconds   Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, createdAt])
+  @@index([userId, createdAt])
 }
 
 enum Role {
@@ -96,4 +124,47 @@ model Feedback {
   user      User   @relation(fields: [userId], references: [id])
   topic     Topic  @relation(fields: [topicId], references: [id])
   course    Course @relation(fields: [courseId], references: [id])
+}
+
+model QuizResult {
+  id             String   @id @default(uuid())
+  quizId         String
+  topicId        String
+  userId         String
+  score          Float
+  totalQuestions Int
+  questionStats  Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  quiz  Quiz  @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quizId])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ai_chunks {
+  id          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id   String                 @db.Uuid
+  source_id   String?                @db.Uuid
+  content     String
+  page_number Int?
+  chunk_index Int?
+  embedding   Unsupported("vector")?
+  created_at  DateTime?              @default(now()) @db.Timestamp(6)
+  ai_sources  ai_sources?            @relation(fields: [source_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ai_sources {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id   String      @db.Uuid
+  title       String
+  source_type String
+  url         String?
+  approved    Boolean?    @default(false)
+  created_at  DateTime?   @default(now()) @db.Timestamp(6)
+  ai_chunks   ai_chunks[]
 }

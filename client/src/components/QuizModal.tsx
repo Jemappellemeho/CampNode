@@ -88,7 +88,9 @@ function renderQuestionContent(question: any) {
   return null;
 }
 
-export default function QuizModal({ quiz, onClose, onSuccess }: QuizProps) {
+// onSuccess stays in QuizProps (callers may pass it) but is intentionally not destructured here
+// because it is currently unused — avoids a noUnusedLocals build error.
+export default function QuizModal({ quiz, onClose }: QuizProps) {
   if (!quiz || !quiz.isOpen) return null;
 
   const validQuestions = Array.isArray(quiz.questions) ? quiz.questions.filter((q: any) => q && typeof q === 'object' && !q._source) : [];

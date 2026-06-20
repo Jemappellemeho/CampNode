@@ -1,10 +1,21 @@
 const express = require("express");
 const router = express.Router();
+const rateLimit = require("express-rate-limit");
 const courseController = require("../controllers/courseController");
 const { verifyToken } = require("../middleware/authMiddleware");
 const multer = require("multer");
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// B11: throttle join-by-code attempts. The join code is only 6 hex chars (~24 bits),
+// so without a limiter it could be brute-forced. Max 20 attempts per 15 min per IP.
+const joinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many join attempts. Please try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Route: POST /api/courses
 // Create a new course (Protected by verifyToken middleware)
@@ -24,7 +35,7 @@ router.get("/public", verifyToken, courseController.getPublicCourses);
 
 // Route: POST /api/courses/join
 // Join a course using a unique join code
-router.post("/join", verifyToken, courseController.joinCourse);
+router.post("/join", verifyToken, joinLimiter, courseController.joinCourse);
 
 // Route: POST /api/courses/:id/join-public
 // Join a public course directly from the discovery page

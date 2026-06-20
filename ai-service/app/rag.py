@@ -1,13 +1,21 @@
 from openai import OpenAI
-from .config import OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from .config import (
+    AI_API_KEY,
+    AI_BASE_URL,
+    AI_CHAT_MODEL,
+    AI_EMBED_MODEL,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+)
 from supabase import create_client, Client
 from .prompts import ANSWER_PROMPT
 
 
-# 1. Clients für OpenAI (umgeleitet auf Google Gemini) und Supabase vorbereiten
+# 1. OpenAI-kompatiblen Client (Uni self-hosted Mistral) und Supabase vorbereiten.
+# A2: Provider/URL/Modelle kommen vollständig aus der Config — kein Gemini-Hardcoding mehr.
 openai_client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key=AI_API_KEY,
+    base_url=AI_BASE_URL,
 )
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -15,17 +23,17 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 def create_embedding(text: str):
     """
     Wandelt einen Text in einen Vektor (Zahlenreihe) um.
-    """ 
-    
-    # Gemini arbeitet am besten, wenn wir Zeilenumbrüche entfernen
+    """
+
+    # Zeilenumbrüche entfernen für ein sauberes Embedding-Eingabeformat
     clean_text = text.replace("\n", " ")
-    
-    # API Aufruf an OpenAI
+
+    # API Aufruf an den konfigurierten Embedding-Endpoint
     response = openai_client.embeddings.create(
         input=[clean_text],
-        model="gemini-embedding-001"
+        model=AI_EMBED_MODEL
     )
-    
+
     # Wir geben nur die Liste von Zahlen zurück
     return response.data[0].embedding
 
@@ -96,10 +104,10 @@ def answer_question(course_id: str, question: str):
     
     # 3. Wir füllen unser Prompt-Template mit dem Kontext und der Frage
     prompt = ANSWER_PROMPT.format(context=context_text, question=question)
-    
-    # 4. Wir schicken alles an OpenAI (gpt-4o-mini ist schnell und günstig)
+
+    # 4. Wir schicken alles an das konfigurierte Chat-Modell (Mistral / OpenAI-kompatibel)
     response = openai_client.chat.completions.create(
-        model="gemini-2.5-flash",
+        model=AI_CHAT_MODEL,
         messages=[
             {"role": "system", "content": "You are a helpful learning assistant."},
             {"role": "user", "content": prompt}

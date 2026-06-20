@@ -21,7 +21,7 @@ import {
 import AiChatCompanion from '../components/AiChatCompanion';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
-import { getLearningActivityStats } from '../utils/learningTime';
+import { getLearningActivityStats, fetchMyLearningStats, trackActivity } from '../utils/learningTime';
 
 function JoinCodeBadge({ code, isPublic }: { code: string; isPublic: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -206,7 +206,15 @@ export default function Dashboard() {
   // and how many minutes they've spent learning today.
   useEffect(() => {
     if (user?.role === 'STUDENT') {
+      // Count this visit as activity today (keeps the daily streak alive on login),
+      // then load the real server-side focus time + streak.
+      trackActivity({ seconds: 0 });
       setLearningActivity(getLearningActivityStats(user.id));
+      fetchMyLearningStats().then((serverStats) => {
+        if (serverStats.streak > 0 || serverStats.todayMinutes > 0) {
+          setLearningActivity(serverStats);
+        }
+      });
     }
   }, [user]);
 

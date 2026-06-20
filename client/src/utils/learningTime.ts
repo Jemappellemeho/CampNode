@@ -1,8 +1,29 @@
+import { api } from './api';
+
 type ResourceType = 'video' | 'article' | 'podcast' | 'quiz';
 
 type LearningActivityStats = {
   streak: number;
   todayMinutes: number;
+};
+
+// Send a real learning-activity chunk to the server (fire-and-forget).
+// Powers time-on-task, daily engagement, focus time and streak. Must never disrupt the UI.
+export const trackActivity = (payload: { courseId?: string | null; topicId?: string | null; seconds: number }) => {
+  api.post('/statistics/track', payload).catch(() => {});
+};
+
+// Fetch the logged-in student's server-side focus time + streak (real data).
+export const fetchMyLearningStats = async (): Promise<LearningActivityStats> => {
+  try {
+    const res = await api.get('/statistics/me');
+    return {
+      streak: Number(res.data?.streak) || 0,
+      todayMinutes: Number(res.data?.todayMinutes) || 0,
+    };
+  } catch {
+    return { streak: 0, todayMinutes: 0 };
+  }
 };
 
 const MINUTES_BY_TYPE: Record<ResourceType, [number, number]> = {
