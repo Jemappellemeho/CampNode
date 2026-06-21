@@ -1,5 +1,13 @@
 const axios = require("axios");
 
+// Wikipedia maintenance/administrative category fragments. Concepts that merely share these
+// (e.g. "Articles with example code", "Webarchive ...", "Use dmy dates") are NOT topically
+// related, so they are excluded from related-concept suggestions to keep them on-topic.
+const MAINTENANCE_CATEGORY_MARKERS = [
+  "Articles_", "Wikipedia", "Pages_", "CS1_", "Webarchive", "Use_",
+  "Short_description", "All_", "_stubs", "Commons_", "Wikidata",
+];
+
 async function fetchWikidataEntity(id) {
   const entityUrl = `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`;
   const entityRes = await axios.get(entityUrl, {
@@ -161,6 +169,35 @@ exports.article = async (req, res) => {
   }
 };
 
+// Resolve Wikipedia article titles (for one wiki site, e.g. "enwiki") to Wikidata Q-numbers
+// in a single batched API call. Lets accepted suggestions reuse the normal Wikidata content
+// pipeline (so the new subtopic gets real article text instead of being empty).
+// Returns Map<lowercasedTitle, "Qxxx">.
+async function resolveWikidataIds(titles, site) {
+  const unique = [...new Set((titles || []).filter(Boolean))].slice(0, 50);
+  if (!unique.length) return new Map();
+  try {
+    // NB: no `normalize=1` — the Wikidata API rejects it when more than one title is given.
+    // Our titles are already canonical article titles, and matching is case-insensitive below.
+    const url =
+      `https://www.wikidata.org/w/api.php?action=wbgetentities` +
+      `&sites=${site}&sitefilter=${site}&props=sitelinks&format=json` +
+      `&titles=${encodeURIComponent(unique.join("|"))}`;
+    const res = await axios.get(url, { headers: { "User-Agent": "WissenGraph/1.0" }, timeout: 8000 });
+    const entities = res.data?.entities || {};
+    const map = new Map();
+    for (const [qid, entity] of Object.entries(entities)) {
+      if (!/^Q\d+$/.test(qid)) continue; // skip "-1" entries for missing titles
+      const title = entity?.sitelinks?.[site]?.title;
+      if (title) map.set(title.toLowerCase(), qid);
+    }
+    return map;
+  } catch (e) {
+    console.warn("wbgetentities resolve failed:", e.message);
+    return new Map();
+  }
+}
+
 // Fetch DBpedia subtopic suggestions using the Wikidata Q-number
 exports.suggestions = async (req, res) => {
   try {
@@ -174,20 +211,30 @@ exports.suggestions = async (req, res) => {
     if (!wikiTitle) return res.json([]);
 
     try {
-      // Primary source: DBpedia category overlap.
+      // Primary source: concepts that are BOTH linked from the source article AND share real
+      // (non-maintenance) categories with it, ranked by how many categories they share.
+      // This keeps suggestions on-topic (e.g. JavaScript -> TypeScript/ECMAScript, not random pages).
       const dbpediaResource = `http://dbpedia.org/resource/${wikiTitle.replace(/ /g, '_')}`;
+      const categoryFilters = MAINTENANCE_CATEGORY_MARKERS
+        .map((marker) => `FILTER (!CONTAINS(STR(?category), "${marker}"))`)
+        .join("\n          ");
       const sparqlQuery = `
-        SELECT DISTINCT ?concept ?label WHERE {
+        SELECT ?concept ?label (COUNT(?category) AS ?shared) WHERE {
+          <${dbpediaResource}> <http://dbpedia.org/ontology/wikiPageWikiLink> ?concept .
           <${dbpediaResource}> <http://purl.org/dc/terms/subject> ?category .
           ?concept <http://purl.org/dc/terms/subject> ?category .
           ?concept <http://www.w3.org/2000/01/rdf-schema#label> ?label .
           FILTER (lang(?label) = '${lang}')
           FILTER (?concept != <${dbpediaResource}>)
-        } LIMIT 10
+          ${categoryFilters}
+        }
+        GROUP BY ?concept ?label
+        ORDER BY DESC(?shared)
+        LIMIT 10
       `;
 
       const sparqlUrl = `https://dbpedia.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=application%2Fsparql-results%2Bjson`;
-      const sparqlRes = await axios.get(sparqlUrl, { timeout: 7000 });
+      const sparqlRes = await axios.get(sparqlUrl, { timeout: 10000 });
 
       const suggestions = (sparqlRes.data?.results?.bindings || []).map((b) => ({
         label: b.label.value,
@@ -196,7 +243,17 @@ exports.suggestions = async (req, res) => {
       }));
 
       if (suggestions.length > 0) {
-        return res.json(suggestions);
+        // DBpedia resources map to English Wikipedia titles → resolve to Wikidata ids so the
+        // professor's accepted suggestion can pull the real article text as content.
+        const idMap = await resolveWikidataIds(
+          suggestions.map((s) => s.dbPediaName.replace(/_/g, ' ')),
+          'enwiki'
+        );
+        const enriched = suggestions.map((s) => ({
+          ...s,
+          wikidataId: idMap.get(s.dbPediaName.replace(/_/g, ' ').toLowerCase()) || null,
+        }));
+        return res.json(enriched);
       }
     } catch (dbpediaError) {
       console.warn("DBPEDIA FALLBACK:", dbpediaError.message);
@@ -204,7 +261,15 @@ exports.suggestions = async (req, res) => {
 
     // Fallback source: relevant links from the article itself.
     const fallbackSuggestions = await fetchWikipediaLinkSuggestions(wikiTitle, lang);
-    return res.json(fallbackSuggestions);
+    const fallbackIdMap = await resolveWikidataIds(
+      fallbackSuggestions.map((s) => s.label),
+      `${lang}wiki`
+    );
+    const enrichedFallback = fallbackSuggestions.map((s) => ({
+      ...s,
+      wikidataId: fallbackIdMap.get(String(s.label).toLowerCase()) || null,
+    }));
+    return res.json(enrichedFallback);
   } catch (err) {
     console.error("DBPEDIA ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: "Failed to fetch DBpedia suggestions" });

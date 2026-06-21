@@ -285,7 +285,10 @@ exports.getCourseById = async (req, res) => {
             progress: {
               where: {
                 topic: {
-                  courseId: id,
+                  OR: [
+                    { courseId: id },
+                    { parentTopic: { courseId: id } }
+                  ]
                 }
               },
               select: {
@@ -438,6 +441,21 @@ exports.getMyCourses = async (req, res) => {
           select: {
             students: true, 
             topics: true,  
+          }
+        },
+        topics: {
+          where: { parentTopicId: null },
+          select: {
+            id: true,
+            name: true,
+            aiSuggested: true,
+            subtopics: {
+              select: {
+                id: true,
+                name: true,
+                aiSuggested: true
+              }
+            }
           }
         }
       }

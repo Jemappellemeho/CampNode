@@ -263,8 +263,8 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
         >
           <div className="flex justify-between items-center mb-4 relative z-10">
             <div>
-              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><UserX size={16} className="text-red-600" /> Drop-off Rates per Topic</h3>
-              <p className="text-[10px] text-gray-500 mt-1">Survival rate of unique students progressing through topics</p>
+              <h3 className="text-sm font-bold dark:text-white flex items-center gap-2"><UserX size={16} className="text-red-600" /> Quiz Drop-off Rates</h3>
+              <p className="text-[10px] text-gray-500 mt-1">Survival rate of unique students progressing through quizzes</p>
             </div>
             <div className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-1 rounded-full font-bold">Click to Expand</div>
           </div>
@@ -296,8 +296,8 @@ function AdvancedAnalyticsDashboard({ statistics }: { statistics: any }) {
               <X size={24} />
             </button>
             <div className="mb-6">
-              <h2 className="text-xl font-black dark:text-white flex items-center gap-2"><UserX size={20} className="text-red-600" /> Detailed Drop-off Rates (Including Subtopics)</h2>
-              <p className="text-sm text-gray-500 mt-1">Survival rate of students progressing through all topics and subtopics.</p>
+              <h2 className="text-xl font-black dark:text-white flex items-center gap-2"><UserX size={20} className="text-red-600" /> Detailed Drop-off Rates (Including Quizzes)</h2>
+              <p className="text-sm text-gray-500 mt-1">Survival rate of students progressing through all quizzes</p>
             </div>
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -367,6 +367,10 @@ export default function CourseManager() {
   const [newTopicWikiResults, setNewTopicWikiResults] = useState<any[]>([]);
   const [newSubWikiQuery, setNewSubWikiQuery] = useState('');
   const [newSubWikiResults, setNewSubWikiResults] = useState<any[]>([]);
+  // #5: related-concept suggestions (Wikidata/DBpedia) per main topic → candidate subtopics for review.
+  const [suggestionsByTopic, setSuggestionsByTopic] = useState<Record<string, any[]>>({});
+  const [suggestLoadingTopic, setSuggestLoadingTopic] = useState<string | null>(null);
+  const [suggestErrorTopic, setSuggestErrorTopic] = useState<Record<string, string>>({});
   const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>({});
   const [expandedMainTopics, setExpandedMainTopics] = useState<Record<string, boolean>>({});
   const [expandedStatsTopics, setExpandedStatsTopics] = useState<Record<string, boolean>>({});
@@ -526,6 +530,48 @@ export default function CourseManager() {
       setIsAddingTopic(false);
       fetchCourse();
     } catch (e) { console.error(e); }
+  };
+
+  // #5: retrieve related concepts (DBpedia, with a Wikipedia-link fallback) for a
+  // Wikidata-based topic so the professor can review them as candidate subtopics.
+  const loadSubtopicSuggestions = async (topic: any) => {
+    if (!topic?.wikidataId) return;
+    setSuggestLoadingTopic(topic.id);
+    setSuggestErrorTopic((prev) => ({ ...prev, [topic.id]: '' }));
+    try {
+      const res = await api.get(`/wiki/suggestions/${topic.wikidataId}`);
+      const data = Array.isArray(res.data) ? res.data : [];
+      setSuggestionsByTopic((prev) => ({ ...prev, [topic.id]: data }));
+      if (data.length === 0) {
+        setSuggestErrorTopic((prev) => ({ ...prev, [topic.id]: 'No related concepts found for this topic.' }));
+      }
+    } catch (e) {
+      console.error('Suggestion fetch failed', e);
+      setSuggestErrorTopic((prev) => ({ ...prev, [topic.id]: 'Could not load suggestions.' }));
+    } finally {
+      setSuggestLoadingTopic(null);
+    }
+  };
+
+  // #5: accept a suggested concept → store it as a subtopic flagged as an AI suggestion for review.
+  // Sent as JSON (not FormData) so aiSuggested arrives as a real boolean.
+  const acceptSuggestion = async (topic: any, suggestion: any) => {
+    try {
+      await api.post(`/courses/${courseId}/topics`, {
+        name: suggestion.label,
+        parentTopicId: topic.id,
+        aiSuggested: true,
+        // Pass the resolved Wikidata id so the backend pulls the real Wikipedia article as
+        // content (powers reading view, RAG and quiz generation) instead of an empty subtopic.
+        ...(suggestion.wikidataId ? { wikidataId: suggestion.wikidataId } : {}),
+      });
+      // Remove the accepted chip and reload the topic tree so the new subtopic shows up.
+      setSuggestionsByTopic((prev) => ({
+        ...prev,
+        [topic.id]: (prev[topic.id] || []).filter((s) => s.uri !== suggestion.uri),
+      }));
+      fetchCourse();
+    } catch (e) { console.error('Accept suggestion failed', e); }
   };
 
   // Save resource links for a topic
@@ -1135,8 +1181,14 @@ export default function CourseManager() {
 
   const flatCourseTopics = Array.isArray(course.topics)
     ? course.topics.flatMap((topic: any) => [
-        { id: topic.id, name: topic.name },
-        ...(Array.isArray(topic.subtopics) ? topic.subtopics.map((subtopic: any) => ({ id: subtopic.id, name: subtopic.name })) : []),
+        // Only include professor-defined main topics
+        ...(topic.aiSuggested ? [] : [{ id: topic.id, name: topic.name }]),
+        // Only include professor-defined subtopics
+        ...(Array.isArray(topic.subtopics)
+          ? topic.subtopics
+              .filter((subtopic: any) => !subtopic.aiSuggested)
+              .map((subtopic: any) => ({ id: subtopic.id, name: subtopic.name }))
+          : []),
       ])
     : [];
 
@@ -1728,6 +1780,42 @@ export default function CourseManager() {
                             )}
                           </div>
                         ))}
+                        {/* #5: related concepts (Wikidata/DBpedia) → candidate subtopics for professor review */}
+                        {topic.wikidataId && (
+                          <div className="mt-3 rounded-2xl border border-dashed border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-red-500 flex items-center gap-1.5">
+                                <Sparkles size={12} /> Suggested subtopics (Wikidata / DBpedia)
+                              </p>
+                              <button
+                                onClick={() => loadSubtopicSuggestions(topic)}
+                                disabled={suggestLoadingTopic === topic.id}
+                                className="text-[10px] font-black uppercase tracking-widest text-red-600 hover:underline disabled:opacity-50"
+                              >
+                                {suggestLoadingTopic === topic.id ? 'Loading…' : (suggestionsByTopic[topic.id] ? 'Refresh' : 'Find related')}
+                              </button>
+                            </div>
+                            {suggestErrorTopic[topic.id] && (
+                              <p className="mt-2 text-[10px] text-gray-500">{suggestErrorTopic[topic.id]}</p>
+                            )}
+                            {(suggestionsByTopic[topic.id] || []).length > 0 && (
+                              <>
+                                <p className="mt-2 text-[10px] text-gray-500 dark:text-gray-400">Click a concept to add it as a subtopic for review.</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {(suggestionsByTopic[topic.id] || []).map((sug: any) => (
+                                    <button
+                                      key={sug.uri}
+                                      onClick={() => acceptSuggestion(topic, sug)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-red-300 dark:border-red-700 text-red-600 dark:text-red-300 bg-white dark:bg-gray-900 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                                    >
+                                      <Plus size={12} /> {sug.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                         {addingSubTo === topic.id ? (
                           <div className="mt-3 rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3">
                             <input autoFocus className="w-full px-3 py-2 text-sm rounded-lg border dark:bg-gray-900 outline-none dark:text-white" placeholder="Subtopic Name..." value={newSubForm.name} onChange={(e) => setNewSubForm((prev) => ({ ...prev, name: e.target.value }))} />

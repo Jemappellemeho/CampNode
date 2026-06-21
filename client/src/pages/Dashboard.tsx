@@ -137,18 +137,37 @@ export default function Dashboard() {
           // Ask the server for the progress records
           const progressRes = await api.get('/progress');
           
-          // Group the completed topics by their course ID.
-          // This gives us an object like: { "courseId1": 5, "courseId2": 12 }
-          const completedByCourse = progressRes.data.reduce((acc: Record<string, number>, item: any) => {
-            const courseId = item.topic?.courseId;
-            if (courseId && item.completed) acc[courseId] = (acc[courseId] || 0) + 1;
-            return acc;
-          }, {});
+          // Build a Set of all completed topicIds for fast lookup
+          const completedTopicIds = new Set<string>(
+            progressRes.data
+              .filter((item: any) => item.completed)
+              .map((item: any) => item.topicId)
+          );
 
           // Now, loop through the courses and calculate the exact percentage completed for each one.
+          // We match progress by topicId membership rather than by courseId so subtopics
+          // (which have courseId = null in the DB) are counted correctly.
           const nextProgress = nextCourses.reduce((acc: Record<string, { completed: number; total: number; percent: number }>, course: any) => {
-            const total = course._count?.topics ?? 0;
-            const completed = Math.min(completedByCourse[course.id] || 0, total);
+            let total = 0;
+            let completed = 0;
+
+            if (Array.isArray(course.topics)) {
+              course.topics.forEach((t: any) => {
+                if (!t.aiSuggested) {
+                  total += 1;
+                  if (completedTopicIds.has(t.id)) completed += 1;
+                }
+                if (Array.isArray(t.subtopics)) {
+                  t.subtopics.forEach((st: any) => {
+                    if (!st.aiSuggested) {
+                      total += 1;
+                      if (completedTopicIds.has(st.id)) completed += 1;
+                    }
+                  });
+                }
+              });
+            }
+
             acc[course.id] = {
               completed,
               total,
@@ -294,7 +313,7 @@ export default function Dashboard() {
   const totalStudents = courses.reduce((sum, course) => sum + (course._count?.students ?? 0), 0);
   
   // Calculate the total number of topics across all courses
-  const totalTopics = courses.reduce((sum, course) => sum + (course._count?.topics ?? 0), 0);
+  const totalTopics = Object.values(courseProgress).reduce((sum, progress) => sum + progress.total, 0);
   
   // Calculate how many topics the student has finished in total
   const completedTopics = Object.values(courseProgress).reduce((sum, progress) => sum + progress.completed, 0);

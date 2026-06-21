@@ -68,7 +68,14 @@ exports.getUserProgress = async (req, res) => {
     const progressList = await prisma.progress.findMany({
       where: { userId },
       include: {
-        topic: { select: { id: true, name: true, courseId: true } }
+        topic: {
+          select: {
+            id: true,
+            name: true,
+            courseId: true,
+            parentTopic: { select: { courseId: true } }
+          }
+        }
       }
     });
 
