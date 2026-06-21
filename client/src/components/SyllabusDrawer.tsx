@@ -44,7 +44,7 @@ interface SyllabusDrawerProps {
     completed: boolean;
     quizCompleted: boolean;
   }) => void;
-  onOpenResource?: (nodeInfo: { id: string; title: string }, resource: Resource) => void;
+  onOpenResource?: (nodeInfo: any, resource: Resource) => void;
   completedIds: string[];
   resourceOpenedIds: string[];
   quizCompletedIds: string[];
@@ -405,7 +405,7 @@ export default function SyllabusDrawer({
                             isHighlighted={isHighlighted}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (onOpenResource) onOpenResource({ id: topic.id, title: topic.title }, res);
+                              if (onOpenResource) onOpenResource(topic, res);
                             }}
                           />
                         );
@@ -466,7 +466,7 @@ export default function SyllabusDrawer({
                                   isHighlighted={false} // Only the wrapper gets highlighted
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (onOpenResource) onOpenResource({ id: sub.id, title: sub.title }, res);
+                                    if (onOpenResource) onOpenResource(sub, res);
                                   }}
                                 />
                               );

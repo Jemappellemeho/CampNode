@@ -294,9 +294,19 @@ export default function Retro() {
         const dbCourse = courseRes.data;
         setCourseTitle(dbCourse.title);
 
+        // Build the set of every topic + subtopic id that belongs to this course's tree.
+        // We match progress by id membership (NOT topic.courseId): some subtopics have a null
+        // courseId in the DB, so filtering by courseId dropped their completions from the numerator
+        // while they still counted in the denominator — the SYS.SYNC bar could never reach 100%.
+        const courseTopicIds = new Set<string>();
+        (dbCourse.topics || []).forEach((t: any) => {
+          courseTopicIds.add(t.id);
+          (t.subtopics || []).forEach((s: any) => courseTopicIds.add(s.id));
+        });
+
         // Find which topics the server officially says are done
         const backendCompleted = progressRes.data
-          .filter((p: any) => p.topic?.courseId === courseId && p.completed)
+          .filter((p: any) => p.completed && courseTopicIds.has(p.topicId))
           .map((p: any) => p.topicId);
         setCompletedIds(backendCompleted);
 
@@ -308,7 +318,7 @@ export default function Retro() {
             id: sub.id,
             title: sub.name,
             type: sub.aiSuggested ? 'ai' : 'prof',
-            status: backendCompleted.includes(topic.id) ? 'completed' : 'current',
+            status: backendCompleted.includes(sub.id) ? 'completed' : 'current',
             hasArticle: Boolean(sub.articleUrl || sub.wikidataId || sub.content),
             hasQuiz: Array.isArray(sub.quizzes) && sub.quizzes.length > 0,
             
@@ -472,16 +482,31 @@ export default function Retro() {
 
   // Checks if a topic has fulfilled its requirements (resources read, quiz passed) 
   // and saves it to the server if so.
-  const syncTopicCompletion = async (topicId: string, nextResourceOpenedIds: string[], nextQuizCompletedIds: string[]) => {
-    const requiresResource = hasOpenableResourcesForTopic(topicId);
-    const requiresQuiz = hasQuizForTopic(topicId);
-    const hasResource = !requiresResource || nextResourceOpenedIds.includes(topicId);
-    const hasQuiz = !requiresQuiz || nextQuizCompletedIds.includes(topicId);
-    
-    if (hasResource && hasQuiz && !completedIds.includes(topicId)) {
-      await saveTopicCompletion(topicId);
-    }
-  };
+  const syncTopicCompletion = async (
+  topicId: string,
+  nextResourceOpenedIds: string[],
+  nextQuizCompletedIds: string[]
+) => {
+  const requiresResource = hasOpenableResourcesForTopic(topicId);
+  const requiresQuiz = hasQuizForTopic(topicId);
+
+  const hasResource =
+    !requiresResource ||
+    nextResourceOpenedIds.includes(topicId) ||
+    pathData.some(node =>
+      node.id === topicId &&
+      node.subnodes?.some(sub =>
+        nextResourceOpenedIds.includes(sub.id)
+      )
+    );
+
+  const hasQuiz =
+    !requiresQuiz || nextQuizCompletedIds.includes(topicId);
+
+  if (hasResource && hasQuiz && !completedIds.includes(topicId)) {
+    await saveTopicCompletion(topicId);
+  }
+};
 
   // ============================================================================
   // RESOURCE INTERACTION
@@ -500,8 +525,9 @@ export default function Retro() {
 
   // Sends an analytics event tracking how many minutes the student spent learning.
   const markLearningActivity = (subnode: Subnode, resource: LearningResource) => {
-    const resourceIndex = subnode.resources.indexOf(resource);
-    const fallbackTime = estimateLearningTime(subnode.id, resource.type, resource.title, resourceIndex);
+    const resources = subnode.resources || [];
+    const resourceIndex = resources.indexOf(resource);
+    const fallbackTime = estimateLearningTime(subnode.id, resource.type, resource.title, resourceIndex >= 0 ? resourceIndex : 0);
     recordLearningActivity(user?.id, parseLearningMinutes(resource.estimatedMinutes) || parseLearningMinutes(resource.estimatedTime) || parseLearningMinutes(fallbackTime));
   };
 
@@ -539,10 +565,18 @@ export default function Retro() {
   ) => {
     if (!selectedSubnode) return;
     const mainNode = pathData.find((node) => node.id === selectedSubnode.id);
-    if (mainNode && resource.type === 'quiz') {
-      navigate(`/quiz/${mainNode.id}`, {
-        state: { markAsSkip: Boolean(options?.markAsSkip), includeSubtopics: true },
-      });
+    if (mainNode) {
+      // Selected node is a MAIN topic (opened from the syllabus / node detail panel).
+      if (resource.type === 'quiz') {
+        navigate(`/quiz/${mainNode.id}`, {
+          state: { markAsSkip: Boolean(options?.markAsSkip), includeSubtopics: true },
+        });
+        return;
+      }
+      // Open AND mark its article/video/podcast. Previously this fell through to the subnode
+      // lookup below, found nothing, and returned early — so a main topic could never be
+      // completed and the SYS.SYNC progress bar stayed stuck at 0%.
+      await openSubnodeResource(mainNode as any, resource, options);
       return;
     }
     const parentNode = pathData.find((node) => node.subnodes.some((sub) => sub.id === selectedSubnode.id));
@@ -666,7 +700,9 @@ export default function Retro() {
   
   // Calculate the total progress across the entire course to show in the top header bar
   const trackableIds = Array.from(new Set(
-    pathData.flatMap((node) => [node.id, ...node.subnodes.map((sub) => sub.id)])
+    // AI-suggested subtopics are unreviewed candidates for the professor — they must not count
+    // toward a student's course progress (mirrors isNodeComplete, which already ignores them).
+    pathData.flatMap((node) => [node.id, ...node.subnodes.filter((sub) => sub.type !== 'ai').map((sub) => sub.id)])
   ));
   
   const totalProgress = trackableIds.reduce(
