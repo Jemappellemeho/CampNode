@@ -287,7 +287,7 @@ export default function CourseManager() {
   // F3: keep the prerequisite checkboxes in sync with whichever topic's settings panel is open.
   useEffect(() => {
     if (!editingSubId || !course?.topics) { setPrereqSelection([]); return; }
-    const current = course.topics.find((t: any) => t.id === editingSubId);
+    const current = course.topics.flatMap((t: any) => [t, ...(t.subtopics || [])]).find((t: any) => t.id === editingSubId);
     setPrereqSelection(Array.isArray(current?.prerequisites) ? current.prerequisites.map((p: any) => p.id) : []);
   }, [editingSubId, course]);
 
@@ -1302,7 +1302,6 @@ export default function CourseManager() {
                   handleSubtopicDrop={handleSubtopicDrop}
                   handleReplacementFile={handleReplacementFile}
                   saveTopicSettings={saveTopicSettings}
-                  saveLinks={saveLinks}
                   clearAttachedPdf={clearAttachedPdf}
                   renderQuizOverview={renderQuizOverview}
                   renderResourceOverview={renderResourceOverview}

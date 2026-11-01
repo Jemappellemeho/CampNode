@@ -42,7 +42,6 @@ interface TopicCardProps {
   handleSubtopicDrop: (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => void;
   handleReplacementFile: (file: File | null) => void;
   saveTopicSettings: (topicId: string) => void;
-  saveLinks: (subId: string) => void;
   clearAttachedPdf: (topicId: string) => void;
   renderQuizOverview: (topic: any, options?: { skipTest?: boolean }) => React.ReactNode;
   renderResourceOverview: (topic: any) => React.ReactNode;
@@ -58,7 +57,7 @@ interface TopicCardProps {
   setNewSubWikiResults: (value: any[]) => void;
 }
 
-export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, saveLinks, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults }: TopicCardProps) {
+export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults }: TopicCardProps) {
   return (
                 <div 
                   draggable
@@ -180,7 +179,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             </div>
 
                             {editingSubId === sub.id && (
-                              <SubtopicSettingsPanel sub={sub} linkData={linkData} setLinkData={setLinkData} handleReplacementFile={handleReplacementFile} saveLinks={saveLinks} />
+                              <SubtopicSettingsPanel sub={sub} course={course} linkData={linkData} setLinkData={setLinkData} prereqSelection={prereqSelection} setPrereqSelection={setPrereqSelection} handleReplacementFile={handleReplacementFile} saveTopicSettings={saveTopicSettings} />
                             )}
                           </div>
                         ))}
