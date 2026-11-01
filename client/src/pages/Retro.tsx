@@ -983,69 +983,51 @@ export default function Retro() {
                 );
             })}
 
-            {/* Draw AI Nodes */}
+                        {/* Draw AI Nodes */}
             {aiNodes.map((node) => {
                 const coords = aiCoordsMap[node.id];
                 if (!coords) return null;
                 const isComplete = isCoreComplete(node.id);
                 const isHighlighted = highlightedNodeId === node.id;
-                
+
                 return (
-                    <div
+                    <RetroNode
                         key={node.id}
-                        className="absolute flex items-center justify-center transition-all duration-300 z-20 hover:z-50"
-                        style={{
-                            left: coords.px - (aiNodeSize / 2),
-                            top: coords.py - (aiNodeSize / 2),
-                            width: aiNodeSize,
-                            height: aiNodeSize,
+                        px={coords.px}
+                        py={coords.py}
+                        size={aiNodeSize}
+                        variant="ai"
+                        label={node.displayNumber}
+                        title={node.title}
+                        lit={isComplete}
+                        isHighlighted={isHighlighted}
+                        onClick={() => {
+                            setHighlightedNodeId(node.id);
+                            setSyllabusOpen(true);
+                            setSelectedSubnode({
+                                id: node.id,
+                                name: node.title,
+                                color: 'red',
+                                resources: node.resources,
+                                completed: isCoreComplete(node.id),
+                                quizCompleted: isQuizFinished(node.id),
+                            });
                         }}
                     >
-                        <div className="relative group w-full h-full">
-                            <button
-                                onClick={() => {
-                                    setHighlightedNodeId(node.id);
-                                    setSyllabusOpen(true);
-                                    setSelectedSubnode({
-                                        id: node.id,
-                                        name: node.title,
-                                        color: 'red',
-                                        resources: node.resources,
-                                        completed: isCoreComplete(node.id),
-                                        quizCompleted: isQuizFinished(node.id),
-                                    });
-                                }}
-                                className={`w-full h-full flex items-center justify-center rounded-[1.75rem] retro-node transition-transform duration-200 hover:scale-110 
-                                    ${isComplete ? 'retro-node-ai' : 'retro-node-ai-dim'}
-                                    ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
-                                `}
-                            >
-                                <span className="font-bold text-xs sm:text-sm">{node.displayNumber}</span>
-                            </button>
-
-                            {/* Hover Tooltip for Title */}
-                            <div 
-                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border border-[#EF4444] text-[#EF4444] text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 shadow-[0_0_10px_#EF4444]"
-                                style={{ background: 'var(--cn-page)' }}
-                            >
-                                [AI SYNC] {node.title}
-                            </div>
-
-                            {/* Student question marker */}
-                            <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openQuestionEditor(node.id, node.title);
-                                }}
-                                className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] flex items-center justify-center font-black shadow-md border transition-all z-30
-                                  ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
-                                title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
-                                aria-label="Topic question note"
-                            >
-                                ?
-                            </button>
-                        </div>
-                    </div>
+                        {/* Student question marker */}
+                        <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuestionEditor(node.id, node.title);
+                            }}
+                            className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] flex items-center justify-center font-black shadow-md border transition-all z-30
+                              ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
+                            title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
+                            aria-label="Topic question note"
+                        >
+                            ?
+                        </button>
+                    </RetroNode>
                 );
             })}
             </div>

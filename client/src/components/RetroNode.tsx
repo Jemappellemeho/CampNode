@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cleanTitle } from '../utils/cleanTitle';
 
 interface RetroNodeProps {
   px: number;
@@ -37,20 +38,20 @@ export default function RetroNode({ px, py, size, variant, label, title, lit, is
             ${isActive ? 'scale-125 !bg-[#3A9E3F] !text-white' : ''}
             ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
           `}
-        >
-          <span className={`font-bold ${labelSize}`}>{label}</span>
-        </button>
+                >
+                    <span className={`font-bold ${labelSize}`}>{label}</span>
+                </button>
 
-        {/* Hover Tooltip for Title */}
-        <div
-          className={`absolute ${tooltipPos} left-1/2 -translate-x-1/2 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 ${tooltipColor}`}
-          style={{ background: 'var(--cn-page)' }}
-        >
-          {variant === 'ai' ? `[AI SYNC] ${title}` : title}
+                {/* Hover Tooltip for Title */}
+                <div
+                    className={`absolute ${tooltipPos} left-1/2 -translate-x-1/2 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 ${tooltipColor}`}
+                    style={{ background: 'var(--cn-page)' }}
+                >
+                    {variant === 'ai' ? `[AI SYNC] ${cleanTitle(title)}` : cleanTitle(title)}
+                </div>
+
+                {children}
+            </div>
         </div>
-
-        {children}
-      </div>
-    </div>
-  );
+    );
 }

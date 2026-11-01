@@ -7,6 +7,7 @@ import { BLUE } from './courseManagerConstants';
 import WikidataSearchField from './WikidataSearchField';
 import TopicSettingsPanel from './TopicSettingsPanel';
 import SubtopicSettingsPanel from './SubtopicSettingsPanel';
+import { cleanTitle } from '../../utils/cleanTitle'
 
 interface TopicCardProps {
   topic: any;
@@ -78,7 +79,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 group/title w-full">
-                          <h3 className="text-base dark:text-white">{topic.name}</h3>
+                          <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
                           <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
                           <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
                         </div>
@@ -161,7 +162,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2 group/subtitle">
-                                    <p className="font-bold dark:text-white text-sm">{sub.name}</p>
+                                    <p className="font-bold dark:text-white text-sm">{cleanTitle(sub.name)}</p>
                                     <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
                                     <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
                                     <button onClick={() => openQuizEditor(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>

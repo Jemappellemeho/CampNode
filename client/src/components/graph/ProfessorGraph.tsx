@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { analyzeCoursePrerequisites } from '../../utils/prerequisiteGraphLogic';
+import { findViolations } from '../../utils/prerequisiteViolations';
+import { computeRetroGridLayout } from '../../utils/retroGridLayout';
+import RetroNode from '../RetroNode';
 import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X } from 'lucide-react';
 import { api } from '../../utils/api';
 
@@ -18,7 +20,7 @@ export default function ProfessorGraph({
   onDashboardClick,
   onRefreshCourse,
 }: ProfessorGraphProps) {
-  const [showPrerequisites, setShowPrerequisites] = useState(true);
+  const [showPrerequisites, setShowPrerequisites] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
 
@@ -33,6 +35,15 @@ export default function ProfessorGraph({
   const [formVideoUrl, setFormVideoUrl] = useState('');
   const [formArticleUrl, setFormArticleUrl] = useState('');
 
+  const getRawWidth = () => document.documentElement.clientWidth || window.innerWidth;
+  const [rawWidth, setRawWidth] = useState(getRawWidth());
+
+  useEffect(() => {
+    const onResize = () => setRawWidth(getRawWidth());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   useEffect(() => {
     const initialMap: Record<string, boolean> = {};
     topics.forEach((t) => {
@@ -41,11 +52,11 @@ export default function ProfessorGraph({
     setExpandedMap(initialMap);
   }, [topics]);
 
-  const rawWidth = document.documentElement.clientWidth || window.innerWidth;
   const isSm = rawWidth < 640;
   const xPadding = isSm ? 20 : 50;
-  const availableWidth = rawWidth - (xPadding * 2);
-  const cols = Math.min(6, Math.max(3, Math.floor(availableWidth / 190)));
+  const availableWidth = rawWidth - xPadding * 2;
+  const idealCellWidth = isSm ? 150 : 200;
+  const cols = Math.min(6, Math.max(isSm ? 2 : 1, Math.floor(availableWidth / idealCellWidth)));
 
   const flatNodes: any[] = [];
   let currentIndex = 0;
@@ -76,48 +87,20 @@ export default function ProfessorGraph({
     }
   });
 
-  const getGridCoords = (index: number) => {
-    const y = Math.floor(index / cols);
-    const x = y % 2 === 0 ? index % cols : (cols - 1) - (index % cols);
-    return { x, y };
-  };
+  // Same positions and flow lines as the student view (Retro)
+  const {
+    coreCoordsMap: coordsMap,
+    corePaths,
+    coreNodeSize,
+    containerWidth,
+    containerHeight,
+  } = computeRetroGridLayout(flatNodes, [], cols, availableWidth, xPadding, isSm);
 
-  const maxColIndex = flatNodes.reduce((max, node) => Math.max(max, getGridCoords(node.listIndex).x), 0);
-  const actualCols = flatNodes.length > 0 ? maxColIndex + 1 : 1;
-  const cellWidth = Math.max(150, availableWidth / Math.min(cols, actualCols));
-  const cellHeight = 130;
-  const nodeSize = isSm ? 65 : 90;
-
-  const maxRows = Math.ceil(flatNodes.length / cols);
-  const rowOffsets: { [row: number]: number } = { 0: cellHeight * 0.8 };
-  for (let y = 1; y < maxRows; y++) {
-    rowOffsets[y] = rowOffsets[y - 1] + cellHeight;
-  }
-
-  // Stable Grid Coordinates Map (guaranteed never to get lost or fly off screen)
-  const coordsMap: Record<string, { px: number; py: number }> = {};
-  flatNodes.forEach((node) => {
-    const coords = getGridCoords(node.listIndex);
-    coordsMap[node.id] = {
-      px: coords.x * cellWidth + cellWidth / 2 + xPadding,
-      py: rowOffsets[coords.y] || coords.y * cellHeight + cellHeight * 0.8,
-    };
-  });
-
-  const { flaggedEdges, warningCounts } = analyzeCoursePrerequisites(topics);
-
-  const flowPaths: Array<{ key: string; d: string; color: string }> = [];
-  for (let i = 0; i < flatNodes.length - 1; i++) {
-    const p1 = coordsMap[flatNodes[i].id];
-    const p2 = coordsMap[flatNodes[i + 1].id];
-    if (p1 && p2) {
-      flowPaths.push({
-        key: `flow-${i}`,
-        d: `M ${p1.px} ${p1.py} L ${p2.px} ${p2.py}`,
-        color: flatNodes[i + 1].isMain ? '#3A9E3F' : '#3B82F6',
-      });
-    }
-  }
+  // A link is wrong if its prerequisite is not earlier than the item that needs it
+  const violations = findViolations(topics);
+  const flaggedEdges = new Set(violations.map((v) => `${v.prerequisiteId}->${v.itemId}`));
+  const warningCounts = new Map<string, number>();
+  violations.forEach((v) => warningCounts.set(v.itemId, (warningCounts.get(v.itemId) || 0) + 1));
 
   const prereqLines: Array<{ key: string; d: string; isViolation: boolean }> = [];
   if (showPrerequisites) {
@@ -143,10 +126,6 @@ export default function ProfessorGraph({
       (topic.subtopics || []).forEach(checkPrereqs);
     });
   }
-
-  const containerWidth = actualCols * cellWidth + xPadding * 2;
-  const lastRowY = maxRows > 0 ? rowOffsets[maxRows - 1] : 400;
-  const containerHeight = Math.max(window.innerHeight * 0.8, lastRowY + 200);
 
   const handleSaveModal = async () => {
     try {
@@ -232,7 +211,7 @@ export default function ProfessorGraph({
       `}</style>
 
       {/* HEADER HUD */}
-      <div className="fixed top-[56px] sm:top-[64px] left-0 right-0 z-40 px-4 py-2.5 retro-hud flex items-center justify-between backdrop-blur-md">
+      <div className="relative z-40 px-4 py-2.5 retro-hud flex items-center justify-between backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button onClick={onDashboardClick} className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 hover:bg-black/10 border border-transparent rounded transition-colors" style={{ color: "var(--cn-text)" }}>
             <ChevronLeft size={16} /> <span>[DASHBOARD]</span>
@@ -268,10 +247,10 @@ export default function ProfessorGraph({
         </button>
       </div>
 
-      <main className="pb-16 flex flex-col items-center pt-28 w-full overflow-hidden">
-        <div className="mb-6 text-center pointer-events-none px-4 w-full max-w-4xl mx-auto">
-          <h1 className="text-xl sm:text-3xl font-bold tracking-widest drop-shadow-[0_0_6px_rgba(58,158,63,0.8)] uppercase" style={{ color: "var(--cn-text)" }}>
-            {courseTitle} (Prerequisite Graph)
+      <main className="pb-16 flex flex-col items-center pt-3 w-full overflow-hidden">
+        <div className="mb-2 text-center pointer-events-none px-4 w-full max-w-4xl mx-auto">
+          <h1 className="text-lg sm:text-2xl font-bold tracking-widest drop-shadow-[0_0_6px_rgba(58,158,63,0.8)] uppercase" style={{ color: "var(--cn-text)" }}>
+            {courseTitle}
           </h1>
           <p className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Click main nodes to expand/collapse subtopics • Hover nodes for quick actions</p>
         </div>
@@ -279,17 +258,17 @@ export default function ProfessorGraph({
         <div className="w-full overflow-auto pb-10">
           <div className="relative shrink-0 mx-auto" style={{ width: containerWidth, height: containerHeight }}>
             <svg className="absolute inset-0 pointer-events-none z-10" width="100%" height="100%">
-              {flowPaths.map((path) => (
+              {corePaths.map((path) => (
                 <polyline
                   key={path.key}
                   points={path.d.replace(/M |L /g, '')}
                   stroke={path.color}
-                  strokeWidth="3"
+                  strokeWidth="4"
                   fill="none"
                   strokeLinecap="square"
                   strokeLinejoin="miter"
                   className="juice-line"
-                  style={{ filter: `drop-shadow(0 0 4px ${path.color})` }}
+                  style={{ filter: `drop-shadow(0 0 6px ${path.color})` }}
                 />
               ))}
 
@@ -308,115 +287,105 @@ export default function ProfessorGraph({
             </svg>
 
             {flatNodes.map((node) => {
-              const pt = coordsMap[node.id] || { px: 100, py: 100 };
-              const hasWarnings = (warningCounts.get(node.id) || 0) > 0;
-              const isExpanded = node.isMain ? (expandedMap[node.id] ?? true) : false;
+              const pt = coordsMap[node.id];
+              if (!pt) return null;
+              const isCollapsedTopic = node.isMain && !(expandedMap[node.id] ?? true);
+              const hiddenWarnings = isCollapsedTopic
+                ? (node.subtopics || []).reduce((n: number, s: any) => n + (warningCounts.get(s.id) || 0), 0)
+                : 0;
+              const hasWarnings = (warningCounts.get(node.id) || 0) + hiddenWarnings > 0;
               const isHighlighted = highlightedId === node.id;
 
               return (
-                <div
+                <RetroNode
                   key={node.id}
-                  className="absolute flex items-center justify-center transition-all duration-300 z-20 hover:z-50"
-                  style={{
-                    left: pt.px - nodeSize / 2,
-                    top: pt.py - nodeSize / 2,
-                    width: nodeSize,
-                    height: nodeSize,
+                  px={pt.px}
+                  py={pt.py}
+                  size={coreNodeSize}
+                  variant={node.isMain ? 'main' : 'sub'}
+                  label={node.displayNumber}
+                  title={node.name}
+                  lit={true}
+                  isHighlighted={isHighlighted}
+                  onClick={() => {
+                    if (node.isMain) {
+                      setExpandedMap((prev) => ({ ...prev, [node.id]: !(prev[node.id] ?? true) }));
+                    }
+                    setHighlightedId(node.id);
                   }}
                 >
-                  <div className="relative group w-full h-full">
-                    <button
-                      onClick={() => {
-                        if (node.isMain) {
-                          setExpandedMap((prev) => ({ ...prev, [node.id]: !(prev[node.id] ?? true) }));
-                        }
-                        setHighlightedId(node.id);
-                      }}
-                      className={`w-full h-full flex flex-col items-center justify-center rounded-[1.5rem] retro-node transition-transform duration-200 hover:scale-110 ${
-                        node.isMain ? 'retro-node-main' : 'retro-node-sub'
-                      } ${isHighlighted ? 'ring-2 ring-white' : ''}`}
+                  {hasWarnings && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
+                      title="Backward prerequisite violation detected!"
                     >
-                      <span className="font-bold text-base">{node.displayNumber}</span>
-                      <span className="text-[9px] truncate max-w-[75px] px-1 opacity-80">{node.name}</span>
-                    </button>
+                      !
+                    </span>
+                  )}
 
-                    {hasWarnings && (
-                      <span
-                        className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
-                        title="Backward prerequisite violation detected!"
+                  {/* Quick Action Toolbar on Hover */}
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-gray-900 border border-gray-700 px-2.5 py-1 rounded-full shadow-xl z-50">
+                    {node.isMain && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setModalMode('create-sub');
+                          setFormParentId(node.id);
+                          setFormName('');
+                          setFormVideoUrl('');
+                          setFormArticleUrl('');
+                          setIsModalOpen(true);
+                        }}
+                        className="text-green-400 hover:text-white p-0.5"
+                        title="Add Subtopic"
                       >
-                        !
-                      </span>
+                        <Plus size={13} />
+                      </button>
                     )}
-
-                    {/* Quick Action Toolbar on Hover */}
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-gray-900 border border-gray-700 px-2.5 py-1 rounded-full shadow-xl z-50">
-                      {node.isMain && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setModalMode('create-sub');
-                            setFormParentId(node.id);
-                            setFormName('');
-                            setFormVideoUrl('');
-                            setFormArticleUrl('');
-                            setIsModalOpen(true);
-                          }}
-                          className="text-green-400 hover:text-white p-0.5"
-                          title="Add Subtopic"
-                        >
-                          <Plus size={13} />
-                        </button>
-                      )}
-                      {!node.isMain && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveTarget(node);
-                            setFormParentId(node.parentId);
-                            setModalMode('reglue');
-                            setIsModalOpen(true);
-                          }}
-                          className="text-amber-400 hover:text-white p-0.5"
-                          title="Reglue to another topic"
-                        >
-                          <Link2 size={13} />
-                        </button>
-                      )}
+                    {!node.isMain && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveTarget(node);
-                          setFormName(node.name);
-                          setFormDesc(node.description || '');
-                          setFormParentId(node.parentId || node.id);
-                          setFormVideoUrl(node.videoUrl || '');
-                          setFormArticleUrl(node.articleUrl || '');
-                          setModalMode(node.isMain ? 'edit-topic' : 'edit-sub');
+                          setFormParentId(node.parentId);
+                          setModalMode('reglue');
                           setIsModalOpen(true);
                         }}
-                        className="text-blue-400 hover:text-white p-0.5"
-                        title="Edit Node"
+                        className="text-amber-400 hover:text-white p-0.5"
+                        title="Reglue to another topic"
                       >
-                        <Edit3 size={13} />
+                        <Link2 size={13} />
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteNode(node);
-                        }}
-                        className="text-red-400 hover:text-white p-0.5"
-                        title="Delete Node"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs font-bold text-center p-2 rounded pointer-events-none z-50 shadow-xl border-current bg-black">
-                      {node.name} {node.isMain ? (isExpanded ? '(Expanded)' : '(Collapsed)') : ''}
-                    </div>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTarget(node);
+                        setFormName(node.name);
+                        setFormDesc(node.description || '');
+                        setFormParentId(node.parentId || node.id);
+                        setFormVideoUrl(node.videoUrl || '');
+                        setFormArticleUrl(node.articleUrl || '');
+                        setModalMode(node.isMain ? 'edit-topic' : 'edit-sub');
+                        setIsModalOpen(true);
+                      }}
+                      className="text-blue-400 hover:text-white p-0.5"
+                      title="Edit Node"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteNode(node);
+                      }}
+                      className="text-red-400 hover:text-white p-0.5"
+                      title="Delete Node"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
-                </div>
+                </RetroNode>
               );
             })}
           </div>
