@@ -12,7 +12,23 @@ interface ProfessorGraphProps {
   onDashboardClick: () => void;
   onRefreshCourse?: () => void;
 }
-
+// Curved arrow from the prerequisite (a) to the item that needs it (b), stopping at the node edges
+function curvedArrowPath(a: { px: number; py: number }, b: { px: number; py: number }, r: number, n: number) {
+  const dx = b.px - a.px;
+  const dy = b.py - a.py;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const sx = a.px + ux * r;
+  const sy = a.py + uy * r;
+  const ex = b.px - ux * r;
+  const ey = b.py - uy * r;
+  const sameRow = Math.abs(dy) < 5;
+  const bend = (n % 2 === 0 ? 1 : -1) * (sameRow ? Math.min(130, len * 0.35) : Math.min(70, len * 0.3));
+  const cx = (sx + ex) / 2 - uy * bend;
+  const cy = (sy + ey) / 2 + ux * bend;
+  return `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`;
+}
 export default function ProfessorGraph({
   courseId,
   courseTitle,
@@ -59,6 +75,7 @@ export default function ProfessorGraph({
   const cols = Math.min(6, Math.max(isSm ? 2 : 1, Math.floor(availableWidth / idealCellWidth)));
 
   const flatNodes: any[] = [];
+
   let currentIndex = 0;
 
   topics.forEach((topic, tIdx) => {
@@ -73,12 +90,13 @@ export default function ProfessorGraph({
     const isExpanded = expandedMap[topic.id] ?? true;
     if (isExpanded && Array.isArray(topic.subtopics)) {
       topic.subtopics.forEach((sub: any, sIdx: number) => {
-        if (!sub.aiSuggested) {
+       {
           flatNodes.push({
             ...sub,
             name: sub.name || sub.title,
             displayNumber: `${tIdx + 1}.${sIdx + 1}`,
             isMain: false,
+            isAi: !!sub.aiSuggested,
             parentId: topic.id,
             listIndex: currentIndex++,
           });
@@ -115,8 +133,7 @@ export default function ProfessorGraph({
               const isViolation = flaggedEdges.has(edgeKey);
               prereqLines.push({
                 key: `prereq-${p.id}-${item.id}`,
-                d: `M ${pCoord.px} ${pCoord.py} L ${iCoord.px} ${iCoord.py}`,
-                isViolation,
+                d: curvedArrowPath(pCoord, iCoord, coreNodeSize / 2, prereqLines.length), isViolation,
               });
             }
           });
@@ -203,6 +220,11 @@ export default function ProfessorGraph({
           color: #3B82F6;
           box-shadow: 0 0 10px #3B82F6, inset 0 0 5px #3B82F6;
         }
+        .retro-node-ai {
+          border-color: #EF4444;
+          color: #EF4444;
+          box-shadow: 0 0 10px #EF4444, inset 0 0 5px #EF4444;
+        }
         .retro-hud {
           background: var(--cn-card);
           border-bottom: 1px solid var(--cn-border);
@@ -271,19 +293,6 @@ export default function ProfessorGraph({
                   style={{ filter: `drop-shadow(0 0 6px ${path.color})` }}
                 />
               ))}
-
-              {prereqLines.map((line) => (
-                <polyline
-                  key={line.key}
-                  points={line.d.replace(/M |L /g, '')}
-                  stroke={line.isViolation ? '#FFBF00' : '#3B82F6'}
-                  strokeWidth={line.isViolation ? '3' : '1.5'}
-                  strokeDasharray={line.isViolation ? '5 3' : 'none'}
-                  fill="none"
-                  className={line.isViolation ? 'juice-line' : ''}
-                  style={line.isViolation ? { filter: 'drop-shadow(0 0 6px #FFBF00)' } : {}}
-                />
-              ))}
             </svg>
 
             {flatNodes.map((node) => {
@@ -302,7 +311,7 @@ export default function ProfessorGraph({
                   px={pt.px}
                   py={pt.py}
                   size={coreNodeSize}
-                  variant={node.isMain ? 'main' : 'sub'}
+                  variant={node.isMain ? 'main' : node.isAi ? 'ai' : 'sub'}
                   label={node.displayNumber}
                   title={node.name}
                   lit={true}
@@ -388,9 +397,32 @@ export default function ProfessorGraph({
                 </RetroNode>
               );
             })}
+
+            <svg className="absolute inset-0 pointer-events-none z-30" width="100%" height="100%">
+              <defs>
+                <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
+                </marker>
+                <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
+                </marker>
+              </defs>
+              {prereqLines.map((line) => (
+                <path
+                  key={line.key}
+                  d={line.d}
+                  stroke={line.isViolation ? '#FFBF00' : '#3B82F6'}
+                  strokeWidth={line.isViolation ? 3 : 2}
+                  fill="none"
+                  markerEnd={`url(#${line.isViolation ? 'arrow-warn' : 'arrow-ok'})`}
+                  style={line.isViolation ? { filter: 'drop-shadow(0 0 6px #FFBF00)' } : {}}
+                />
+              ))}
+            </svg>
           </div>
         </div>
-      </main>
+  
+      </main >
 
       {/* MODAL */}
       {isModalOpen && (
