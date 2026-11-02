@@ -56,42 +56,55 @@ interface TopicCardProps {
   selectWikiResult: (item: any, setQuery: (value: string) => void, setResults: (value: any[]) => void, setForm: any) => void;
   setNewSubWikiQuery: (value: string) => void;
   setNewSubWikiResults: (value: any[]) => void;
+    warnings: { itemId: string; prerequisiteId: string }[];
 }
 
-export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults }: TopicCardProps) {
+export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
+  const warnedIds = new Set(warnings.map((v) => v.itemId));
+  const topicCollapsed = !expandedMainTopics[topic.id];
+  const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
+  const warnTitle = (item: any) => {
+    const late = warnings
+      .filter((v) => v.itemId === item.id)
+      .map((v) => (item.prerequisites || []).find((p: any) => p.id === v.prerequisiteId)?.name)
+      .filter(Boolean);
+    return `Prerequisite comes later: ${late.join(', ')}`;
+  };
   return (
-                <div 
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData('topicId', topic.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id)}
-                  className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
-                >
-                  <div className="flex items-center justify-between mb-4 font-bold">
-                    <div className="flex items-center gap-3 w-full">
-                      <GripVertical size={16} className="text-gray-300 cursor-grab group-hover:text-gray-500" />
-                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: BLUE }}>{i + 1}</div>
-                      {editingNameId === topic.id ? (
-                        <div className="flex items-center gap-2 w-full">
-                          <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(topic.id)} />
-                          <button onClick={() => saveName(topic.id)} className="text-xs text-blue-600 font-bold">Save</button>
-                          <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 group/title w-full">
-                          <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
-                          <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
-                          <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
-                        </div>
-                      )}
-                    </div>
-                    <button 
-                      onClick={() => setExpandedMainTopics(prev => ({...prev, [topic.id]: !prev[topic.id]}))} 
-                      className="p-2 text-gray-400 hover:text-blue-600 transition-colors shrink-0"
-                    >
-                      <ChevronDown size={18} className={`transition-transform duration-200 ${expandedMainTopics[topic.id] ? '' : '-rotate-90'}`} />
-                    </button>
-                  </div>
+    <div
+      draggable
+      onDragStart={(e) => e.dataTransfer.setData('topicId', topic.id)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id)}
+      className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
+    >
+      <div className="flex items-center justify-between mb-4 font-bold">
+        <div className="flex items-center gap-3 w-full">
+          <GripVertical size={16} className="text-gray-300 cursor-grab group-hover:text-gray-500" />
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: BLUE }}>{i + 1}</div>
+          {editingNameId === topic.id ? (
+            <div className="flex items-center gap-2 w-full">
+              <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(topic.id)} />
+              <button onClick={() => saveName(topic.id)} className="text-xs text-blue-600 font-bold">Save</button>
+              <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14} /></button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 group/title w-full">
+              <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
+              {topicHasWarning && (
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={topicCollapsed && !warnedIds.has(topic.id) ? 'A subtopic inside has a prerequisite that comes later' : warnTitle(topic)}>!</span>
+              )}
+              <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>                       
+              <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
+            </div>
+          )}
+        </div>
+        <button onClick={() => setExpandedMainTopics(prev => ({ ...prev, [topic.id]: !prev[topic.id] }))}
+          className="p-2 text-gray-400 hover:text-blue-600 transition-colors shrink-0"
+        >
+          <ChevronDown size={18} className={`transition-transform duration-200 ${expandedMainTopics[topic.id] ? '' : '-rotate-90'}`} />
+        </button>
+      </div>
 
                   {expandedMainTopics[topic.id] && (
                     <div className="animate-in fade-in slide-in-from-top-2 duration-200">
@@ -158,18 +171,20 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                                   <div className="flex items-center gap-2">
                                     <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(sub.id)} />
                                     <button onClick={() => saveName(sub.id)} className="text-xs text-blue-600 font-bold">Save</button>
-                                    <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                                    <button onClick={() => setEditingNameId(null)} className="text-xs text-gray-400 hover:text-gray-600"><X size={14} /></button>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2 group/subtitle">
                                     <p className="font-bold dark:text-white text-sm">{cleanTitle(sub.name)}</p>
-                                    <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>
-                                    <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
+                                    {warnedIds.has(sub.id) && (
+                                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={warnTitle(sub)}>!</span>
+                                    )}
+                                    <button onClick={() => startEditingName(sub.id, sub.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>                                   <button onClick={() => deleteTopic(sub.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
                                     <button onClick={() => openQuizEditor(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">Quiz</button>
                                     <button onClick={() => generateQuizDraft(sub)} className="text-gray-400 hover:text-purple-600 transition-colors p-1 text-[10px] font-black uppercase">AI Quiz</button>
                                   </div>
                                 )}
-                                {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10}/> AI Suggestion</span>}
+                                {sub.aiSuggested && <span className="text-[9px] font-black text-red-500 uppercase flex items-center gap-1 mt-1"><Sparkles size={10} /> AI Suggestion</span>}
                                 {renderResourceOverview(sub)}
                                 {renderQuizOverview(sub)}
                               </div>

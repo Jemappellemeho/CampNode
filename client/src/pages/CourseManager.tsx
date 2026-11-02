@@ -11,6 +11,8 @@ import WikidataSearchField from './courseManager/WikidataSearchField';
 import TopicCard from './courseManager/TopicCard';
 import QuizEditorModal, { getEmptyQuestion } from './courseManager/QuizEditorModal';
 import CourseStatisticsTab from './courseManager/CourseStatisticsTab';
+import { findViolations } from '../utils/prerequisiteViolations';
+import { SHOW_LIST_WARNINGS } from './courseManager/courseManagerConstants';
 import {
   OverviewTab,
   StudentsTab,
@@ -301,6 +303,7 @@ export default function CourseManager() {
   }, [editingSubId, course]);
 
   // F-14: Saves prerequisites and links for BOTH topics and subtopics
+  const listViolations = SHOW_LIST_WARNINGS ? findViolations(course?.topics || []) : [];
   const saveTopicSettings = async (topicId: string) => {
     try {
       await api.put(`/topics/${topicId}`, { prerequisiteIds: prereqSelection });
@@ -887,9 +890,10 @@ export default function CourseManager() {
                       selectWikiResult={selectWikiResult}
                       setNewSubWikiQuery={setNewSubWikiQuery}
                       setNewSubWikiResults={setNewSubWikiResults}
+                      warnings={listViolations}
                     />
                   ))}
-                </>
+                  </>
               )}
             </div>
           )}
