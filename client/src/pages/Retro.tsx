@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import { computeRetroGridLayout } from '../utils/retroGridLayout';
 import { useParams, useNavigate } from 'react-router-dom';
 import SyllabusDrawer from '../components/SyllabusDrawer';
 import TopicAbstractModal from '../components/TopicAbstractModal';
@@ -9,6 +10,7 @@ import { ChevronLeft } from 'lucide-react';
 import GuideOverlay from '../components/GuideOverlay';
 import { estimateLearningTime, formatLearningTime, getResourceTypeLabel, parseLearningMinutes, recordLearningActivity, trackActivity } from '../utils/learningTime';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
+import RetroNode from '../components/RetroNode';
 
 // API_ORIGIN wird nur für Ressourcen-URLs (window.open) gebraucht, nicht für API-Calls
 const API_ORIGIN = 'http://localhost:3000';
@@ -783,161 +785,7 @@ export default function Retro() {
       });
     }
   });
-
-  // 3. Coordinate Calculator
-  // Takes a node's number in line (index) and figures out its (x, y) position on a zig-zag grid.
-  // It goes left-to-right, drops down a row, then goes right-to-left.
-  const getGridCoords = (index: number) => {
-    const y = Math.floor(index / cols);
-    const x = y % 2 === 0 ? index % cols : (cols - 1) - (index % cols);
-    return { x, y };
-  };
-
-  // Figure out the maximum number of columns we actually used so the map stays centered
-  const maxColIndex = coreNodes.reduce((max, node) => Math.max(max, getGridCoords(node.listIndex).x), 0);
-  const actualCols = coreNodes.length > 0 ? maxColIndex + 1 : 1;
-
-  // ============================================================================
-  // RESPONSIVE BOX SIZING
-  // ============================================================================
-  // We dynamically stretch or shrink the invisible grid boxes based on screen width.
-  const dynamicCellWidth = availableWidth / actualCols;
-  const cellWidth = Math.max(120, dynamicCellWidth); 
-  const cellHeight = cellWidth * 0.8; // Keeps a nice 4:5 rectangular ratio
-
-  // However, the physical visual boxes (the colored squares) stay fixed sizes 
-  // so they don't squish when the syllabus drawer opens.
-  const coreNodeSize = isSm ? 70 : 100;
-  const aiNodeSize = coreNodeSize * 0.8;
-  const xOffset = xPadding;
-
-  // Group all AI nodes by their parent, so we know how many branch off from each spot
-  const aiNodesByParent: { [parentId: string]: typeof aiNodes } = {};
-  aiNodes.forEach(node => {
-    if (!aiNodesByParent[node.parentId]) aiNodesByParent[node.parentId] = [];
-    aiNodesByParent[node.parentId].push(node);
-  });
-
-  // ============================================================================
-  // DYNAMIC HEIGHT CALCULATION (PREVENTING OVERLAPS)
-  // ============================================================================
-  // If a row has AI nodes branching out downwards, it needs extra vertical space 
-  // so it doesn't crash into the row beneath it.
-  
-  const maxAiNodesPerRow: { [row: number]: number } = {};
-  coreNodes.forEach(node => {
-    const coords = getGridCoords(node.listIndex);
-    const aiCount = (aiNodesByParent[node.id] || []).length;
-    maxAiNodesPerRow[coords.y] = Math.max(maxAiNodesPerRow[coords.y] || 0, aiCount);
-  });
-
-  // Calculate the exact pixel 'Y' height for every single row on the screen
-  const rowOffsets: { [row: number]: number } = { 0: cellHeight / 2 };
-  const maxRows = Math.ceil(coreNodes.length / cols);
-  for (let y = 1; y < maxRows; y++) {
-    const prevRowAiCount = maxAiNodesPerRow[y - 1] || 0;
-    const extraHeight = prevRowAiCount > 0 ? (prevRowAiCount * (aiNodeSize + 30)) : 0;
-    rowOffsets[y] = rowOffsets[y - 1] + cellHeight + extraHeight;
-  }
-
-  // ============================================================================
-  // FINAL PIXEL COORDINATES
-  // ============================================================================
-  // Convert grid coordinates into exact pixel coordinates (px, py) for drawing the SVG lines.
-
-  // Core Nodes (Straight lines)
-  const coreCoordsMap: { [id: string]: { x: number, y: number, px: number, py: number } } = {};
-  coreNodes.forEach((node) => {
-    const coords = getGridCoords(node.listIndex);
-    coreCoordsMap[node.id] = {
-      x: coords.x,
-      y: coords.y,
-      px: coords.x * cellWidth + cellWidth / 2 + xOffset,
-      py: rowOffsets[coords.y] || (coords.y * cellHeight + cellHeight / 2)
-    };
-  });
-
-  // AI Nodes (Branching lines)
-  const aiCoordsMap: { [id: string]: { px: number, py: number, parentPx: number, parentPy: number, forkY: number } } = {};
-  Object.values(aiNodesByParent).forEach((nodesForParent) => {
-    nodesForParent.forEach((node, localIdx) => {
-      const parentCoords = coreCoordsMap[node.parentId];
-      if (parentCoords) {
-        // Decide whether the branch goes left or right so it doesn't leave the screen
-        const direction = parentCoords.x === cols - 1 ? -1 : 1;
-        const offsetX = (cellWidth / 2) * direction;
-        // Stack them vertically if there are multiple AI nodes attached to the same parent
-        const offsetY = (cellHeight * 0.6) + (localIdx * (aiNodeSize + 30));
-        
-        aiCoordsMap[node.id] = {
-          px: parentCoords.px + offsetX,
-          py: parentCoords.py + offsetY,
-          parentPx: parentCoords.px,
-          parentPy: parentCoords.py,
-          forkY: parentCoords.py + (cellHeight * 0.35) // The elbow joint of the SVG line
-        };
-      }
-    });
-  });
-
-  // Generate Core SVG Paths (Straight lines with juice effect)
-  interface CorePath {
-    d: string;
-    color: string;
-    isGlowing: boolean;
-    key: string;
-  }
-  const corePaths: CorePath[] = [];
-  for (let i = 0; i < coreNodes.length - 1; i++) {
-    const p1 = coreCoordsMap[coreNodes[i].id];
-    const p2 = coreCoordsMap[coreNodes[i+1].id];
-    const d = `M ${p1.px} ${p1.py} L ${p2.px} ${p2.py}`;
-    
-    const n2 = coreNodes[i+1];
-    
-    // Line color matches the destination node's type
-    const color = n2.isMain ? '#3A9E3F' : '#3B82F6'; // Green for main, Blue for sub
-    
-    // Always glow for aesthetic!
-    const isGlowing = true;
-
-    corePaths.push({ d, color, isGlowing, key: `core-line-${i}` });
-  }
-
-  // Generate AI SVG Paths (Sequential circuit-board path)
-  interface AiPath {
-    d: string;
-    color: string;
-    isGlowing: boolean;
-    key: string;
-  }
-  const aiPaths: AiPath[] = [];
-  Object.values(aiNodesByParent).forEach((nodesForParent) => {
-    nodesForParent.forEach((node, localIdx) => {
-      const coords = aiCoordsMap[node.id];
-      if (coords) {
-        const color = '#EF4444'; // AI paths are always red
-        const isGlowing = true; // Always glow for aesthetic!
-        
-        let d = "";
-        if (localIdx === 0) {
-          d = `M ${coords.parentPx} ${coords.parentPy} L ${coords.parentPx} ${coords.forkY} L ${coords.px} ${coords.forkY} L ${coords.px} ${coords.py}`;
-        } else {
-          const prevNode = nodesForParent[localIdx - 1];
-          const prevCoords = aiCoordsMap[prevNode.id];
-          d = `M ${prevCoords.px} ${prevCoords.py} L ${coords.px} ${coords.py}`;
-        }
-
-        aiPaths.push({ d, color, isGlowing, key: `ai-line-${node.id}` });
-      }
-    });
-  });
-
-  const containerWidth = (actualCols * cellWidth) + (xOffset * 2);
-  const lastRowY = maxRows > 0 ? rowOffsets[maxRows - 1] : 0;
-  const lastRowAiCount = maxAiNodesPerRow[maxRows - 1] || 0;
-  const extraBottomHeight = lastRowAiCount > 0 ? (lastRowAiCount * (aiNodeSize + 30)) : 0;
-  const containerHeight = Math.max(window.innerHeight, lastRowY + extraBottomHeight + 300);
+  const { coreCoordsMap, aiCoordsMap, corePaths, aiPaths, coreNodeSize, aiNodeSize, containerWidth, containerHeight } = computeRetroGridLayout(coreNodes, aiNodes, cols, availableWidth, xPadding, isSm);
 
   if (loading) return <div className="p-20 text-center" style={{ color: "var(--cn-text)" }}>INITIALIZING MAINFRAME...</div>;
 
@@ -1068,159 +916,118 @@ export default function Retro() {
                 ))}
             </svg>
 
-            {/* Draw Core Nodes */}
+                        {/* Draw Core Nodes */}
             {coreNodes.map((node) => {
                 const coords = coreCoordsMap[node.id];
                 const isComplete = node.isMain ? isNodeComplete(node.nodeRef) : isCoreComplete(node.id);
-                
                 const isActive = node.isMain && activeId === node.id;
                 const isHighlighted = highlightedNodeId === node.id;
-                
+
                 return (
-                    <div
+                    <RetroNode
                         key={node.id}
-                        className="absolute flex items-center justify-center transition-all duration-300 z-20 hover:z-50"
-                        style={{
-                            left: coords.px - (coreNodeSize / 2),
-                            top: coords.py - (coreNodeSize / 2),
-                            width: coreNodeSize,
-                            height: coreNodeSize,
+                        px={coords.px}
+                        py={coords.py}
+                        size={coreNodeSize}
+                        variant={node.isMain ? 'main' : 'sub'}
+                        label={node.displayNumber}
+                        title={node.title}
+                        lit={node.isMain ? (isComplete || isActive) : isComplete}
+                        isActive={isActive}
+                        isHighlighted={isHighlighted}
+                        onClick={() => {
+                            if (node.isMain) {
+                                setActiveId(activeId === node.id ? null : node.id);
+                                setHighlightedNodeId(null);
+                            } else {
+                                setHighlightedNodeId(node.id);
+                                setSyllabusOpen(true);
+                                setSelectedSubnode({
+                                    id: node.id,
+                                    name: node.title,
+                                    color: 'blue',
+                                    resources: node.resources,
+                                    completed: isCoreComplete(node.id),
+                                    quizCompleted: isQuizFinished(node.id),
+                                });
+                            }
                         }}
                     >
-                        <div className="relative group w-full h-full">
-                            <button
-                                onClick={() => {
-                                    if (node.isMain) {
-                                        setActiveId(activeId === node.id ? null : node.id);
-                                        setHighlightedNodeId(null);
-                                    } else {
-                                        setHighlightedNodeId(node.id);
-                                        setSyllabusOpen(true);
-                                        setSelectedSubnode({
-                                            id: node.id,
-                                            name: node.title,
-                                            color: 'blue',
-                                            resources: node.resources,
-                                            completed: isCoreComplete(node.id),
-                                            quizCompleted: isQuizFinished(node.id),
-                                        });
-                                    }
-                                }}
-                                className={`w-full h-full flex items-center justify-center rounded-[1.75rem] retro-node transition-transform duration-200 hover:scale-110
-                                    ${node.isMain 
-                                        ? (isComplete || isActive ? 'retro-node-main' : 'retro-node-main-dim') 
-                                        : (isComplete ? 'retro-node-sub' : 'retro-node-sub-dim')}
-                                    ${isActive ? 'scale-125 !bg-[#3A9E3F] !text-white' : ''}
-                                    ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
-                                `}
-                            >
-                                <span className="font-bold text-base sm:text-lg">{node.displayNumber}</span>
-                            </button>
-
-                            {/* Hover Tooltip for Title */}
-                            <div 
-                                className={`absolute top-full left-1/2 -translate-x-1/2 mt-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 shadow-md
-                                ${node.isMain ? 'border-[#3A9E3F] text-[#3A9E3F] shadow-[0_0_10px_#3A9E3F]' : 'border-[#3B82F6] text-[#3B82F6] shadow-[0_0_10px_#3B82F6]'}
-                                `}
-                                style={{ background: 'var(--cn-page)' }}
-                            >
-                                {node.title}
-                            </div>
-                            
-                            {/* Student question marker */}
-                            <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openQuestionEditor(node.id, node.title);
-                                }}
-                                className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] sm:text-[11px] flex items-center justify-center font-black shadow-md border transition-all z-30
-                                  ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
-                                title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
-                                aria-label="Topic question note"
-                            >
-                                ?
-                            </button>
-                            {node.isMain && node.hasQuiz && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/quiz/${node.id}`, {
-                                    state: { markAsSkip: true, includeSubtopics: true },
-                                  });
-                                }}
-                                className="absolute left-1/2 top-full mt-12 w-40 -translate-x-1/2 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase leading-tight text-white shadow-lg transition hover:bg-blue-700"
-                              >
-                                Already know this?<br />Take Quiz to Skip →
-                              </button>
-                            )}
-                        </div>
-                    </div>
+                        {/* Student question marker */}
+                        <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuestionEditor(node.id, node.title);
+                            }}
+                            className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] sm:text-[11px] flex items-center justify-center font-black shadow-md border transition-all z-30
+                              ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
+                            title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
+                            aria-label="Topic question note"
+                        >
+                            ?
+                        </button>
+                        {node.isMain && node.hasQuiz && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/quiz/${node.id}`, {
+                                state: { markAsSkip: true, includeSubtopics: true },
+                              });
+                            }}
+                            className="absolute left-1/2 top-full mt-5 w-40 -translate-x-1/2 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase leading-tight text-white shadow-lg transition hover:bg-blue-700"
+                          >
+                            Already know this?<br />Take Quiz to Skip →
+                          </button>
+                        )}
+                    </RetroNode>
                 );
             })}
 
-            {/* Draw AI Nodes */}
+                        {/* Draw AI Nodes */}
             {aiNodes.map((node) => {
                 const coords = aiCoordsMap[node.id];
                 if (!coords) return null;
                 const isComplete = isCoreComplete(node.id);
                 const isHighlighted = highlightedNodeId === node.id;
-                
+
                 return (
-                    <div
+                    <RetroNode
                         key={node.id}
-                        className="absolute flex items-center justify-center transition-all duration-300 z-20 hover:z-50"
-                        style={{
-                            left: coords.px - (aiNodeSize / 2),
-                            top: coords.py - (aiNodeSize / 2),
-                            width: aiNodeSize,
-                            height: aiNodeSize,
+                        px={coords.px}
+                        py={coords.py}
+                        size={aiNodeSize}
+                        variant="ai"
+                        label={node.displayNumber}
+                        title={node.title}
+                        lit={isComplete}
+                        isHighlighted={isHighlighted}
+                        onClick={() => {
+                            setHighlightedNodeId(node.id);
+                            setSyllabusOpen(true);
+                            setSelectedSubnode({
+                                id: node.id,
+                                name: node.title,
+                                color: 'red',
+                                resources: node.resources,
+                                completed: isCoreComplete(node.id),
+                                quizCompleted: isQuizFinished(node.id),
+                            });
                         }}
                     >
-                        <div className="relative group w-full h-full">
-                            <button
-                                onClick={() => {
-                                    setHighlightedNodeId(node.id);
-                                    setSyllabusOpen(true);
-                                    setSelectedSubnode({
-                                        id: node.id,
-                                        name: node.title,
-                                        color: 'red',
-                                        resources: node.resources,
-                                        completed: isCoreComplete(node.id),
-                                        quizCompleted: isQuizFinished(node.id),
-                                    });
-                                }}
-                                className={`w-full h-full flex items-center justify-center rounded-[1.75rem] retro-node transition-transform duration-200 hover:scale-110 
-                                    ${isComplete ? 'retro-node-ai' : 'retro-node-ai-dim'}
-                                    ${isHighlighted ? 'scale-110 ring-2 ring-white ring-offset-1' : ''}
-                                `}
-                            >
-                                <span className="font-bold text-xs sm:text-sm">{node.displayNumber}</span>
-                            </button>
-
-                            {/* Hover Tooltip for Title */}
-                            <div 
-                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity border border-[#EF4444] text-[#EF4444] text-xs sm:text-sm font-bold text-center p-2 rounded-sm pointer-events-none z-50 shadow-[0_0_10px_#EF4444]"
-                                style={{ background: 'var(--cn-page)' }}
-                            >
-                                [AI SYNC] {node.title}
-                            </div>
-
-                            {/* Student question marker */}
-                            <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openQuestionEditor(node.id, node.title);
-                                }}
-                                className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] flex items-center justify-center font-black shadow-md border transition-all z-30
-                                  ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
-                                title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
-                                aria-label="Topic question note"
-                            >
-                                ?
-                            </button>
-                        </div>
-                    </div>
+                        {/* Student question marker */}
+                        <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuestionEditor(node.id, node.title);
+                            }}
+                            className={`absolute -top-2 -right-2 w-[30%] h-[30%] min-w-6 min-h-6 max-w-8 max-h-8 rounded-full text-[10px] flex items-center justify-center font-black shadow-md border transition-all z-30
+                              ${topicNotes[node.id] ? 'bg-red-500 text-white border-red-400' : 'bg-red-500 text-white border-red-400 hover:bg-red-600'}`}
+                            title={topicNotes[node.id] ? 'Edit question/note' : 'Add question/note'}
+                            aria-label="Topic question note"
+                        >
+                            ?
+                        </button>
+                    </RetroNode>
                 );
             })}
             </div>

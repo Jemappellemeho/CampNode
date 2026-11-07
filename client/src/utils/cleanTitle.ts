@@ -1,0 +1,1 @@
+export const cleanTitle = (s?: string) => (s ?? '').replace(/^\s*[-–—•*]\s+/, '');
