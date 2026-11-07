@@ -61,6 +61,11 @@ router.delete("/:id", verifyToken, courseController.deleteCourse);
 // Add a new topic or subtopic to the course
 router.post("/:id/topics", verifyToken, upload.single("pdf"), courseController.addTopic);
 
+// Route: PUT /api/courses/:id/topics/:topicId/move
+// Move a subtopic into another topic (or to another index) in ONE atomic operation.
+// Body: { targetParentId, targetIndex }. Must stay above the generic topic PUT below.
+router.put("/:id/topics/:topicId/move", verifyToken, courseController.moveSubtopic);
+
 // Route: PUT /api/courses/:id/topics/:topicId
 // Update an existing topic (name, links, order, etc)
 router.put("/:id/topics/:topicId", verifyToken, upload.single("pdf"), courseController.updateTopic);

@@ -6,6 +6,7 @@ const axios = require("axios");
 const { tryScrapeUrl } = require("../services/scraperService");
 const { parsePdfDocument } = require("../services/pdfService");
 const aiService = require("../services/aiService");
+const { moveSubtopic, TopicMoveError } = require("../services/topicOrderService");
 
 
 async function fetchWikiText(wikidataId, preferredLang = "en") {
@@ -601,6 +602,49 @@ exports.updateTopic = async (req, res) => {
   } catch (err) {
     console.error("Error updating topic:", err);
     res.status(500).json({ error: "Failed to update topic" });
+  }
+};
+
+// Move a subtopic into another topic (or to another slot in its own topic).
+// One request -> one transaction: the subtopic gets its new parent and index, and both the
+// old and the new topic come back renumbered 0..n-1. On any error nothing is written, and
+// the client reloads the course and shows a message.
+exports.moveSubtopic = async (req, res) => {
+  try {
+    const { id: courseId, topicId } = req.params;
+    const { targetParentId, targetIndex } = req.body;
+
+    if (req.user.role !== "PROFESSOR") {
+      return res.status(403).json({ error: "Only professors can move subtopics" });
+    }
+
+    // Only the course owner may restructure the curriculum.
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { id: true, instructorId: true },
+    });
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+    if (course.instructorId !== (req.user.userId || req.user.id)) {
+      return res.status(403).json({ error: "This is not your course" });
+    }
+
+    const result = await moveSubtopic({
+      courseId,
+      subtopicId: topicId,
+      targetParentId,
+      targetIndex,
+    });
+
+    res.json(result);
+  } catch (err) {
+    // Validation problems are the expected case and carry their own status.
+    if (err instanceof TopicMoveError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error("Error moving subtopic:", err);
+    res.status(500).json({ error: "Failed to move subtopic" });
   }
 };
 

@@ -75,7 +75,16 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
       draggable
       onDragStart={(e) => e.dataTransfer.setData('topicId', topic.id)}
       onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id)}
+      onDrop={(e) => {
+        // A subtopic dropped on the card itself (not on one of the rows) goes to the end
+        // of this topic - that is also the only way into a topic with no subtopics yet.
+        const draggedSubtopicId = e.dataTransfer.getData('subtopicId');
+        if (draggedSubtopicId) {
+          handleSubtopicDrop(draggedSubtopicId, '', e.dataTransfer.getData('parentTopicId'), topic.id);
+          return;
+        }
+        handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id);
+      }}
       className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
     >
       <div className="flex items-center justify-between mb-4 font-bold">

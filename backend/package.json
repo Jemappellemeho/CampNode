@@ -4,7 +4,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "seed:test-course": "node prisma/seedTestCourse.js",
+    "check:subtopic-move": "node scripts/checkSubtopicMove.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

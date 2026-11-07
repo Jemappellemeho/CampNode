@@ -12,6 +12,7 @@ import TopicCard from './courseManager/TopicCard';
 import QuizEditorModal, { getEmptyQuestion } from './courseManager/QuizEditorModal';
 import CourseStatisticsTab from './courseManager/CourseStatisticsTab';
 import { findViolations } from '../utils/prerequisiteViolations';
+import { planSubtopicMove, applyMoveResult } from '../utils/subtopicMove';
 import { SHOW_LIST_WARNINGS } from './courseManager/courseManagerConstants';
 import {
   OverviewTab,
@@ -359,85 +360,54 @@ export default function CourseManager() {
     }
   };
 
-  // F-09, F-10, F-11: Drag-drop subtopics inside same topic OR into another topic, with rollback on failure
+  // F-09, F-10, F-11: Drag-drop subtopics inside the same topic OR into another topic.
+  // One drop = one request = one transaction on the server. The optimistic update is
+  // applied first, then replaced by the renumbered lists the server sends back. If the
+  // request fails, nothing was written: we roll the UI back, reload the course and
+  // explain why.
   const handleSubtopicDrop = async (
     srcId: string,
     targetId: string,
     parentTopicId: string,
     targetParentId: string
   ) => {
-    if (!course || srcId === targetId) return;
+    if (!course || !srcId || !parentTopicId || !targetParentId) return;
     setReorderError('');
 
-    const srcParent = course.topics.find((t: any) => t.id === parentTopicId);
-    const tgtParent = course.topics.find((t: any) => t.id === targetParentId);
-    if (!srcParent || !tgtParent) return;
+    const plan = planSubtopicMove(course.topics || [], {
+      subtopicId: srcId,
+      sourceParentId: parentTopicId,
+      targetParentId,
+      dropTargetId: targetId,
+    });
+    if (!plan) return;
 
-    if (parentTopicId === targetParentId) {
-      const subtopics = [...(srcParent.subtopics || [])];
-      const srcIdx = subtopics.findIndex((s: any) => s.id === srcId);
-      const tgtIdx = subtopics.findIndex((s: any) => s.id === targetId);
-      if (srcIdx === -1 || tgtIdx === -1) return;
+    const previousTopics = course.topics;
+    setCourse((prev: any) => (prev ? { ...prev, topics: plan.topics } : prev));
 
-      const [moved] = subtopics.splice(srcIdx, 1);
-      subtopics.splice(tgtIdx, 0, moved);
-      const reindexed = subtopics.map((s, idx) => ({ ...s, order: idx }));
-
-      setCourse({
-        ...course,
-        topics: course.topics.map((t: any) =>
-          t.id === parentTopicId ? { ...t, subtopics: reindexed } : t
-        ),
+    try {
+      const res = await api.put(`/courses/${courseId}/topics/${srcId}/move`, {
+        targetParentId,
+        targetIndex: plan.targetIndex,
       });
-
-      try {
-        for (let i = 0; i < reindexed.length; i++) {
-          await api.put(`/courses/${courseId}/topics/${reindexed[i].id}`, { order: i });
-        }
-      } catch (err) {
-        console.error('Subtopic reorder failed:', err);
-        setReorderError('Could not save subtopic order. Reloading course.');
+      const reconciled = applyMoveResult(plan.topics, res.data);
+      if (reconciled) {
+        setCourse((prev: any) => (prev ? { ...prev, topics: reconciled } : prev));
+      } else {
+        // The server order did not line up with what we hold: take its version instead.
         fetchCourse();
       }
-    } else {
-      // Cross-topic move (F-09, F-10)
-      const srcSubs = [...(srcParent.subtopics || [])];
-      const tgtSubs = [...(tgtParent.subtopics || [])];
-      const srcIdx = srcSubs.findIndex((s: any) => s.id === srcId);
-      if (srcIdx === -1) return;
-
-      const [moved] = srcSubs.splice(srcIdx, 1);
-      const tgtIdx = targetId ? tgtSubs.findIndex((s: any) => s.id === targetId) : tgtSubs.length;
-      const insertIdx = tgtIdx === -1 ? tgtSubs.length : tgtIdx;
-      tgtSubs.splice(insertIdx, 0, { ...moved, parentTopicId: targetParentId });
-
-      const reindexedSrc = srcSubs.map((s, idx) => ({ ...s, order: idx }));
-      const reindexedTgt = tgtSubs.map((s, idx) => ({ ...s, order: idx }));
-
-      setCourse({
-        ...course,
-        topics: course.topics.map((t: any) => {
-          if (t.id === parentTopicId) return { ...t, subtopics: reindexedSrc };
-          if (t.id === targetParentId) return { ...t, subtopics: reindexedTgt };
-          return t;
-        }),
-      });
-
-      try {
-        for (let i = 0; i < reindexedTgt.length; i++) {
-          const item = reindexedTgt[i];
-          const payload =
-            item.id === srcId ? { parentTopicId: targetParentId, order: i } : { order: i };
-          await api.put(`/courses/${courseId}/topics/${item.id}`, payload);
-        }
-        for (let i = 0; i < reindexedSrc.length; i++) {
-          await api.put(`/courses/${courseId}/topics/${reindexedSrc[i].id}`, { order: i });
-        }
-      } catch (err) {
-        console.error('Cross-topic subtopic move failed:', err);
-        setReorderError('Could not move subtopic. Restoring server order.');
-        fetchCourse();
-      }
+    } catch (err: any) {
+      console.error('Subtopic move failed:', err);
+      const reason = err?.response?.data?.error;
+      setReorderError(
+        reason
+          ? `Could not move subtopic: ${reason}`
+          : 'Could not move subtopic. Restoring the saved course structure.'
+      );
+      // The move was all-or-nothing, so the pre-drop state is still the saved one.
+      setCourse((prev: any) => (prev ? { ...prev, topics: previousTopics } : prev));
+      fetchCourse();
     }
   };
 
