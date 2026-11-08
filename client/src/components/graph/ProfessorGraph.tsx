@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { findViolations } from '../../utils/prerequisiteViolations';
 import { computeRetroGridLayout } from '../../utils/retroGridLayout';
 import RetroNode from '../RetroNode';
-import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X } from 'lucide-react';
+import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X, ArrowRightLeft } from 'lucide-react';
 import { api } from '../../utils/api';
 
 interface ProfessorGraphProps {
@@ -12,22 +12,12 @@ interface ProfessorGraphProps {
   onDashboardClick: () => void;
   onRefreshCourse?: () => void;
 }
-// Curved arrow from the prerequisite (a) to the item that needs it (b), stopping at the node edges
-function curvedArrowPath(a: { px: number; py: number }, b: { px: number; py: number }, r: number, n: number) {
-  const dx = b.px - a.px;
-  const dy = b.py - a.py;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
-  const sx = a.px + ux * r;
-  const sy = a.py + uy * r;
-  const ex = b.px - ux * r;
-  const ey = b.py - uy * r;
-  const sameRow = Math.abs(dy) < 5;
-  const bend = (n % 2 === 0 ? 1 : -1) * (sameRow ? Math.min(130, len * 0.35) : Math.min(70, len * 0.3));
-  const cx = (sx + ex) / 2 - uy * bend;
-  const cy = (sy + ey) / 2 + ux * bend;
-  return `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`;
+// Cubic Bezier arrow from the bottom-center of the prerequisite node to the bottom-center of the dependent node
+function prereqArrowPath(x1: number, y1: number, x2: number, y2: number) {
+  const d = Math.min(120, Math.max(40, 40 + Math.abs(x2 - x1) * 0.15));
+  const sameCol = Math.abs(x2 - x1) < 20;
+  const shift = sameCol ? 70 : 0;
+  return `M ${x1} ${y1} C ${x1 + shift} ${y1 + d}, ${x2 + shift} ${y2 + d}, ${x2} ${y2}`;
 }
 export default function ProfessorGraph({
   courseId,
@@ -37,6 +27,14 @@ export default function ProfessorGraph({
   onRefreshCourse,
 }: ProfessorGraphProps) {
   const [showPrerequisites, setShowPrerequisites] = useState(false);
+  const [shownPrereqNodes, setShownPrereqNodes] = useState<Set<string>>(new Set());
+  const togglePrereqNode = (id: string) => {
+    setShownPrereqNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
 
@@ -131,10 +129,21 @@ export default function ProfessorGraph({
             if (pCoord && iCoord) {
               const edgeKey = `${p.id}->${item.id}`;
               const isViolation = flaggedEdges.has(edgeKey);
-              prereqLines.push({
-                key: `prereq-${p.id}-${item.id}`,
-                d: curvedArrowPath(pCoord, iCoord, coreNodeSize / 2, prereqLines.length), isViolation,
-              });
+              const touchesToggled = shownPrereqNodes.has(p.id) || shownPrereqNodes.has(item.id);
+              const half = coreNodeSize / 2;
+              if (isViolation) {
+                prereqLines.push({
+                  key: `prereq-${p.id}-${item.id}`,
+                  d: prereqArrowPath(pCoord.px, pCoord.py + half, iCoord.px, iCoord.py + half),
+                  isViolation: true,
+                });
+              } else if (touchesToggled) {
+                prereqLines.push({
+                  key: `prereq-${p.id}-${item.id}`,
+                  d: prereqArrowPath(pCoord.px, pCoord.py + half, iCoord.px, iCoord.py + half),
+                  isViolation: false,
+                });
+              }
             }
           });
         }
@@ -295,6 +304,38 @@ export default function ProfessorGraph({
               ))}
             </svg>
 
+            <svg className="absolute inset-0 pointer-events-none z-[15]" width="100%" height="100%">
+              <defs>
+                <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
+                </marker>
+                <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
+                </marker>
+              </defs>
+              {prereqLines.filter((l) => !l.isViolation).map((line) => (
+                <path
+                  key={line.key}
+                  d={line.d}
+                  stroke="#3B82F6"
+                  strokeWidth={2}
+                  fill="none"
+                  markerEnd="url(#arrow-ok)"
+                />
+              ))}
+              {prereqLines.filter((l) => l.isViolation).map((line) => (
+                <path
+                  key={line.key}
+                  d={line.d}
+                  stroke="#FFBF00"
+                  strokeWidth={3}
+                  fill="none"
+                  markerEnd="url(#arrow-warn)"
+                  style={{ filter: 'drop-shadow(0 0 6px #FFBF00)' }}
+                />
+              ))}
+            </svg>
+
             {flatNodes.map((node) => {
               const pt = coordsMap[node.id];
               if (!pt) return null;
@@ -369,6 +410,16 @@ export default function ProfessorGraph({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        togglePrereqNode(node.id);
+                      }}
+                      className={`p-0.5 ${shownPrereqNodes.has(node.id) ? 'bg-blue-600 text-white rounded' : 'text-blue-400 hover:text-white'}`}
+                      title="Show prerequisite arrows"
+                    >
+                      <ArrowRightLeft size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setActiveTarget(node);
                         setFormName(node.name);
                         setFormDesc(node.description || '');
@@ -398,27 +449,7 @@ export default function ProfessorGraph({
               );
             })}
 
-            <svg className="absolute inset-0 pointer-events-none z-30" width="100%" height="100%">
-              <defs>
-                <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
-                </marker>
-                <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
-                </marker>
-              </defs>
-              {prereqLines.map((line) => (
-                <path
-                  key={line.key}
-                  d={line.d}
-                  stroke={line.isViolation ? '#FFBF00' : '#3B82F6'}
-                  strokeWidth={line.isViolation ? 3 : 2}
-                  fill="none"
-                  markerEnd={`url(#${line.isViolation ? 'arrow-warn' : 'arrow-ok'})`}
-                  style={line.isViolation ? { filter: 'drop-shadow(0 0 6px #FFBF00)' } : {}}
-                />
-              ))}
-            </svg>
+
           </div>
         </div>
   
