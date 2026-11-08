@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { findViolations } from '../../utils/prerequisiteViolations';
 import { computeRetroGridLayout } from '../../utils/retroGridLayout';
 import RetroNode from '../RetroNode';
 import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X, ArrowRightLeft } from 'lucide-react';
 import { api } from '../../utils/api';
+import { getGraphDropSlots, type GraphDropNode, type GraphDropSlot } from './graphDropSlots';
 
 interface ProfessorGraphProps {
   courseId: string;
@@ -12,6 +13,22 @@ interface ProfessorGraphProps {
   onDashboardClick: () => void;
   onRefreshCourse?: () => void;
 }
+
+interface DragPreview {
+  subtopicId: string;
+  pointerX: number;
+  pointerY: number;
+}
+
+interface DragGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  subtopicId: string;
+  started: boolean;
+  cancelled: boolean;
+}
+
 // Cubic Bezier arrow from the bottom-center of the prerequisite node to the bottom-center of the dependent node
 function prereqArrowPath(x1: number, y1: number, x2: number, y2: number) {
   const d = Math.min(120, Math.max(40, 40 + Math.abs(x2 - x1) * 0.15));
@@ -37,6 +54,9 @@ export default function ProfessorGraph({
   };
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const dragGestureRef = useRef<DragGesture | null>(null);
+  const suppressNextClickRef = useRef(false);
 
   // Modal State for CRUD / Reglueing
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -96,6 +116,7 @@ export default function ProfessorGraph({
             isMain: false,
             isAi: !!sub.aiSuggested,
             parentId: topic.id,
+            subtopicIndex: sIdx,
             listIndex: currentIndex++,
           });
         }
@@ -111,6 +132,130 @@ export default function ProfessorGraph({
     containerWidth,
     containerHeight,
   } = computeRetroGridLayout(flatNodes, [], cols, availableWidth, xPadding, isSm);
+
+  const visibleFlowNodes: GraphDropNode[] = flatNodes.flatMap((node) => {
+    const point = coordsMap[node.id];
+    if (!point) return [];
+    return [{
+      id: node.id,
+      kind: node.isMain ? 'topic' : 'subtopic',
+      topicId: node.isMain ? node.id : node.parentId,
+      index: node.isMain ? -1 : node.subtopicIndex,
+      x: point.px,
+      y: point.py,
+      collapsed: node.isMain && !(expandedMap[node.id] ?? true),
+    }];
+  });
+  const dropSlots = dragPreview
+    ? getGraphDropSlots(visibleFlowNodes, dragPreview.subtopicId)
+    : [];
+  let nearestDropSlot: GraphDropSlot | null = null;
+  if (dragPreview) {
+    nearestDropSlot = dropSlots.reduce<GraphDropSlot | null>((nearest, slot) => {
+      if (!nearest) return slot;
+      const currentDistance = Math.hypot(slot.x - dragPreview.pointerX, slot.y - dragPreview.pointerY);
+      const nearestDistance = Math.hypot(
+        nearest.x - dragPreview.pointerX,
+        nearest.y - dragPreview.pointerY
+      );
+      return currentDistance < nearestDistance ? slot : nearest;
+    }, null);
+  }
+  const draggedNode = dragPreview
+    ? flatNodes.find((node) => node.id === dragPreview.subtopicId)
+    : null;
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isModalOpen || !(event.target instanceof HTMLElement)) return;
+    const nodeButton = event.target.closest<HTMLElement>('button.retro-node-sub');
+    const nodeContainer = nodeButton?.closest<HTMLElement>('[data-graph-node-id]');
+    const subtopicId = nodeContainer?.dataset.graphNodeId;
+    const node = flatNodes.find((item) => item.id === subtopicId);
+    if (!nodeButton || !node || node.isMain || node.isAi) return;
+
+    dragGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      subtopicId: node.id,
+      started: false,
+      cancelled: false,
+    };
+    nodeButton.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.cancelled) return;
+    if (!gesture.started) {
+      if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <= 5) return;
+      gesture.started = true;
+      suppressNextClickRef.current = true;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setDragPreview({
+      subtopicId: gesture.subtopicId,
+      pointerX: event.clientX - bounds.left,
+      pointerY: event.clientY - bounds.top,
+    });
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    dragGestureRef.current = null;
+
+    if (!gesture.cancelled && gesture.started) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
+      const slots = getGraphDropSlots(visibleFlowNodes, gesture.subtopicId);
+      const target = slots.reduce<GraphDropSlot | null>((nearest, slot) => {
+        if (!nearest) return slot;
+        return Math.hypot(slot.x - pointerX, slot.y - pointerY) <
+          Math.hypot(nearest.x - pointerX, nearest.y - pointerY)
+          ? slot
+          : nearest;
+      }, null);
+
+      if (target) {
+        console.log({
+          subtopicId: gesture.subtopicId,
+          targetTopicId: target.targetTopicId,
+          targetIndex: target.targetIndex,
+        });
+      }
+      setDragPreview(null);
+    }
+    if (gesture.started) {
+      window.setTimeout(() => {
+        suppressNextClickRef.current = false;
+      }, 0);
+    }
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    dragGestureRef.current = null;
+    setDragPreview(null);
+    suppressNextClickRef.current = false;
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const gesture = dragGestureRef.current;
+      if (gesture?.started && !gesture.cancelled) {
+        gesture.cancelled = true;
+        setDragPreview(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // A link is wrong if its prerequisite is not earlier than the item that needs it
   const violations = findViolations(topics);
@@ -234,6 +379,9 @@ export default function ProfessorGraph({
           color: #EF4444;
           box-shadow: 0 0 10px #EF4444, inset 0 0 5px #EF4444;
         }
+        .graph-node-container > div { pointer-events: auto; }
+        .graph-node-container[data-draggable="true"] .retro-node-sub { cursor: grab; touch-action: none; }
+        .graph-node-container[data-drag-source="true"] .retro-node { opacity: 0.4; }
         .retro-hud {
           background: var(--cn-card);
           border-bottom: 1px solid var(--cn-border);
@@ -336,6 +484,13 @@ export default function ProfessorGraph({
               ))}
             </svg>
 
+            <div
+              className="absolute inset-0 pointer-events-none"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+            >
             {flatNodes.map((node) => {
               const pt = coordsMap[node.id];
               if (!pt) return null;
@@ -347,8 +502,14 @@ export default function ProfessorGraph({
               const isHighlighted = highlightedId === node.id;
 
               return (
-                <RetroNode
+                <div
                   key={node.id}
+                  className="graph-node-container absolute inset-0 pointer-events-none"
+                  data-graph-node-id={node.id}
+                  data-draggable={!node.isMain && !node.isAi ? 'true' : undefined}
+                  data-drag-source={dragPreview?.subtopicId === node.id ? 'true' : undefined}
+                >
+                <RetroNode
                   px={pt.px}
                   py={pt.py}
                   size={coreNodeSize}
@@ -358,6 +519,10 @@ export default function ProfessorGraph({
                   lit={true}
                   isHighlighted={isHighlighted}
                   onClick={() => {
+                    if (suppressNextClickRef.current) {
+                      suppressNextClickRef.current = false;
+                      return;
+                    }
                     if (node.isMain) {
                       setExpandedMap((prev) => ({ ...prev, [node.id]: !(prev[node.id] ?? true) }));
                     }
@@ -446,8 +611,41 @@ export default function ProfessorGraph({
                     </button>
                   </div>
                 </RetroNode>
+                </div>
               );
             })}
+            </div>
+
+            {dragPreview && draggedNode && (
+              <div
+                className="retro-node retro-node-sub absolute z-[90] flex items-center justify-center rounded-[1.75rem] text-base sm:text-lg font-bold pointer-events-none"
+                style={{
+                  left: dragPreview.pointerX,
+                  top: dragPreview.pointerY,
+                  width: coreNodeSize,
+                  height: coreNodeSize,
+                  opacity: 0.65,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {draggedNode.displayNumber}
+              </div>
+            )}
+            {dragPreview && nearestDropSlot && (
+              <>
+                <div
+                  className="absolute z-[90] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#00A3FF] pointer-events-none shadow-[0_0_14px_5px_rgba(0,163,255,0.9)]"
+                  style={{ left: nearestDropSlot.x, top: nearestDropSlot.y }}
+                />
+                <div
+                  className="absolute z-[100] rounded border border-[#00A3FF] bg-gray-950/90 px-2 py-1 text-xs font-bold text-white pointer-events-none whitespace-nowrap shadow-[0_0_10px_rgba(0,163,255,0.65)]"
+                  style={{ left: dragPreview.pointerX + 16, top: dragPreview.pointerY + 16 }}
+                >
+                  Topic {topics.findIndex((topic) => topic.id === nearestDropSlot?.targetTopicId) + 1},
+                  {' '}position {nearestDropSlot.targetIndex + 1}
+                </div>
+              </>
+            )}
 
 
           </div>
