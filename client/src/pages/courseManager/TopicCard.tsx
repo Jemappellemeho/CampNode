@@ -41,6 +41,9 @@ interface TopicCardProps {
   suggestErrorTopic: Record<string, string>;
   handleTopicDrop: (srcId: string, targetId: string) => void;
   handleSubtopicDrop: (srcId: string, targetId: string, targetParentId: string) => void;
+  performMove: (subtopicId: string, targetParentId: string, targetIndex: number) => Promise<void>;
+  draggingSubtopicId: string | null;
+  setDraggingSubtopicId: React.Dispatch<React.SetStateAction<string | null>>;
   prereqBusy: boolean;
   onPrerequisiteToggle: (subtopicId: string, prerequisiteId: string, checked: boolean) => void;
   handleReplacementFile: (file: File | null) => void;
@@ -62,7 +65,7 @@ interface TopicCardProps {
     warnings: Violation[];
 }
 
-export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, prereqBusy, onPrerequisiteToggle, handleReplacementFile, saveTopicSettings, saveSubtopicLinks, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
+export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, performMove, draggingSubtopicId, setDraggingSubtopicId, prereqBusy, onPrerequisiteToggle, handleReplacementFile, saveTopicSettings, saveSubtopicLinks, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
   const warnedIds = new Set(warnings.map((v) => v.itemId));
   const topicCollapsed = !expandedMainTopics[topic.id];
   const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
@@ -152,6 +155,20 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                       )}
 
                       <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
+                        {draggingSubtopicId && (
+                          <div
+                            className="h-4 w-full cursor-copy rounded transition-colors hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void performMove(e.dataTransfer.getData('subtopicId'), topic.id, 0);
+                            }}
+                          />
+                        )}
                         {topic.subtopics?.map((sub: any, sIdx: number) => (
                           <div 
                             key={sub.id} 
@@ -159,6 +176,10 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             onDragStart={(e) => {
                                e.stopPropagation();
                                e.dataTransfer.setData('subtopicId', sub.id);
+                               setDraggingSubtopicId(sub.id);
+                             }}
+                            onDragEnd={() => {
+                              setDraggingSubtopicId(null);
                             }}
                             onDragOver={(e) => {
                                e.preventDefault();
@@ -206,6 +227,24 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             )}
                           </div>
                         ))}
+                        {draggingSubtopicId && (
+                          <div
+                            className="h-4 w-full cursor-copy rounded transition-colors hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const subtopicId = e.dataTransfer.getData('subtopicId');
+                              const targetIndex = (topic.subtopics || []).filter(
+                                (sub: any) => sub.id !== subtopicId
+                              ).length;
+                              void performMove(subtopicId, topic.id, targetIndex);
+                            }}
+                          />
+                        )}
                         {/* #5: related concepts (Wikidata/DBpedia) → candidate subtopics for professor review */}
                         {topic.wikidataId && (
                           <div className="mt-3 rounded-2xl border border-dashed border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10 p-3">

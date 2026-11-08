@@ -35,13 +35,57 @@ interface DragGesture {
   cancelled: boolean;
 }
 
-// Cubic Bezier arrow from the bottom-center of the prerequisite node to the bottom-center of the dependent node
-function prereqArrowPath(x1: number, y1: number, x2: number, y2: number) {
-  const d = Math.min(120, Math.max(40, 40 + Math.abs(x2 - x1) * 0.15));
-  const sameCol = Math.abs(x2 - x1) < 20;
-  const shift = sameCol ? 70 : 0;
-  return `M ${x1} ${y1} C ${x1 + shift} ${y1 + d}, ${x2 + shift} ${y2 + d}, ${x2} ${y2}`;
+function prereqArrowPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  nodeSize: number,
+  amberIndex?: number
+) {
+  const half = nodeSize / 2;
+  const centerDy = y2 - y1;
+  let startX = x1 + half - 14;
+  let startY = y1 + half;
+  let endX = x2 - half + 14;
+  let endY = y2 + half;
+  let control1X: number;
+  let control1Y: number;
+  let control2X: number;
+  let control2Y: number;
+  let depth: number;
+
+  if (centerDy < -40) {
+    startY = y1 - half;
+    endY = y2 + half;
+    depth = Math.min(120, Math.max(40, 0.35 * Math.abs(centerDy)));
+    control1X = startX;
+    control1Y = startY - depth;
+    control2X = endX;
+    control2Y = endY + depth;
+  } else if (centerDy > 40) {
+    startY = y1 + half;
+    endY = y2 - half;
+    depth = Math.min(120, Math.max(40, 0.35 * Math.abs(centerDy)));
+    control1X = startX;
+    control1Y = startY + depth;
+    control2X = endX;
+    control2Y = endY - depth;
+  } else {
+    depth = Math.min(90, Math.max(45, 45 + 0.12 * Math.abs(endX - startX)));
+    control1X = startX + 20;
+    control1Y = startY + depth;
+    control2X = endX - 20;
+    control2Y = endY + depth;
+  }
+
+  if (amberIndex !== undefined) {
+    control1Y += amberIndex * 14;
+    control2Y += amberIndex * 14;
+  }
+  return `M ${startX} ${startY} C ${control1X} ${control1Y}, ${control2X} ${control2Y}, ${endX} ${endY}`;
 }
+
 export default function ProfessorGraph({
   courseId,
   courseTitle,
@@ -144,18 +188,21 @@ export default function ProfessorGraph({
   const visibleFlowNodes: GraphDropNode[] = flatNodes.flatMap((node) => {
     const point = coordsMap[node.id];
     if (!point) return [];
+    const topicId = node.isMain ? node.id : node.parentId;
     return [{
       id: node.id,
       kind: node.isMain ? 'topic' : 'subtopic',
-      topicId: node.isMain ? node.id : node.parentId,
+      topicId,
       index: node.isMain ? -1 : node.subtopicIndex,
       x: point.px,
       y: point.py,
       collapsed: node.isMain && !(expandedMap[node.id] ?? true),
+      flowIndex: node.listIndex,
+      subtopicCount: topics.find((topic) => topic.id === topicId)?.subtopics?.length ?? 0,
     }];
   });
   const dropSlots = dragPreview
-    ? getGraphDropSlots(visibleFlowNodes, dragPreview.subtopicId)
+    ? getGraphDropSlots(visibleFlowNodes, dragPreview.subtopicId, cols)
     : [];
   let nearestDropSlot: GraphDropSlot | null = null;
   if (dragPreview) {
@@ -219,7 +266,7 @@ export default function ProfessorGraph({
       const bounds = event.currentTarget.getBoundingClientRect();
       const pointerX = event.clientX - bounds.left;
       const pointerY = event.clientY - bounds.top;
-      const slots = getGraphDropSlots(visibleFlowNodes, gesture.subtopicId);
+      const slots = getGraphDropSlots(visibleFlowNodes, gesture.subtopicId, cols);
       const target = slots.reduce<GraphDropSlot | null>((nearest, slot) => {
         if (!nearest) return slot;
         return Math.hypot(slot.x - pointerX, slot.y - pointerY) <
@@ -268,6 +315,18 @@ export default function ProfessorGraph({
   // A link is wrong if its prerequisite is not earlier than the item that needs it
   const violations = findViolations(topics);
   const flaggedEdges = new Set(violations.map((v) => `${v.prerequisiteId}->${v.itemId}`));
+  const amberArrowOrder = new Map(
+    [...violations]
+      .filter((violation) => coordsMap[violation.prerequisiteId] && coordsMap[violation.itemId])
+      .sort((a, b) =>
+        a.prerequisiteId.localeCompare(b.prerequisiteId) ||
+        a.itemId.localeCompare(b.itemId)
+      )
+      .map((violation, index) => [
+        `${violation.prerequisiteId}->${violation.itemId}`,
+        index,
+      ])
+  );
   const warningCounts = new Map<string, number>();
   violations.forEach((v) => warningCounts.set(v.itemId, (warningCounts.get(v.itemId) || 0) + 1));
 
@@ -283,21 +342,33 @@ export default function ProfessorGraph({
               const edgeKey = `${p.id}->${item.id}`;
               const isViolation = flaggedEdges.has(edgeKey);
               const touchesToggled = shownPrereqNodes.has(p.id) || shownPrereqNodes.has(item.id);
-              const half = coreNodeSize / 2;
               if (isViolation) {
                 const violation = violations.find(
                   (entry) => entry.itemId === item.id && entry.prerequisiteId === p.id
                 );
                 prereqLines.push({
                   key: `prereq-${p.id}-${item.id}`,
-                  d: prereqArrowPath(pCoord.px, pCoord.py + half, iCoord.px, iCoord.py + half),
+                  d: prereqArrowPath(
+                    pCoord.px,
+                    pCoord.py,
+                    iCoord.px,
+                    iCoord.py,
+                    coreNodeSize,
+                    amberArrowOrder.get(edgeKey) ?? 0
+                  ),
                   isViolation: true,
                   title: violation ? violationText(violation) : undefined,
                 });
               } else if (touchesToggled) {
                 prereqLines.push({
                   key: `prereq-${p.id}-${item.id}`,
-                  d: prereqArrowPath(pCoord.px, pCoord.py + half, iCoord.px, iCoord.py + half),
+                  d: prereqArrowPath(
+                    pCoord.px,
+                    pCoord.py,
+                    iCoord.px,
+                    iCoord.py,
+                    coreNodeSize
+                  ),
                   isViolation: false,
                 });
               }

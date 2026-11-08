@@ -30,6 +30,7 @@ export default function CourseManager() {
   const [moveBusy, setMoveBusy] = useState(false);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [movingSubtopicId, setMovingSubtopicId] = useState<string | null>(null);
+  const [draggingSubtopicId, setDraggingSubtopicId] = useState<string | null>(null);
   const [prereqBusy, setPrereqBusy] = useState(false);
   const moveBusyRef = useRef(false);
   const moveMessageTimerRef = useRef<number | null>(null);
@@ -991,6 +992,9 @@ export default function CourseManager() {
                       suggestErrorTopic={suggestErrorTopic}
                       handleTopicDrop={handleTopicDrop}
                       handleSubtopicDrop={handleSubtopicDrop}
+                      performMove={performMove}
+                      draggingSubtopicId={draggingSubtopicId}
+                      setDraggingSubtopicId={setDraggingSubtopicId}
                       prereqBusy={prereqBusy}
                       onPrerequisiteToggle={saveSubtopicPrerequisites}
                       handleReplacementFile={handleReplacementFile}
