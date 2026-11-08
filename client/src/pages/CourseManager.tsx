@@ -5,6 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Trash2, ChevronLeft, Globe, Lock, List, Network } from 'lucide-react';
 import { api } from '../utils/api';
+import { moveSubtopic } from '../utils/moveSubtopic';
 import GuideOverlay from '../components/GuideOverlay';
 import { hasSeenGuide, markGuideSeen } from '../utils/guideSession';
 import WikidataSearchField from './courseManager/WikidataSearchField';
@@ -27,6 +28,11 @@ export default function CourseManager() {
   // F-01: Toggle between list editor and professor prerequisite graph
   const [nodesViewMode, setNodesViewMode] = useState<'list' | 'graph'>('list');
   const [reorderError, setReorderError] = useState('');
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveMessage, setMoveMessage] = useState<string | null>(null);
+  const [movingSubtopicId, setMovingSubtopicId] = useState<string | null>(null);
+  const moveBusyRef = useRef(false);
+  const moveMessageTimerRef = useRef<number | null>(null);
 
   const [course, setCourse] = useState<any>(null);
   const [user] = useState<any>(() => {
@@ -107,6 +113,109 @@ export default function CourseManager() {
       setLoading(false);
     }
   }, [courseId]);
+
+  const moveSubtopicLocal = (
+    subtopicId: string,
+    targetParentId: string,
+    targetIndex: number
+  ) => {
+    if (!course?.topics) return course;
+
+    const sourceParent = course.topics.find((topic: any) =>
+      topic.subtopics?.some((subtopic: any) => subtopic.id === subtopicId)
+    );
+    const targetParent = course.topics.find((topic: any) => topic.id === targetParentId);
+    if (!sourceParent || !targetParent) return course;
+
+    const movedSubtopic = sourceParent.subtopics.find(
+      (subtopic: any) => subtopic.id === subtopicId
+    );
+    const sourceSubtopics = sourceParent.subtopics.filter(
+      (subtopic: any) => subtopic.id !== subtopicId
+    );
+    const targetSubtopics = sourceParent.id === targetParentId
+      ? [...sourceSubtopics]
+      : [...(targetParent.subtopics || [])];
+    targetSubtopics.splice(targetIndex, 0, {
+      ...movedSubtopic,
+      parentTopicId: targetParentId,
+    });
+
+    const renumber = (subtopics: any[]) =>
+      subtopics.map((subtopic, order) => ({ ...subtopic, order }));
+
+    const nextCourse = {
+      ...course,
+      topics: course.topics.map((topic: any) => {
+        if (topic.id === sourceParent.id && topic.id === targetParentId) {
+          return { ...topic, subtopics: renumber(targetSubtopics) };
+        }
+        if (topic.id === sourceParent.id) {
+          return { ...topic, subtopics: renumber(sourceSubtopics) };
+        }
+        if (topic.id === targetParentId) {
+          return { ...topic, subtopics: renumber(targetSubtopics) };
+        }
+        return topic;
+      }),
+    };
+
+    setCourse(nextCourse);
+    return course;
+  };
+
+  const restoreCourse = (previous: any) => {
+    setCourse(previous);
+  };
+
+  const performMove = async (
+    subtopicId: string,
+    targetParentId: string,
+    targetIndex: number
+  ) => {
+    if (moveBusy || moveBusyRef.current) return;
+    moveBusyRef.current = true;
+    const moveStartedAt = Date.now();
+    setMoveBusy(true);
+    setMovingSubtopicId(subtopicId);
+    try {
+      const previous = moveSubtopicLocal(subtopicId, targetParentId, targetIndex);
+      const result = await moveSubtopic(courseId || '', subtopicId, targetParentId, targetIndex);
+      if (result.ok) {
+        setMoveMessage(null);
+        if (moveMessageTimerRef.current !== null) {
+          window.clearTimeout(moveMessageTimerRef.current);
+          moveMessageTimerRef.current = null;
+        }
+        await fetchCourse();
+      } else {
+        restoreCourse(previous);
+        setMoveMessage(result.message || 'Move failed, nothing was changed.');
+        if (moveMessageTimerRef.current !== null) {
+          window.clearTimeout(moveMessageTimerRef.current);
+        }
+        moveMessageTimerRef.current = window.setTimeout(() => {
+          setMoveMessage(null);
+          moveMessageTimerRef.current = null;
+        }, 4000);
+      }
+    } finally {
+      const minimumSpinnerTime = 300;
+      const remainingSpinnerTime = minimumSpinnerTime - (Date.now() - moveStartedAt);
+      if (remainingSpinnerTime > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingSpinnerTime));
+      }
+      moveBusyRef.current = false;
+      setMoveBusy(false);
+      setMovingSubtopicId(null);
+    }
+  };
+
+  useEffect(() => () => {
+    if (moveMessageTimerRef.current !== null) {
+      window.clearTimeout(moveMessageTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     fetchCourse();
@@ -763,6 +872,12 @@ export default function CourseManager() {
                 <button onClick={() => setIsAddingTopic(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase shadow-md">+ Add Topic</button>
               </div>
 
+              {moveMessage && (
+                <div className="p-3 rounded-xl bg-amber-100 border border-amber-300 text-amber-800 text-xs font-bold">
+                  {moveMessage}
+                </div>
+              )}
+
               {reorderError && (
                 <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold">
                   {reorderError}
@@ -775,6 +890,8 @@ export default function CourseManager() {
                   courseTitle={course?.title || 'Course Manager'}
                   topics={course?.topics || []}
                   onDashboardClick={() => navigate('/dashboard')}
+                  performMove={performMove}
+                  movingSubtopicId={movingSubtopicId}
                 />
               ) : (
                 <>

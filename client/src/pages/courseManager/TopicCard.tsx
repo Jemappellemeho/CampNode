@@ -3,11 +3,11 @@ import {
   Plus, Trash2, GripVertical,
   X, ChevronRight, ChevronDown, Sparkles, Edit2,
 } from 'lucide-react';
-import { BLUE } from './courseManagerConstants';
 import WikidataSearchField from './WikidataSearchField';
 import TopicSettingsPanel from './TopicSettingsPanel';
 import SubtopicSettingsPanel from './SubtopicSettingsPanel';
 import { cleanTitle } from '../../utils/cleanTitle'
+import { violationText, type Violation } from '../../utils/prerequisiteViolations';
 
 interface TopicCardProps {
   topic: any;
@@ -56,7 +56,7 @@ interface TopicCardProps {
   selectWikiResult: (item: any, setQuery: (value: string) => void, setResults: (value: any[]) => void, setForm: any) => void;
   setNewSubWikiQuery: (value: string) => void;
   setNewSubWikiResults: (value: any[]) => void;
-    warnings: { itemId: string; prerequisiteId: string }[];
+    warnings: Violation[];
 }
 
 export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
@@ -64,11 +64,13 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
   const topicCollapsed = !expandedMainTopics[topic.id];
   const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
   const warnTitle = (item: any) => {
-    const late = warnings
-      .filter((v) => v.itemId === item.id)
-      .map((v) => (item.prerequisites || []).find((p: any) => p.id === v.prerequisiteId)?.name)
-      .filter(Boolean);
-    return `Prerequisite comes later: ${late.join(', ')}`;
+    const itemWarnings = warnings.filter((violation) => violation.itemId === item.id);
+    if (item.id === topic.id && topicCollapsed) {
+      const affectedIds = new Set([topic.id, ...(topic.subtopics || []).map((sub: any) => sub.id)]);
+      const hiddenWarnings = warnings.filter((violation) => affectedIds.has(violation.itemId));
+      return `${hiddenWarnings.length} prerequisite violations:\n${hiddenWarnings.map(violationText).join('\n')}`;
+    }
+    return itemWarnings.map(violationText).join('\n');
   };
   return (
     <div
@@ -90,7 +92,6 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
       <div className="flex items-center justify-between mb-4 font-bold">
         <div className="flex items-center gap-3 w-full">
           <GripVertical size={16} className="text-gray-300 cursor-grab group-hover:text-gray-500" />
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: BLUE }}>{i + 1}</div>
           {editingNameId === topic.id ? (
             <div className="flex items-center gap-2 w-full">
               <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(topic.id)} />
@@ -99,6 +100,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
             </div>
           ) : (
             <div className="flex items-center gap-2 group/title w-full">
+              <span className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}</span>
               <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
               {topicHasWarning && (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={topicCollapsed && !warnedIds.has(topic.id) ? 'A subtopic inside has a prerequisite that comes later' : warnTitle(topic)}>!</span>
@@ -154,7 +156,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                       )}
 
                       <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
-                        {topic.subtopics?.map((sub: any) => (
+                        {topic.subtopics?.map((sub: any, sIdx: number) => (
                           <div 
                             key={sub.id} 
                             draggable
@@ -184,6 +186,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2 group/subtitle">
+                                    <span className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}.{sIdx + 1}</span>
                                     <p className="font-bold dark:text-white text-sm">{cleanTitle(sub.name)}</p>
                                     {warnedIds.has(sub.id) && (
                                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={warnTitle(sub)}>!</span>

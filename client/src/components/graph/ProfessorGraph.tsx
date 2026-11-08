@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { findViolations } from '../../utils/prerequisiteViolations';
+import { findViolations, violationText } from '../../utils/prerequisiteViolations';
 import { computeRetroGridLayout } from '../../utils/retroGridLayout';
 import RetroNode from '../RetroNode';
-import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X, ArrowRightLeft } from 'lucide-react';
+import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X, ArrowRightLeft, Loader2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { getGraphDropSlots, type GraphDropNode, type GraphDropSlot } from './graphDropSlots';
 
@@ -11,6 +11,12 @@ interface ProfessorGraphProps {
   courseTitle: string;
   topics: any[];
   onDashboardClick: () => void;
+  performMove: (
+    subtopicId: string,
+    targetParentId: string,
+    targetIndex: number
+  ) => Promise<void>;
+  movingSubtopicId: string | null;
   onRefreshCourse?: () => void;
 }
 
@@ -41,6 +47,8 @@ export default function ProfessorGraph({
   courseTitle,
   topics,
   onDashboardClick,
+  performMove,
+  movingSubtopicId,
   onRefreshCourse,
 }: ProfessorGraphProps) {
   const [showPrerequisites, setShowPrerequisites] = useState(false);
@@ -221,11 +229,11 @@ export default function ProfessorGraph({
       }, null);
 
       if (target) {
-        console.log({
-          subtopicId: gesture.subtopicId,
-          targetTopicId: target.targetTopicId,
-          targetIndex: target.targetIndex,
-        });
+        void performMove(
+          gesture.subtopicId,
+          target.targetTopicId,
+          target.targetIndex
+        );
       }
       setDragPreview(null);
     }
@@ -263,7 +271,7 @@ export default function ProfessorGraph({
   const warningCounts = new Map<string, number>();
   violations.forEach((v) => warningCounts.set(v.itemId, (warningCounts.get(v.itemId) || 0) + 1));
 
-  const prereqLines: Array<{ key: string; d: string; isViolation: boolean }> = [];
+  const prereqLines: Array<{ key: string; d: string; isViolation: boolean; title?: string }> = [];
   if (showPrerequisites) {
     topics.forEach((topic) => {
       const checkPrereqs = (item: any) => {
@@ -277,10 +285,14 @@ export default function ProfessorGraph({
               const touchesToggled = shownPrereqNodes.has(p.id) || shownPrereqNodes.has(item.id);
               const half = coreNodeSize / 2;
               if (isViolation) {
+                const violation = violations.find(
+                  (entry) => entry.itemId === item.id && entry.prerequisiteId === p.id
+                );
                 prereqLines.push({
                   key: `prereq-${p.id}-${item.id}`,
                   d: prereqArrowPath(pCoord.px, pCoord.py + half, iCoord.px, iCoord.py + half),
                   isViolation: true,
+                  title: violation ? violationText(violation) : undefined,
                 });
               } else if (touchesToggled) {
                 prereqLines.push({
@@ -480,7 +492,9 @@ export default function ProfessorGraph({
                   fill="none"
                   markerEnd="url(#arrow-warn)"
                   style={{ filter: 'drop-shadow(0 0 6px #FFBF00)' }}
-                />
+                >
+                  {line.title && <title>{line.title}</title>}
+                </path>
               ))}
             </svg>
 
@@ -499,6 +513,15 @@ export default function ProfessorGraph({
                 ? (node.subtopics || []).reduce((n: number, s: any) => n + (warningCounts.get(s.id) || 0), 0)
                 : 0;
               const hasWarnings = (warningCounts.get(node.id) || 0) + hiddenWarnings > 0;
+              const nodeViolations = isCollapsedTopic
+                ? violations.filter((violation) =>
+                    violation.itemId === node.id ||
+                    (node.subtopics || []).some((sub: any) => sub.id === violation.itemId)
+                  )
+                : violations.filter((violation) => violation.itemId === node.id);
+              const warningTitle = isCollapsedTopic
+                ? `${nodeViolations.length} prerequisite violations:\n${nodeViolations.map(violationText).join('\n')}`
+                : nodeViolations.map(violationText).join('\n');
               const isHighlighted = highlightedId === node.id;
 
               return (
@@ -529,10 +552,15 @@ export default function ProfessorGraph({
                     setHighlightedId(node.id);
                   }}
                 >
+                  {movingSubtopicId === node.id && (
+                    <span className="absolute inset-0 z-40 flex items-center justify-center rounded-[1.75rem] bg-blue-950/60 pointer-events-none">
+                      <Loader2 size={28} className="animate-spin text-white drop-shadow-[0_0_6px_#3B82F6]" />
+                    </span>
+                  )}
                   {hasWarnings && (
                     <span
                       className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
-                      title="Backward prerequisite violation detected!"
+                      title={warningTitle}
                     >
                       !
                     </span>
