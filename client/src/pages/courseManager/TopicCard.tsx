@@ -40,9 +40,12 @@ interface TopicCardProps {
   suggestionsByTopic: Record<string, any[]>;
   suggestErrorTopic: Record<string, string>;
   handleTopicDrop: (srcId: string, targetId: string) => void;
-  handleSubtopicDrop: (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => void;
+  handleSubtopicDrop: (srcId: string, targetId: string, targetParentId: string) => void;
+  prereqBusy: boolean;
+  onPrerequisiteToggle: (subtopicId: string, prerequisiteId: string, checked: boolean) => void;
   handleReplacementFile: (file: File | null) => void;
   saveTopicSettings: (topicId: string) => void;
+  saveSubtopicLinks: (topicId: string) => void;
   clearAttachedPdf: (topicId: string) => void;
   renderQuizOverview: (topic: any, options?: { skipTest?: boolean }) => React.ReactNode;
   renderResourceOverview: (topic: any) => React.ReactNode;
@@ -59,7 +62,7 @@ interface TopicCardProps {
     warnings: Violation[];
 }
 
-export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
+export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, prereqBusy, onPrerequisiteToggle, handleReplacementFile, saveTopicSettings, saveSubtopicLinks, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
   const warnedIds = new Set(warnings.map((v) => v.itemId));
   const topicCollapsed = !expandedMainTopics[topic.id];
   const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
@@ -78,13 +81,6 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
       onDragStart={(e) => e.dataTransfer.setData('topicId', topic.id)}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
-        // A subtopic dropped on the card itself (not on one of the rows) goes to the end
-        // of this topic - that is also the only way into a topic with no subtopics yet.
-        const draggedSubtopicId = e.dataTransfer.getData('subtopicId');
-        if (draggedSubtopicId) {
-          handleSubtopicDrop(draggedSubtopicId, '', e.dataTransfer.getData('parentTopicId'), topic.id);
-          return;
-        }
         handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id);
       }}
       className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
@@ -163,7 +159,6 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             onDragStart={(e) => {
                                e.stopPropagation();
                                e.dataTransfer.setData('subtopicId', sub.id);
-                               e.dataTransfer.setData('parentTopicId', topic.id);
                             }}
                             onDragOver={(e) => {
                                e.preventDefault();
@@ -171,7 +166,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             }}
                             onDrop={(e) => {
                                e.stopPropagation();
-                               handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, e.dataTransfer.getData('parentTopicId'), topic.id);
+                               handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, topic.id);
                             }}
                             className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}
                           >
@@ -207,7 +202,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             </div>
 
                             {editingSubId === sub.id && (
-                              <SubtopicSettingsPanel sub={sub} course={course} linkData={linkData} setLinkData={setLinkData} prereqSelection={prereqSelection} setPrereqSelection={setPrereqSelection} handleReplacementFile={handleReplacementFile} saveTopicSettings={saveTopicSettings} />
+                              <SubtopicSettingsPanel sub={sub} course={course} linkData={linkData} setLinkData={setLinkData} prereqBusy={prereqBusy} onPrerequisiteToggle={onPrerequisiteToggle} handleReplacementFile={handleReplacementFile} saveTopicSettings={saveSubtopicLinks} />
                             )}
                           </div>
                         ))}

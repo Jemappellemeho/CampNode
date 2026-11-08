@@ -13,7 +13,6 @@ import TopicCard from './courseManager/TopicCard';
 import QuizEditorModal, { getEmptyQuestion } from './courseManager/QuizEditorModal';
 import CourseStatisticsTab from './courseManager/CourseStatisticsTab';
 import { findViolations } from '../utils/prerequisiteViolations';
-import { planSubtopicMove, applyMoveResult } from '../utils/subtopicMove';
 import { SHOW_LIST_WARNINGS } from './courseManager/courseManagerConstants';
 import {
   OverviewTab,
@@ -31,8 +30,10 @@ export default function CourseManager() {
   const [moveBusy, setMoveBusy] = useState(false);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [movingSubtopicId, setMovingSubtopicId] = useState<string | null>(null);
+  const [prereqBusy, setPrereqBusy] = useState(false);
   const moveBusyRef = useRef(false);
   const moveMessageTimerRef = useRef<number | null>(null);
+  const prereqBusyRef = useRef(false);
 
   const [course, setCourse] = useState<any>(null);
   const [user] = useState<any>(() => {
@@ -168,6 +169,17 @@ export default function CourseManager() {
     setCourse(previous);
   };
 
+  const showMoveMessage = (message: string) => {
+    setMoveMessage(message);
+    if (moveMessageTimerRef.current !== null) {
+      window.clearTimeout(moveMessageTimerRef.current);
+    }
+    moveMessageTimerRef.current = window.setTimeout(() => {
+      setMoveMessage(null);
+      moveMessageTimerRef.current = null;
+    }, 4000);
+  };
+
   const performMove = async (
     subtopicId: string,
     targetParentId: string,
@@ -190,14 +202,7 @@ export default function CourseManager() {
         await fetchCourse();
       } else {
         restoreCourse(previous);
-        setMoveMessage(result.message || 'Move failed, nothing was changed.');
-        if (moveMessageTimerRef.current !== null) {
-          window.clearTimeout(moveMessageTimerRef.current);
-        }
-        moveMessageTimerRef.current = window.setTimeout(() => {
-          setMoveMessage(null);
-          moveMessageTimerRef.current = null;
-        }, 4000);
+        showMoveMessage(result.message || 'Move failed, nothing was changed.');
       }
     } finally {
       const minimumSpinnerTime = 300;
@@ -404,9 +409,7 @@ export default function CourseManager() {
       setPrereqSelection([]);
       return;
     }
-    const current = course.topics
-      .flatMap((t: any) => [t, ...(t.subtopics || [])])
-      .find((t: any) => t.id === editingSubId);
+    const current = course.topics.find((topic: any) => topic.id === editingSubId);
     setPrereqSelection(
       Array.isArray(current?.prerequisites) ? current.prerequisites.map((p: any) => p.id) : []
     );
@@ -421,6 +424,60 @@ export default function CourseManager() {
       console.error('Could not save prerequisites:', e);
     }
     await saveLinks(topicId);
+  };
+
+  const saveSubtopicPrerequisites = async (
+    subtopicId: string,
+    prerequisiteId: string,
+    checked: boolean
+  ) => {
+    if (!course?.topics || prereqBusyRef.current) return;
+    const subtopic = course.topics
+      .flatMap((topic: any) => topic.subtopics || [])
+      .find((item: any) => item.id === subtopicId);
+    if (!subtopic) return;
+
+    const currentIds: string[] = (subtopic.prerequisites || []).map((item: any) => item.id);
+    const nextIds = checked
+      ? [...currentIds, prerequisiteId]
+      : currentIds.filter((id) => id !== prerequisiteId);
+    const previous = course;
+    const prerequisiteById = new Map(
+      course.topics.flatMap((topic: any) => [topic, ...(topic.subtopics || [])])
+        .map((item: any) => [item.id, item] as const)
+    );
+    const nextCourse = {
+      ...course,
+      topics: course.topics.map((topic: any) => ({
+        ...topic,
+        subtopics: (topic.subtopics || []).map((item: any) =>
+          item.id === subtopicId
+            ? {
+                ...item,
+                prerequisites: nextIds
+                  .map((id) => prerequisiteById.get(id))
+                  .filter(Boolean)
+                  .map((item: any) => ({ id: item.id, name: item.name })),
+              }
+            : item
+        ),
+      })),
+    };
+
+    prereqBusyRef.current = true;
+    setPrereqBusy(true);
+    setCourse(nextCourse);
+    try {
+      await api.put(`/topics/${subtopicId}`, { prerequisiteIds: nextIds });
+      await fetchCourse();
+    } catch (error) {
+      restoreCourse(previous);
+      console.error('Could not save prerequisites:', error);
+      showMoveMessage('Saving failed, nothing was changed.');
+    } finally {
+      prereqBusyRef.current = false;
+      setPrereqBusy(false);
+    }
   };
 
   const handleReplacementFile = (file: File | null) => {
@@ -469,55 +526,27 @@ export default function CourseManager() {
     }
   };
 
-  // F-09, F-10, F-11: Drag-drop subtopics inside the same topic OR into another topic.
-  // One drop = one request = one transaction on the server. The optimistic update is
-  // applied first, then replaced by the renumbered lists the server sends back. If the
-  // request fails, nothing was written: we roll the UI back, reload the course and
-  // explain why.
-  const handleSubtopicDrop = async (
+  const handleSubtopicDrop = (
     srcId: string,
     targetId: string,
-    parentTopicId: string,
     targetParentId: string
   ) => {
-    if (!course || !srcId || !parentTopicId || !targetParentId) return;
-    setReorderError('');
+    if (!course || !srcId || !targetId || !targetParentId || srcId === targetId) return;
+    const sourceParent = course.topics.find((topic: any) =>
+      topic.subtopics?.some((subtopic: any) => subtopic.id === srcId)
+    );
+    const targetParent = course.topics.find((topic: any) => topic.id === targetParentId);
+    const targetIndex = targetParent?.subtopics?.findIndex(
+      (subtopic: any) => subtopic.id === targetId
+    );
+    const sourceIndex = sourceParent?.subtopics?.findIndex(
+      (subtopic: any) => subtopic.id === srcId
+    );
+    if (!sourceParent || !targetParent || targetIndex === undefined || targetIndex < 0 || sourceIndex === undefined || sourceIndex < 0) return;
 
-    const plan = planSubtopicMove(course.topics || [], {
-      subtopicId: srcId,
-      sourceParentId: parentTopicId,
-      targetParentId,
-      dropTargetId: targetId,
-    });
-    if (!plan) return;
-
-    const previousTopics = course.topics;
-    setCourse((prev: any) => (prev ? { ...prev, topics: plan.topics } : prev));
-
-    try {
-      const res = await api.put(`/courses/${courseId}/topics/${srcId}/move`, {
-        targetParentId,
-        targetIndex: plan.targetIndex,
-      });
-      const reconciled = applyMoveResult(plan.topics, res.data);
-      if (reconciled) {
-        setCourse((prev: any) => (prev ? { ...prev, topics: reconciled } : prev));
-      } else {
-        // The server order did not line up with what we hold: take its version instead.
-        fetchCourse();
-      }
-    } catch (err: any) {
-      console.error('Subtopic move failed:', err);
-      const reason = err?.response?.data?.error;
-      setReorderError(
-        reason
-          ? `Could not move subtopic: ${reason}`
-          : 'Could not move subtopic. Restoring the saved course structure.'
-      );
-      // The move was all-or-nothing, so the pre-drop state is still the saved one.
-      setCourse((prev: any) => (prev ? { ...prev, topics: previousTopics } : prev));
-      fetchCourse();
-    }
+    const finalIndex = targetIndex -
+      (sourceParent.id === targetParent.id && sourceIndex < targetIndex ? 1 : 0);
+    void performMove(srcId, targetParentId, finalIndex);
   };
 
   const startEditingName = (id: string, currentName: string) => {
@@ -962,8 +991,11 @@ export default function CourseManager() {
                       suggestErrorTopic={suggestErrorTopic}
                       handleTopicDrop={handleTopicDrop}
                       handleSubtopicDrop={handleSubtopicDrop}
+                      prereqBusy={prereqBusy}
+                      onPrerequisiteToggle={saveSubtopicPrerequisites}
                       handleReplacementFile={handleReplacementFile}
                       saveTopicSettings={saveTopicSettings}
+                      saveSubtopicLinks={saveLinks}
                       clearAttachedPdf={clearAttachedPdf}
                       renderQuizOverview={renderQuizOverview}
                       renderResourceOverview={renderResourceOverview}
