@@ -75,9 +75,12 @@ function prereqArrowPath(
     depth = Math.min(90, Math.max(45, 45 + 0.12 * Math.abs(endX - startX)));
     control1X = startX + 20;
     control1Y = startY + depth;
-    control2X = endX - 20;
+    control2X = endX;
     control2Y = endY + depth;
   }
+
+  const arrowheadLength = 7 * (amberIndex === undefined ? 2 : 3);
+  endY += centerDy > 40 ? -arrowheadLength : arrowheadLength;
 
   if (amberIndex !== undefined) {
     control1Y += amberIndex * 14;
@@ -537,10 +540,10 @@ export default function ProfessorGraph({
 
             <svg className="absolute inset-0 pointer-events-none z-[15]" width="100%" height="100%">
               <defs>
-                <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <marker id="arrow-warn" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
                 </marker>
-                <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <marker id="arrow-ok" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
                 </marker>
               </defs>
