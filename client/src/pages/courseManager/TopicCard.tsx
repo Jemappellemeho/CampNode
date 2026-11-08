@@ -3,11 +3,11 @@ import {
   Plus, Trash2, GripVertical,
   X, ChevronRight, ChevronDown, Sparkles, Edit2,
 } from 'lucide-react';
-import { BLUE } from './courseManagerConstants';
 import WikidataSearchField from './WikidataSearchField';
 import TopicSettingsPanel from './TopicSettingsPanel';
 import SubtopicSettingsPanel from './SubtopicSettingsPanel';
 import { cleanTitle } from '../../utils/cleanTitle'
+import { violationText, type Violation } from '../../utils/prerequisiteViolations';
 
 interface TopicCardProps {
   topic: any;
@@ -40,9 +40,15 @@ interface TopicCardProps {
   suggestionsByTopic: Record<string, any[]>;
   suggestErrorTopic: Record<string, string>;
   handleTopicDrop: (srcId: string, targetId: string) => void;
-  handleSubtopicDrop: (srcId: string, targetId: string, parentTopicId: string, targetParentId: string) => void;
+  handleSubtopicDrop: (srcId: string, targetId: string, targetParentId: string) => void;
+  performMove: (subtopicId: string, targetParentId: string, targetIndex: number) => Promise<void>;
+  draggingSubtopicId: string | null;
+  setDraggingSubtopicId: React.Dispatch<React.SetStateAction<string | null>>;
+  prereqBusy: boolean;
+  onPrerequisiteToggle: (subtopicId: string, prerequisiteId: string, checked: boolean) => void;
   handleReplacementFile: (file: File | null) => void;
   saveTopicSettings: (topicId: string) => void;
+  saveSubtopicLinks: (topicId: string) => void;
   clearAttachedPdf: (topicId: string) => void;
   renderQuizOverview: (topic: any, options?: { skipTest?: boolean }) => React.ReactNode;
   renderResourceOverview: (topic: any) => React.ReactNode;
@@ -56,19 +62,21 @@ interface TopicCardProps {
   selectWikiResult: (item: any, setQuery: (value: string) => void, setResults: (value: any[]) => void, setForm: any) => void;
   setNewSubWikiQuery: (value: string) => void;
   setNewSubWikiResults: (value: any[]) => void;
-    warnings: { itemId: string; prerequisiteId: string }[];
+    warnings: Violation[];
 }
 
-export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, handleReplacementFile, saveTopicSettings, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
+export default function TopicCard({ topic, i, course, editingNameId, editingNameValue, setEditingNameValue, setEditingNameId, saveName, startEditingName, deleteTopic, expandedMainTopics, setExpandedMainTopics, expandedTopics, setExpandedTopics, editingSubId, setEditingSubId, linkData, setLinkData, prereqSelection, setPrereqSelection, addingSubTo, setAddingSubTo, newSubForm, setNewSubForm, newSubWikiQuery, newSubWikiResults, suggestLoadingTopic, suggestionsByTopic, suggestErrorTopic, handleTopicDrop, handleSubtopicDrop, performMove, draggingSubtopicId, setDraggingSubtopicId, prereqBusy, onPrerequisiteToggle, handleReplacementFile, saveTopicSettings, saveSubtopicLinks, clearAttachedPdf, renderQuizOverview, renderResourceOverview, getContentPreviewMeta, openQuizEditor, generateQuizDraft, loadSubtopicSuggestions, acceptSuggestion, addSubtopic, searchWiki, selectWikiResult, setNewSubWikiQuery, setNewSubWikiResults, warnings }: TopicCardProps) {
   const warnedIds = new Set(warnings.map((v) => v.itemId));
   const topicCollapsed = !expandedMainTopics[topic.id];
   const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
   const warnTitle = (item: any) => {
-    const late = warnings
-      .filter((v) => v.itemId === item.id)
-      .map((v) => (item.prerequisites || []).find((p: any) => p.id === v.prerequisiteId)?.name)
-      .filter(Boolean);
-    return `Prerequisite comes later: ${late.join(', ')}`;
+    const itemWarnings = warnings.filter((violation) => violation.itemId === item.id);
+    if (item.id === topic.id && topicCollapsed) {
+      const affectedIds = new Set([topic.id, ...(topic.subtopics || []).map((sub: any) => sub.id)]);
+      const hiddenWarnings = warnings.filter((violation) => affectedIds.has(violation.itemId));
+      return `${hiddenWarnings.length} prerequisite violations:\n${hiddenWarnings.map(violationText).join('\n')}`;
+    }
+    return itemWarnings.map(violationText).join('\n');
   };
   return (
     <div
@@ -76,13 +84,6 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
       onDragStart={(e) => e.dataTransfer.setData('topicId', topic.id)}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
-        // A subtopic dropped on the card itself (not on one of the rows) goes to the end
-        // of this topic - that is also the only way into a topic with no subtopics yet.
-        const draggedSubtopicId = e.dataTransfer.getData('subtopicId');
-        if (draggedSubtopicId) {
-          handleSubtopicDrop(draggedSubtopicId, '', e.dataTransfer.getData('parentTopicId'), topic.id);
-          return;
-        }
         handleTopicDrop(e.dataTransfer.getData('topicId'), topic.id);
       }}
       className="bg-white dark:bg-gray-800 p-6 rounded-3xl border dark:border-gray-700 shadow-sm mb-4 group transition-all"
@@ -90,7 +91,6 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
       <div className="flex items-center justify-between mb-4 font-bold">
         <div className="flex items-center gap-3 w-full">
           <GripVertical size={16} className="text-gray-300 cursor-grab group-hover:text-gray-500" />
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: BLUE }}>{i + 1}</div>
           {editingNameId === topic.id ? (
             <div className="flex items-center gap-2 w-full">
               <input autoFocus className="flex-1 px-2 py-1 text-sm rounded border dark:border-gray-600 outline-none dark:bg-gray-900 dark:text-white" value={editingNameValue} onChange={e => setEditingNameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveName(topic.id)} />
@@ -99,6 +99,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
             </div>
           ) : (
             <div className="flex items-center gap-2 group/title w-full">
+              <span className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}</span>
               <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
               {topicHasWarning && (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={topicCollapsed && !warnedIds.has(topic.id) ? 'A subtopic inside has a prerequisite that comes later' : warnTitle(topic)}>!</span>
@@ -154,14 +155,31 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                       )}
 
                       <div className="pl-6 border-l-2 border-gray-100 dark:border-gray-800 space-y-2 ml-6">
-                        {topic.subtopics?.map((sub: any) => (
+                        {draggingSubtopicId && (
+                          <div
+                            className="h-4 w-full cursor-copy rounded transition-colors hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void performMove(e.dataTransfer.getData('subtopicId'), topic.id, 0);
+                            }}
+                          />
+                        )}
+                        {topic.subtopics?.map((sub: any, sIdx: number) => (
                           <div 
                             key={sub.id} 
                             draggable
                             onDragStart={(e) => {
                                e.stopPropagation();
                                e.dataTransfer.setData('subtopicId', sub.id);
-                               e.dataTransfer.setData('parentTopicId', topic.id);
+                               setDraggingSubtopicId(sub.id);
+                             }}
+                            onDragEnd={() => {
+                              setDraggingSubtopicId(null);
                             }}
                             onDragOver={(e) => {
                                e.preventDefault();
@@ -169,7 +187,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             }}
                             onDrop={(e) => {
                                e.stopPropagation();
-                               handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, e.dataTransfer.getData('parentTopicId'), topic.id);
+                               handleSubtopicDrop(e.dataTransfer.getData('subtopicId'), sub.id, topic.id);
                             }}
                             className={`p-4 rounded-2xl border transition-all ${sub.aiSuggested ? 'border-dashed border-red-500 bg-red-50/30' : 'bg-gray-50/50 dark:bg-gray-900/30 border-transparent'}`}
                           >
@@ -184,6 +202,7 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2 group/subtitle">
+                                    <span className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}.{sIdx + 1}</span>
                                     <p className="font-bold dark:text-white text-sm">{cleanTitle(sub.name)}</p>
                                     {warnedIds.has(sub.id) && (
                                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={warnTitle(sub)}>!</span>
@@ -204,10 +223,28 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
                             </div>
 
                             {editingSubId === sub.id && (
-                              <SubtopicSettingsPanel sub={sub} course={course} linkData={linkData} setLinkData={setLinkData} prereqSelection={prereqSelection} setPrereqSelection={setPrereqSelection} handleReplacementFile={handleReplacementFile} saveTopicSettings={saveTopicSettings} />
+                              <SubtopicSettingsPanel sub={sub} course={course} linkData={linkData} setLinkData={setLinkData} prereqBusy={prereqBusy} onPrerequisiteToggle={onPrerequisiteToggle} handleReplacementFile={handleReplacementFile} saveTopicSettings={saveSubtopicLinks} />
                             )}
                           </div>
                         ))}
+                        {draggingSubtopicId && (
+                          <div
+                            className="h-4 w-full cursor-copy rounded transition-colors hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const subtopicId = e.dataTransfer.getData('subtopicId');
+                              const targetIndex = (topic.subtopics || []).filter(
+                                (sub: any) => sub.id !== subtopicId
+                              ).length;
+                              void performMove(subtopicId, topic.id, targetIndex);
+                            }}
+                          />
+                        )}
                         {/* #5: related concepts (Wikidata/DBpedia) → candidate subtopics for professor review */}
                         {topic.wikidataId && (
                           <div className="mt-3 rounded-2xl border border-dashed border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10 p-3">

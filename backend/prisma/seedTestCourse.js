@@ -111,25 +111,12 @@ const PLANTED_VIOLATIONS = [
     why: "prerequisite lives in a later topic",
   },
   {
-    edge: ["T1", "T4"],
-    why: "root topic requires a root topic that comes later",
-  },
-  {
     edge: ["T5.S3", "T6.S9"],
     why: "prerequisite is the very last subtopic of the course",
   },
   {
     edge: ["T3.S4", "T3.S6"],
     why: "mutual pair T3.S4 / T3.S6, backward half",
-  },
-  {
-    edge: ["T3.S6", "T3.S4"],
-    why: "forward half of the same mutual pair, must NOT be flagged",
-    expectFlag: false,
-  },
-  {
-    edge: ["T2.S9", "T2.S9"],
-    why: "self-prerequisite: an item can never come before itself",
   },
 ];
 

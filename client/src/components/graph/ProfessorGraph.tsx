@@ -1,44 +1,117 @@
-import { useState, useEffect } from 'react';
-import { findViolations } from '../../utils/prerequisiteViolations';
+import { useState, useEffect, useRef } from 'react';
+import { findViolations, violationText } from '../../utils/prerequisiteViolations';
 import { computeRetroGridLayout } from '../../utils/retroGridLayout';
 import RetroNode from '../RetroNode';
-import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X } from 'lucide-react';
+import { Eye, EyeOff, ChevronLeft, Plus, Edit3, Trash2, Link2, X, ArrowRightLeft, Loader2 } from 'lucide-react';
 import { api } from '../../utils/api';
+import { getGraphDropSlots, type GraphDropNode, type GraphDropSlot } from './graphDropSlots';
 
 interface ProfessorGraphProps {
   courseId: string;
   courseTitle: string;
   topics: any[];
   onDashboardClick: () => void;
+  performMove: (
+    subtopicId: string,
+    targetParentId: string,
+    targetIndex: number
+  ) => Promise<void>;
+  movingSubtopicId: string | null;
   onRefreshCourse?: () => void;
 }
-// Curved arrow from the prerequisite (a) to the item that needs it (b), stopping at the node edges
-function curvedArrowPath(a: { px: number; py: number }, b: { px: number; py: number }, r: number, n: number) {
-  const dx = b.px - a.px;
-  const dy = b.py - a.py;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
-  const sx = a.px + ux * r;
-  const sy = a.py + uy * r;
-  const ex = b.px - ux * r;
-  const ey = b.py - uy * r;
-  const sameRow = Math.abs(dy) < 5;
-  const bend = (n % 2 === 0 ? 1 : -1) * (sameRow ? Math.min(130, len * 0.35) : Math.min(70, len * 0.3));
-  const cx = (sx + ex) / 2 - uy * bend;
-  const cy = (sy + ey) / 2 + ux * bend;
-  return `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`;
+
+interface DragPreview {
+  subtopicId: string;
+  pointerX: number;
+  pointerY: number;
 }
+
+interface DragGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  subtopicId: string;
+  started: boolean;
+  cancelled: boolean;
+}
+
+function prereqArrowPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  nodeSize: number,
+  amberIndex?: number
+) {
+  const half = nodeSize / 2;
+  const centerDy = y2 - y1;
+  let startX = x1 + half - 14;
+  let startY = y1 + half;
+  let endX = x2 - half + 14;
+  let endY = y2 + half;
+  let control1X: number;
+  let control1Y: number;
+  let control2X: number;
+  let control2Y: number;
+  let depth: number;
+
+  if (centerDy < -40) {
+    startY = y1 - half;
+    endY = y2 + half;
+    depth = Math.min(120, Math.max(40, 0.35 * Math.abs(centerDy)));
+    control1X = startX;
+    control1Y = startY - depth;
+    control2X = endX;
+    control2Y = endY + depth;
+  } else if (centerDy > 40) {
+    startY = y1 + half;
+    endY = y2 - half;
+    depth = Math.min(120, Math.max(40, 0.35 * Math.abs(centerDy)));
+    control1X = startX;
+    control1Y = startY + depth;
+    control2X = endX;
+    control2Y = endY - depth;
+  } else {
+    depth = Math.min(90, Math.max(45, 45 + 0.12 * Math.abs(endX - startX)));
+    control1X = startX + 20;
+    control1Y = startY + depth;
+    control2X = endX;
+    control2Y = endY + depth;
+  }
+
+  const arrowheadLength = 7 * (amberIndex === undefined ? 2 : 3);
+  endY += centerDy > 40 ? -arrowheadLength : arrowheadLength;
+
+  if (amberIndex !== undefined) {
+    control1Y += amberIndex * 14;
+    control2Y += amberIndex * 14;
+  }
+  return `M ${startX} ${startY} C ${control1X} ${control1Y}, ${control2X} ${control2Y}, ${endX} ${endY}`;
+}
+
 export default function ProfessorGraph({
   courseId,
   courseTitle,
   topics,
   onDashboardClick,
+  performMove,
+  movingSubtopicId,
   onRefreshCourse,
 }: ProfessorGraphProps) {
   const [showPrerequisites, setShowPrerequisites] = useState(false);
+  const [shownPrereqNodes, setShownPrereqNodes] = useState<Set<string>>(new Set());
+  const togglePrereqNode = (id: string) => {
+    setShownPrereqNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const dragGestureRef = useRef<DragGesture | null>(null);
+  const suppressNextClickRef = useRef(false);
 
   // Modal State for CRUD / Reglueing
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -98,6 +171,7 @@ export default function ProfessorGraph({
             isMain: false,
             isAi: !!sub.aiSuggested,
             parentId: topic.id,
+            subtopicIndex: sIdx,
             listIndex: currentIndex++,
           });
         }
@@ -114,13 +188,152 @@ export default function ProfessorGraph({
     containerHeight,
   } = computeRetroGridLayout(flatNodes, [], cols, availableWidth, xPadding, isSm);
 
+  const visibleFlowNodes: GraphDropNode[] = flatNodes.flatMap((node) => {
+    const point = coordsMap[node.id];
+    if (!point) return [];
+    const topicId = node.isMain ? node.id : node.parentId;
+    return [{
+      id: node.id,
+      kind: node.isMain ? 'topic' : 'subtopic',
+      topicId,
+      index: node.isMain ? -1 : node.subtopicIndex,
+      x: point.px,
+      y: point.py,
+      collapsed: node.isMain && !(expandedMap[node.id] ?? true),
+      flowIndex: node.listIndex,
+      subtopicCount: topics.find((topic) => topic.id === topicId)?.subtopics?.length ?? 0,
+    }];
+  });
+  const dropSlots = dragPreview
+    ? getGraphDropSlots(visibleFlowNodes, dragPreview.subtopicId, cols)
+    : [];
+  let nearestDropSlot: GraphDropSlot | null = null;
+  if (dragPreview) {
+    nearestDropSlot = dropSlots.reduce<GraphDropSlot | null>((nearest, slot) => {
+      if (!nearest) return slot;
+      const currentDistance = Math.hypot(slot.x - dragPreview.pointerX, slot.y - dragPreview.pointerY);
+      const nearestDistance = Math.hypot(
+        nearest.x - dragPreview.pointerX,
+        nearest.y - dragPreview.pointerY
+      );
+      return currentDistance < nearestDistance ? slot : nearest;
+    }, null);
+  }
+  const draggedNode = dragPreview
+    ? flatNodes.find((node) => node.id === dragPreview.subtopicId)
+    : null;
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isModalOpen || !(event.target instanceof HTMLElement)) return;
+    const nodeButton = event.target.closest<HTMLElement>('button.retro-node-sub');
+    const nodeContainer = nodeButton?.closest<HTMLElement>('[data-graph-node-id]');
+    const subtopicId = nodeContainer?.dataset.graphNodeId;
+    const node = flatNodes.find((item) => item.id === subtopicId);
+    if (!nodeButton || !node || node.isMain || node.isAi) return;
+
+    dragGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      subtopicId: node.id,
+      started: false,
+      cancelled: false,
+    };
+    nodeButton.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.cancelled) return;
+    if (!gesture.started) {
+      if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <= 5) return;
+      gesture.started = true;
+      suppressNextClickRef.current = true;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setDragPreview({
+      subtopicId: gesture.subtopicId,
+      pointerX: event.clientX - bounds.left,
+      pointerY: event.clientY - bounds.top,
+    });
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    dragGestureRef.current = null;
+
+    if (!gesture.cancelled && gesture.started) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
+      const slots = getGraphDropSlots(visibleFlowNodes, gesture.subtopicId, cols);
+      const target = slots.reduce<GraphDropSlot | null>((nearest, slot) => {
+        if (!nearest) return slot;
+        return Math.hypot(slot.x - pointerX, slot.y - pointerY) <
+          Math.hypot(nearest.x - pointerX, nearest.y - pointerY)
+          ? slot
+          : nearest;
+      }, null);
+
+      if (target) {
+        void performMove(
+          gesture.subtopicId,
+          target.targetTopicId,
+          target.targetIndex
+        );
+      }
+      setDragPreview(null);
+    }
+    if (gesture.started) {
+      window.setTimeout(() => {
+        suppressNextClickRef.current = false;
+      }, 0);
+    }
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = dragGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    dragGestureRef.current = null;
+    setDragPreview(null);
+    suppressNextClickRef.current = false;
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const gesture = dragGestureRef.current;
+      if (gesture?.started && !gesture.cancelled) {
+        gesture.cancelled = true;
+        setDragPreview(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // A link is wrong if its prerequisite is not earlier than the item that needs it
   const violations = findViolations(topics);
   const flaggedEdges = new Set(violations.map((v) => `${v.prerequisiteId}->${v.itemId}`));
+  const amberArrowOrder = new Map(
+    [...violations]
+      .filter((violation) => coordsMap[violation.prerequisiteId] && coordsMap[violation.itemId])
+      .sort((a, b) =>
+        a.prerequisiteId.localeCompare(b.prerequisiteId) ||
+        a.itemId.localeCompare(b.itemId)
+      )
+      .map((violation, index) => [
+        `${violation.prerequisiteId}->${violation.itemId}`,
+        index,
+      ])
+  );
   const warningCounts = new Map<string, number>();
   violations.forEach((v) => warningCounts.set(v.itemId, (warningCounts.get(v.itemId) || 0) + 1));
 
-  const prereqLines: Array<{ key: string; d: string; isViolation: boolean }> = [];
+  const prereqLines: Array<{ key: string; d: string; isViolation: boolean; title?: string }> = [];
   if (showPrerequisites) {
     topics.forEach((topic) => {
       const checkPrereqs = (item: any) => {
@@ -131,10 +344,37 @@ export default function ProfessorGraph({
             if (pCoord && iCoord) {
               const edgeKey = `${p.id}->${item.id}`;
               const isViolation = flaggedEdges.has(edgeKey);
-              prereqLines.push({
-                key: `prereq-${p.id}-${item.id}`,
-                d: curvedArrowPath(pCoord, iCoord, coreNodeSize / 2, prereqLines.length), isViolation,
-              });
+              const touchesToggled = shownPrereqNodes.has(p.id) || shownPrereqNodes.has(item.id);
+              if (isViolation) {
+                const violation = violations.find(
+                  (entry) => entry.itemId === item.id && entry.prerequisiteId === p.id
+                );
+                prereqLines.push({
+                  key: `prereq-${p.id}-${item.id}`,
+                  d: prereqArrowPath(
+                    pCoord.px,
+                    pCoord.py,
+                    iCoord.px,
+                    iCoord.py,
+                    coreNodeSize,
+                    amberArrowOrder.get(edgeKey) ?? 0
+                  ),
+                  isViolation: true,
+                  title: violation ? violationText(violation) : undefined,
+                });
+              } else if (touchesToggled) {
+                prereqLines.push({
+                  key: `prereq-${p.id}-${item.id}`,
+                  d: prereqArrowPath(
+                    pCoord.px,
+                    pCoord.py,
+                    iCoord.px,
+                    iCoord.py,
+                    coreNodeSize
+                  ),
+                  isViolation: false,
+                });
+              }
             }
           });
         }
@@ -225,6 +465,9 @@ export default function ProfessorGraph({
           color: #EF4444;
           box-shadow: 0 0 10px #EF4444, inset 0 0 5px #EF4444;
         }
+        .graph-node-container > div { pointer-events: auto; }
+        .graph-node-container[data-draggable="true"] .retro-node-sub { cursor: grab; touch-action: none; }
+        .graph-node-container[data-drag-source="true"] .retro-node { opacity: 0.4; }
         .retro-hud {
           background: var(--cn-card);
           border-bottom: 1px solid var(--cn-border);
@@ -295,6 +538,47 @@ export default function ProfessorGraph({
               ))}
             </svg>
 
+            <svg className="absolute inset-0 pointer-events-none z-[15]" width="100%" height="100%">
+              <defs>
+                <marker id="arrow-warn" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
+                </marker>
+                <marker id="arrow-ok" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
+                </marker>
+              </defs>
+              {prereqLines.filter((l) => !l.isViolation).map((line) => (
+                <path
+                  key={line.key}
+                  d={line.d}
+                  stroke="#3B82F6"
+                  strokeWidth={2}
+                  fill="none"
+                  markerEnd="url(#arrow-ok)"
+                />
+              ))}
+              {prereqLines.filter((l) => l.isViolation).map((line) => (
+                <path
+                  key={line.key}
+                  d={line.d}
+                  stroke="#FFBF00"
+                  strokeWidth={3}
+                  fill="none"
+                  markerEnd="url(#arrow-warn)"
+                  style={{ filter: 'drop-shadow(0 0 6px #FFBF00)' }}
+                >
+                  {line.title && <title>{line.title}</title>}
+                </path>
+              ))}
+            </svg>
+
+            <div
+              className="absolute inset-0 pointer-events-none"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+            >
             {flatNodes.map((node) => {
               const pt = coordsMap[node.id];
               if (!pt) return null;
@@ -303,11 +587,26 @@ export default function ProfessorGraph({
                 ? (node.subtopics || []).reduce((n: number, s: any) => n + (warningCounts.get(s.id) || 0), 0)
                 : 0;
               const hasWarnings = (warningCounts.get(node.id) || 0) + hiddenWarnings > 0;
+              const nodeViolations = isCollapsedTopic
+                ? violations.filter((violation) =>
+                    violation.itemId === node.id ||
+                    (node.subtopics || []).some((sub: any) => sub.id === violation.itemId)
+                  )
+                : violations.filter((violation) => violation.itemId === node.id);
+              const warningTitle = isCollapsedTopic
+                ? `${nodeViolations.length} prerequisite violations:\n${nodeViolations.map(violationText).join('\n')}`
+                : nodeViolations.map(violationText).join('\n');
               const isHighlighted = highlightedId === node.id;
 
               return (
-                <RetroNode
+                <div
                   key={node.id}
+                  className="graph-node-container absolute inset-0 pointer-events-none"
+                  data-graph-node-id={node.id}
+                  data-draggable={!node.isMain && !node.isAi ? 'true' : undefined}
+                  data-drag-source={dragPreview?.subtopicId === node.id ? 'true' : undefined}
+                >
+                <RetroNode
                   px={pt.px}
                   py={pt.py}
                   size={coreNodeSize}
@@ -317,16 +616,25 @@ export default function ProfessorGraph({
                   lit={true}
                   isHighlighted={isHighlighted}
                   onClick={() => {
+                    if (suppressNextClickRef.current) {
+                      suppressNextClickRef.current = false;
+                      return;
+                    }
                     if (node.isMain) {
                       setExpandedMap((prev) => ({ ...prev, [node.id]: !(prev[node.id] ?? true) }));
                     }
                     setHighlightedId(node.id);
                   }}
                 >
+                  {movingSubtopicId === node.id && (
+                    <span className="absolute inset-0 z-40 flex items-center justify-center rounded-[1.75rem] bg-blue-950/60 pointer-events-none">
+                      <Loader2 size={28} className="animate-spin text-white drop-shadow-[0_0_6px_#3B82F6]" />
+                    </span>
+                  )}
                   {hasWarnings && (
                     <span
                       className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
-                      title="Backward prerequisite violation detected!"
+                      title={warningTitle}
                     >
                       !
                     </span>
@@ -369,6 +677,16 @@ export default function ProfessorGraph({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        togglePrereqNode(node.id);
+                      }}
+                      className={`p-0.5 ${shownPrereqNodes.has(node.id) ? 'bg-blue-600 text-white rounded' : 'text-blue-400 hover:text-white'}`}
+                      title="Show prerequisite arrows"
+                    >
+                      <ArrowRightLeft size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setActiveTarget(node);
                         setFormName(node.name);
                         setFormDesc(node.description || '');
@@ -395,30 +713,43 @@ export default function ProfessorGraph({
                     </button>
                   </div>
                 </RetroNode>
+                </div>
               );
             })}
+            </div>
 
-            <svg className="absolute inset-0 pointer-events-none z-30" width="100%" height="100%">
-              <defs>
-                <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBF00" />
-                </marker>
-                <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#3B82F6" />
-                </marker>
-              </defs>
-              {prereqLines.map((line) => (
-                <path
-                  key={line.key}
-                  d={line.d}
-                  stroke={line.isViolation ? '#FFBF00' : '#3B82F6'}
-                  strokeWidth={line.isViolation ? 3 : 2}
-                  fill="none"
-                  markerEnd={`url(#${line.isViolation ? 'arrow-warn' : 'arrow-ok'})`}
-                  style={line.isViolation ? { filter: 'drop-shadow(0 0 6px #FFBF00)' } : {}}
+            {dragPreview && draggedNode && (
+              <div
+                className="retro-node retro-node-sub absolute z-[90] flex items-center justify-center rounded-[1.75rem] text-base sm:text-lg font-bold pointer-events-none"
+                style={{
+                  left: dragPreview.pointerX,
+                  top: dragPreview.pointerY,
+                  width: coreNodeSize,
+                  height: coreNodeSize,
+                  opacity: 0.65,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {draggedNode.displayNumber}
+              </div>
+            )}
+            {dragPreview && nearestDropSlot && (
+              <>
+                <div
+                  className="absolute z-[90] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#00A3FF] pointer-events-none shadow-[0_0_14px_5px_rgba(0,163,255,0.9)]"
+                  style={{ left: nearestDropSlot.x, top: nearestDropSlot.y }}
                 />
-              ))}
-            </svg>
+                <div
+                  className="absolute z-[100] rounded border border-[#00A3FF] bg-gray-950/90 px-2 py-1 text-xs font-bold text-white pointer-events-none whitespace-nowrap shadow-[0_0_10px_rgba(0,163,255,0.65)]"
+                  style={{ left: dragPreview.pointerX + 16, top: dragPreview.pointerY + 16 }}
+                >
+                  Topic {topics.findIndex((topic) => topic.id === nearestDropSlot?.targetTopicId) + 1},
+                  {' '}position {nearestDropSlot.targetIndex + 1}
+                </div>
+              </>
+            )}
+
+
           </div>
         </div>
   
