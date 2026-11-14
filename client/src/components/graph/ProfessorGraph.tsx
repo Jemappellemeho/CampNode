@@ -632,12 +632,19 @@ export default function ProfessorGraph({
                     </span>
                   )}
                   {hasWarnings && (
-                    <span
-                      className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
-                      title={warningTitle}
-                    >
-                      !
-                    </span>
+                    <>
+                      <span
+                        className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-black shadow-lg animate-pulse z-30"
+                        title={warningTitle}
+                      >
+                        !
+                      </span>
+                      {isCollapsedTopic && hiddenWarnings > 0 && (
+                        <span className="absolute -top-1.5 -right-8 text-[10px] font-black text-amber-700 dark:text-amber-400">
+                          {nodeViolations.length}
+                        </span>
+                      )}
+                    </>
                   )}
 
                   {/* Quick Action Toolbar on Hover */}

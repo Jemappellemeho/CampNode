@@ -69,6 +69,10 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
   const warnedIds = new Set(warnings.map((v) => v.itemId));
   const topicCollapsed = !expandedMainTopics[topic.id];
   const topicHasWarning = warnedIds.has(topic.id) || (topicCollapsed && (topic.subtopics || []).some((s: any) => warnedIds.has(s.id)));
+  const closedTopicWarningCount = topicCollapsed
+    ? warnings.filter((violation) => violation.itemId === topic.id || (topic.subtopics || []).some((sub: any) => sub.id === violation.itemId)).length
+    : 0;
+  const hasHiddenSubtopicWarnings = topicCollapsed && (topic.subtopics || []).some((sub: any) => warnedIds.has(sub.id));
   const warnTitle = (item: any) => {
     const itemWarnings = warnings.filter((violation) => violation.itemId === item.id);
     if (item.id === topic.id && topicCollapsed) {
@@ -102,7 +106,10 @@ export default function TopicCard({ topic, i, course, editingNameId, editingName
               <span className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400">{i + 1}</span>
               <h3 className="text-base dark:text-white">{cleanTitle(topic.name)}</h3>
               {topicHasWarning && (
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={topicCollapsed && !warnedIds.has(topic.id) ? 'A subtopic inside has a prerequisite that comes later' : warnTitle(topic)}>!</span>
+                <>
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-black shadow animate-pulse" title={warnTitle(topic)}>!</span>
+                  {hasHiddenSubtopicWarnings && <span className="text-[10px] font-black text-amber-700 dark:text-amber-400">{closedTopicWarningCount}</span>}
+                </>
               )}
               <button onClick={() => startEditingName(topic.id, topic.name)} className="text-gray-400 hover:text-blue-600 transition-colors p-1"><Edit2 size={12} /></button>                       
               <button onClick={() => deleteTopic(topic.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><Trash2 size={12} /></button>
